@@ -1,130 +1,93 @@
-# Stage 17: exact per-pixel spatial gain field
+# Exact per-pixel spatial gain field
 
 ## Purpose
 
-Stage 17 removes the last approximation inside a segment.
+Every logical LED receives its own wall distance and its own calibration-curve evaluation.
 
-Earlier stages projected the wall plane to each segment endpoint and then linearly interpolated Q12 gain between those endpoint gains.
-
-That is exact only when the whole segment remains inside one linear interval of the distance-to-gain calibration curve.
-
-Stage 17 instead calculates the wall distance for every logical LED position and evaluates the calibration curve at that distance.
-
-Physical RGB application remains disabled.
+Physical correction can therefore represent yaw, pitch and combined wall geometry continuously inside each segment.
 
 ## Exact composition
 
-For a straight LED segment under a fitted plane:
+For LED i:
 
-    distance(t) = d0 + (d1 - d0) * t
+    P_led_i = (x_i, y_i, z_i)
 
-Distance is linear along the segment.
+Wall plane:
 
-The calibration curve is piecewise linear in distance:
+    z_wall = intercept + slope_x*x + slope_y*y
 
-    gain = curve(distance)
+Screen-normal wall distance:
 
-Therefore the correct result is:
+    distance_i = z_wall(x_i, y_i) - z_i
+
+Gain:
 
     gain_i = curve(distance_i)
 
-for every LED i.
+This is evaluated for all 780 logical LEDs whenever a new plane is accepted.
 
-It is not generally correct to calculate only:
+## Why not endpoint gain interpolation
 
-    gain0 = curve(d0)
-    gain1 = curve(d1)
+The wall distance is linear along a straight segment.
 
-and linearly interpolate gain0..gain1 when d0..d1 crosses calibration knots.
+The gain curve is piecewise linear in distance.
 
-## Concrete test
+Therefore the composition may cross calibration knots and is not necessarily one straight gain line between segment endpoints.
 
-The native test uses a TOP segment whose wall distance spans:
-
-    300 -> 700 mm
-
-and a calibration knot at:
-
-    500 mm -> Q12 2048
-
-At logical offset 114 of 230 LEDs:
-
-    distance = 499 mm
-    exact gain = 2045
-
-The old endpoint-gain interpolation would produce roughly:
-
-    2300
-
-Stage 17 explicitly asserts the exact 2045 result.
+Per-LED evaluation preserves the curve exactly.
 
 ## Data model
 
-PerimeterGainSnapshot now contains:
+    PerimeterGainSnapshot.logicalGainQ12[780]
+    RenderGainContext.logicalGainQ12[780]
 
-    logicalGainQ12[780]
+The array is indexed in logical screen order before physical lane reversal.
 
-This field is calculated in the ToF task at sensor/update rate.
+## Plane deadband
 
-RenderGainContext also contains:
+The 780-value field is not rebuilt for sensor jitter.
 
-    logicalGainQ12[780]
+The new plane is compared with the last accepted plane over the screen rectangle.
 
-It is renderer-neutral and indexed by HyperHDR logical LED index before physical strip mapping.
+Current threshold:
 
-## Renderer
+    10 mm max wall-position change
 
-LedRenderer now performs:
+Below the threshold:
 
-    gain = context.gainForLogicalIndex(logicalIndex)
+    refresh timestamp only
 
-No spatial interpolation occurs in LedRenderer.
+At/above the threshold:
 
-Physical lane reversal happens afterward and cannot change spatial correction direction.
+    recompute 780 wall distances
+    recompute 780 gain values
 
-## Dynamics
+## Rate domains
 
-RenderGainController now slews all 780 logical gains independently.
+ToF internal ranging:
 
-This matters when calibration knots move through a segment as TV yaw/pitch changes.
+    1 Hz
 
-A moving piecewise breakpoint therefore remains smooth instead of forcing the renderer back to an endpoint approximation.
+Pose transfer/plane fit:
 
-## Debug probe
+    ~1 / 12 s
 
-The x shadow probe still generates deterministic gradients.
+Large gain target polling by main loop:
 
-It now expands those gradients into the same 780-value logical field used by real spatial ToF gains.
+    1 Hz
 
-## Diagnostics
+Gain slew/render after an accepted target change:
 
-The s command still prints each segment endpoint and now also prints its logical midpoint gain.
-
-The r command prints target/effective start, midpoint, and end values for each segment.
-
-This makes within-segment behavior directly observable on hardware.
+    up to ~60 Hz
 
 ## Performance
 
-The spatial snapshot is now about 1.6 KB larger.
+One field:
 
-Because VL53L5CX updates at about 10 Hz, main-loop target polling was reduced from 100 Hz to 20 Hz:
+    780 * 2 bytes = 1560 bytes
 
-    50 ms polling interval
-
-The render controller still runs at RGB/gain render rate and slews the cached field at up to about 60 Hz.
+At the slow pose cadence, explicit evaluation of all 780 LED intersections is inexpensive and preferable to hidden geometric approximations.
 
 ## Fail-open
 
-Fail-open still resolves the complete 780-value field to unity immediately.
-
-No stale per-pixel attenuation can remain after spatial data becomes unusable.
-
-## Physical safety
-
-Unchanged:
-
-    ShadowRenderPolicy::physicalOutput(original, candidate)
-        -> original
-
-No real ToF coefficient reaches physical LEDs.
+Any invalid/stale spatial source resolves the full field to unity immediately.
