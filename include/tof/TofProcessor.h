@@ -46,6 +46,13 @@ public:
 
     void reset();
 
+    void setTransform(
+        const TofGridTransform& transform);
+
+    TofGridTransform transform() const {
+        return config_.transform;
+    }
+
     static constexpr std::size_t rawIndexForNormalized(
         std::size_t normalizedRow,
         std::size_t normalizedCol,
