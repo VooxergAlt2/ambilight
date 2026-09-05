@@ -1,0 +1,342 @@
+#include <unity.h>
+
+#include "runtime/RuntimePayloadParser.h"
+
+using ambilight::LedMappingProfile;
+using ambilight::RuntimePayloadParseResult;
+using ambilight::RuntimePayloadParser;
+using ambilight::TofSpatialProfile;
+
+void test_brightness_parses_valid_values() {
+    std::uint8_t value = 99;
+
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(RuntimePayloadParseResult::Ok),
+        static_cast<int>(
+            RuntimePayloadParser::parseBrightness(
+                "0",
+                value)));
+
+    TEST_ASSERT_EQUAL_UINT8(0, value);
+
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(RuntimePayloadParseResult::Ok),
+        static_cast<int>(
+            RuntimePayloadParser::parseBrightness(
+                "255",
+                value)));
+
+    TEST_ASSERT_EQUAL_UINT8(255, value);
+}
+
+void test_brightness_distinguishes_empty_format_and_range() {
+    std::uint8_t value = 42;
+
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(RuntimePayloadParseResult::Empty),
+        static_cast<int>(
+            RuntimePayloadParser::parseBrightness(
+                "",
+                value)));
+
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(RuntimePayloadParseResult::InvalidFormat),
+        static_cast<int>(
+            RuntimePayloadParser::parseBrightness(
+                "12x",
+                value)));
+
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(RuntimePayloadParseResult::OutOfRange),
+        static_cast<int>(
+            RuntimePayloadParser::parseBrightness(
+                "256",
+                value)));
+
+    TEST_ASSERT_EQUAL_UINT8(
+        42,
+        value);
+}
+
+void test_led_mapping_parses_lane_permutation_and_reversal() {
+    LedMappingProfile profile;
+
+    const auto result =
+        RuntimePayloadParser::parseLedMapping(
+            "3:1,2:0,1:1,0:0",
+            profile);
+
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(RuntimePayloadParseResult::Ok),
+        static_cast<int>(result));
+
+    TEST_ASSERT_EQUAL_UINT8(
+        3,
+        profile.segment[0].lane);
+
+    TEST_ASSERT_EQUAL_UINT8(
+        1,
+        profile.segment[0].reversed);
+
+    TEST_ASSERT_EQUAL_UINT8(
+        0,
+        profile.segment[3].lane);
+
+    TEST_ASSERT_EQUAL_UINT8(
+        0,
+        profile.segment[3].reversed);
+}
+
+void test_led_mapping_rejects_duplicate_lane() {
+    LedMappingProfile profile;
+
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(RuntimePayloadParseResult::OutOfRange),
+        static_cast<int>(
+            RuntimePayloadParser::parseLedMapping(
+                "0:0,0:0,2:0,3:0",
+                profile)));
+}
+
+void test_led_mapping_rejects_bad_syntax() {
+    LedMappingProfile profile;
+
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(RuntimePayloadParseResult::InvalidFormat),
+        static_cast<int>(
+            RuntimePayloadParser::parseLedMapping(
+                "0:0,1:0,2:0",
+                profile)));
+
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(RuntimePayloadParseResult::InvalidFormat),
+        static_cast<int>(
+            RuntimePayloadParser::parseLedMapping(
+                "0-0,1:0,2:0,3:0",
+                profile)));
+}
+
+void test_spatial_profile_parses_fixed_point_and_negative_offsets() {
+    TofSpatialProfile profile;
+
+    const auto result =
+        RuntimePayloadParser::parseSpatialProfile(
+            "1437.5,1000,12.3,-45.6,7.8,3,1,10.5",
+            profile);
+
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(RuntimePayloadParseResult::Ok),
+        static_cast<int>(result));
+
+    TEST_ASSERT_EQUAL_UINT16(
+        14375,
+        profile.widthMmX10);
+
+    TEST_ASSERT_EQUAL_UINT16(
+        10000,
+        profile.heightMmX10);
+
+    TEST_ASSERT_EQUAL_INT16(
+        123,
+        profile.sensorOffsetXmmX10);
+
+    TEST_ASSERT_EQUAL_INT16(
+        -456,
+        profile.sensorOffsetYmmX10);
+
+    TEST_ASSERT_EQUAL_INT16(
+        78,
+        profile.ledPlaneZmmX10);
+
+    TEST_ASSERT_EQUAL_UINT8(
+        3,
+        profile.rotationQuarterTurns);
+
+    TEST_ASSERT_EQUAL_UINT8(
+        1,
+        profile.mirrorX);
+
+    TEST_ASSERT_EQUAL_UINT16(
+        105,
+        profile.planeDeadbandMmX10);
+}
+
+void test_spatial_profile_rejects_more_than_one_decimal_place() {
+    TofSpatialProfile profile;
+
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(RuntimePayloadParseResult::InvalidFormat),
+        static_cast<int>(
+            RuntimePayloadParser::parseSpatialProfile(
+                "1437.55,1000,0,0,0,0,0,10",
+                profile)));
+}
+
+void test_spatial_profile_rejects_valid_syntax_outside_profile_bounds() {
+    TofSpatialProfile profile;
+
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(RuntimePayloadParseResult::OutOfRange),
+        static_cast<int>(
+            RuntimePayloadParser::parseSpatialProfile(
+                "50,1000,0,0,0,0,0,10",
+                profile)));
+
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(RuntimePayloadParseResult::OutOfRange),
+        static_cast<int>(
+            RuntimePayloadParser::parseSpatialProfile(
+                "1437.5,1000,0,0,0,4,0,10",
+                profile)));
+}
+
+void test_gain_curve_parses_valid_monotonic_points() {
+    std::array<
+        ambilight::GainPoint,
+        ambilight::DistanceGainCurve::kMaxPoints>
+        points{};
+
+    std::size_t count = 0;
+
+    const auto result =
+        RuntimePayloadParser::parseGainCurve(
+            "50:2048,500:3072,4000:4096",
+            points,
+            count);
+
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(RuntimePayloadParseResult::Ok),
+        static_cast<int>(result));
+
+    TEST_ASSERT_EQUAL_UINT32(
+        3,
+        count);
+
+    TEST_ASSERT_EQUAL_UINT16(
+        50,
+        points[0].distanceMm);
+
+    TEST_ASSERT_EQUAL_UINT16(
+        2048,
+        points[0].gainQ12);
+
+    TEST_ASSERT_EQUAL_UINT16(
+        4000,
+        points[2].distanceMm);
+
+    TEST_ASSERT_EQUAL_UINT16(
+        4096,
+        points[2].gainQ12);
+}
+
+void test_gain_curve_rejects_non_monotonic_distance_or_gain() {
+    std::array<
+        ambilight::GainPoint,
+        ambilight::DistanceGainCurve::kMaxPoints>
+        points{};
+
+    std::size_t count = 99;
+
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(RuntimePayloadParseResult::OutOfRange),
+        static_cast<int>(
+            RuntimePayloadParser::parseGainCurve(
+                "500:2048,400:4096",
+                points,
+                count)));
+
+    TEST_ASSERT_EQUAL_UINT32(
+        0,
+        count);
+
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(RuntimePayloadParseResult::OutOfRange),
+        static_cast<int>(
+            RuntimePayloadParser::parseGainCurve(
+                "500:4096,1000:2048",
+                points,
+                count)));
+}
+
+void test_gain_curve_rejects_gain_above_unity() {
+    std::array<
+        ambilight::GainPoint,
+        ambilight::DistanceGainCurve::kMaxPoints>
+        points{};
+
+    std::size_t count = 0;
+
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(RuntimePayloadParseResult::OutOfRange),
+        static_cast<int>(
+            RuntimePayloadParser::parseGainCurve(
+                "50:4096,500:4097",
+                points,
+                count)));
+}
+
+void test_gain_curve_rejects_malformed_payload() {
+    std::array<
+        ambilight::GainPoint,
+        ambilight::DistanceGainCurve::kMaxPoints>
+        points{};
+
+    std::size_t count = 0;
+
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(RuntimePayloadParseResult::InvalidFormat),
+        static_cast<int>(
+            RuntimePayloadParser::parseGainCurve(
+                "50-2048,500:3072",
+                points,
+                count)));
+
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(RuntimePayloadParseResult::InvalidFormat),
+        static_cast<int>(
+            RuntimePayloadParser::parseGainCurve(
+                "50:2048,",
+                points,
+                count)));
+}
+
+void test_gain_curve_rejects_more_than_eight_points() {
+    std::array<
+        ambilight::GainPoint,
+        ambilight::DistanceGainCurve::kMaxPoints>
+        points{};
+
+    std::size_t count = 0;
+
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(RuntimePayloadParseResult::OutOfRange),
+        static_cast<int>(
+            RuntimePayloadParser::parseGainCurve(
+                "1:1,2:2,3:3,4:4,5:5,6:6,7:7,8:8,9:9",
+                points,
+                count)));
+
+    TEST_ASSERT_EQUAL_UINT32(
+        0,
+        count);
+}
+
+int main(int, char**) {
+    UNITY_BEGIN();
+
+    RUN_TEST(test_brightness_parses_valid_values);
+    RUN_TEST(test_brightness_distinguishes_empty_format_and_range);
+    RUN_TEST(test_led_mapping_parses_lane_permutation_and_reversal);
+    RUN_TEST(test_led_mapping_rejects_duplicate_lane);
+    RUN_TEST(test_led_mapping_rejects_bad_syntax);
+    RUN_TEST(test_spatial_profile_parses_fixed_point_and_negative_offsets);
+    RUN_TEST(test_spatial_profile_rejects_more_than_one_decimal_place);
+    RUN_TEST(test_spatial_profile_rejects_valid_syntax_outside_profile_bounds);
+    RUN_TEST(test_gain_curve_parses_valid_monotonic_points);
+    RUN_TEST(test_gain_curve_rejects_non_monotonic_distance_or_gain);
+    RUN_TEST(test_gain_curve_rejects_gain_above_unity);
+    RUN_TEST(test_gain_curve_rejects_malformed_payload);
+    RUN_TEST(test_gain_curve_rejects_more_than_eight_points);
+
+    return UNITY_END();
+}
