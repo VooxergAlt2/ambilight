@@ -14,7 +14,7 @@ public:
     static constexpr std::uint64_t kMaxGainSnapshotAgeUs =
         1500000;
 
-    static constexpr RenderGainContext make(
+    static RenderGainContext make(
         const PerimeterGainSnapshot& gains,
         bool snapshotPresent,
         std::uint64_t nowUs) {
@@ -60,22 +60,19 @@ public:
         }
 
         for (std::size_t index = 0;
-             index < context.segmentGain.size();
+             index <
+                context.logicalGainQ12.size();
              ++index) {
 
-            context.segmentGain[index].startQ12 =
+            context.logicalGainQ12[index] =
                 sanitizeGainQ12(
-                    gains.segment[index].startQ12);
-
-            context.segmentGain[index].endQ12 =
-                sanitizeGainQ12(
-                    gains.segment[index].endQ12);
+                    gains.logicalGainQ12[index]);
         }
 
         return context;
     }
 
-    static constexpr RenderGainContext make(
+    static RenderGainContext make(
         const GainSnapshot& gains,
         bool snapshotPresent,
         std::uint64_t nowUs) {
@@ -140,21 +137,14 @@ public:
     }
 
 private:
-    static constexpr void setUniform(
+    static void setUniform(
         RenderGainContext& context,
         SegmentId segment,
         std::uint16_t gainQ12) {
 
-        const auto index =
-            static_cast<std::size_t>(segment);
-
-        const std::uint16_t sanitized =
-            sanitizeGainQ12(gainQ12);
-
-        context.segmentGain[index].startQ12 =
-            sanitized;
-        context.segmentGain[index].endQ12 =
-            sanitized;
+        context.setSegmentUniform(
+            segment,
+            gainQ12);
     }
 };
 
