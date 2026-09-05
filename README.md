@@ -36,11 +36,26 @@ Once the wall plane itself is valid, LED-wall distances are defined by that plan
 
 Projection fails open only when the wall plane is invalid/stale or a calculated LED-wall distance is outside the configured physical range.
 
+## Plane-change deadband
+
+A fresh plane does not automatically rebuild the 780-value field.
+
+The candidate plane is compared with the last plane that actually changed the applied field. Both planes are evaluated at the LED-rectangle corners.
+
+Current threshold:
+
+    10 mm maximum wall-position change
+
+Below 10 mm, only freshness metadata is updated. The existing 780 distances/gains remain untouched.
+
+The comparison is cumulative against the last applied plane, so slow movement made of several small steps eventually crosses the threshold and triggers a rebuild.
+
 ## Rate domains
 
 - HyperHDR / DDP RGB: realtime
 - ToF sensor internal ranging: 1 Hz
 - ToF wall-pose processing: about every 12 s
+- accepted plane changes: rebuild 780 distances/gains only when needed
 - renderer target polling: 1 Hz
 - gain slew / gain-only rerender after a target change: up to about 60 Hz
 
@@ -83,6 +98,12 @@ Preserved separately in:
     stage/07-usb-awa
 
 Active development remains Wi-Fi/DDP.
+
+## Development strategy
+
+The firmware is developed to software-complete state before hardware validation.
+
+Synthetic/contract tests define geometry, deadband, projection and fail-open behavior. Hardware work later validates mounting orientation/noise and supplies real photometric curve coefficients.
 
 ## Safety
 
