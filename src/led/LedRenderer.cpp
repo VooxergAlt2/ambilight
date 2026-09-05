@@ -18,18 +18,31 @@ crgb_t LedRenderer::toCrgb(const Rgb8& color) {
 esp_err_t LedRenderer::render(const RgbFrame& frame) {
     return render(
         frame,
-        RenderGainContext::unity());
+        RenderGainContext::unity(),
+        CorrectionMode::Disabled);
 }
 
 esp_err_t LedRenderer::render(
     const RgbFrame& frame,
     const RenderGainContext& gainContext) {
 
+    return render(
+        frame,
+        gainContext,
+        CorrectionMode::Shadow);
+}
+
+esp_err_t LedRenderer::render(
+    const RgbFrame& frame,
+    const RenderGainContext& gainContext,
+    CorrectionMode correctionMode) {
+
     const std::uint64_t prepareStartedUs =
         static_cast<std::uint64_t>(
             esp_timer_get_time());
 
     std::uint16_t frameWouldChangePixels = 0;
+    std::uint16_t framePhysicalChangedPixels = 0;
     std::uint8_t frameMaxChannelDelta = 0;
 
     std::uint32_t frameInputChannelSum = 0;
@@ -92,9 +105,17 @@ esp_err_t LedRenderer::render(
                 shadow.maxChannelDelta);
 
         const Rgb8 physicalOutput =
-            ShadowRenderPolicy::physicalOutput(
+            CorrectionOutputPolicy::physicalOutput(
+                correctionMode,
                 original,
                 shadow);
+
+        if (physicalOutput.r != original.r ||
+            physicalOutput.g != original.g ||
+            physicalOutput.b != original.b) {
+
+            ++framePhysicalChangedPixels;
+        }
 
         if (!engine_.setPhysicalPixel(
                 mapped.lane,
@@ -123,6 +144,18 @@ esp_err_t LedRenderer::render(
 
     ++shadowStats_.frames;
 
+    switch (correctionMode) {
+    case CorrectionMode::Disabled:
+        ++shadowStats_.disabledFrames;
+        break;
+    case CorrectionMode::Shadow:
+        ++shadowStats_.shadowFrames;
+        break;
+    case CorrectionMode::Active:
+        ++shadowStats_.activeFrames;
+        break;
+    }
+
     if (gainContext.sourcePresent) {
         ++shadowStats_.sourcePresentFrames;
     }
@@ -145,6 +178,9 @@ esp_err_t LedRenderer::render(
     shadowStats_.wouldChangePixels +=
         frameWouldChangePixels;
 
+    shadowStats_.physicalChangedPixels +=
+        framePhysicalChangedPixels;
+
     for (std::size_t index = 0;
          index < frameChangedBySegment.size();
          ++index) {
@@ -160,6 +196,9 @@ esp_err_t LedRenderer::render(
 
     shadowStats_.lastWouldChangePixels =
         frameWouldChangePixels;
+
+    shadowStats_.lastPhysicalChangedPixels =
+        framePhysicalChangedPixels;
 
     shadowStats_.lastMaxChannelDelta =
         frameMaxChannelDelta;
@@ -186,6 +225,9 @@ esp_err_t LedRenderer::render(
 
     lastGainContext_ =
         gainContext;
+
+    lastCorrectionMode_ =
+        correctionMode;
 
     return ESP_OK;
 }
