@@ -7,6 +7,7 @@
 #include "render/RenderGainContext.h"
 
 using ambilight::GainSnapshot;
+using ambilight::PerimeterGainSnapshot;
 using ambilight::RenderGainContext;
 using ambilight::RenderGainMath;
 using ambilight::Rgb8;
@@ -204,6 +205,110 @@ void test_render_profile_comparison_ignores_metadata_but_not_usability() {
         failA.sameRenderProfileAs(failB));
 }
 
+void test_spatial_bridge_preserves_segment_endpoints() {
+    PerimeterGainSnapshot gains;
+    gains.generation = 77;
+    gains.timestampUs = 1000000;
+    gains.planeUsable = true;
+    gains.failOpen = false;
+
+    gains.segment[
+        static_cast<std::size_t>(SegmentId::Top)] = {
+            500,
+            700,
+            2048,
+            3072
+        };
+
+    gains.segment[
+        static_cast<std::size_t>(SegmentId::Right)] = {
+            700,
+            550,
+            3072,
+            2304
+        };
+
+    gains.segment[
+        static_cast<std::size_t>(SegmentId::Bottom)] = {
+            550,
+            450,
+            2304,
+            1792
+        };
+
+    gains.segment[
+        static_cast<std::size_t>(SegmentId::Left)] = {
+            450,
+            500,
+            1792,
+            2048
+        };
+
+    const auto context =
+        TofRenderGainBridge::make(
+            gains,
+            true,
+            1100000);
+
+    TEST_ASSERT_TRUE(context.sourceUsable);
+    TEST_ASSERT_FALSE(context.failOpen);
+
+    const auto top =
+        context.endpointsForSegment(
+            SegmentId::Top);
+
+    const auto right =
+        context.endpointsForSegment(
+            SegmentId::Right);
+
+    TEST_ASSERT_EQUAL_UINT16(
+        2048,
+        top.startQ12);
+
+    TEST_ASSERT_EQUAL_UINT16(
+        3072,
+        top.endQ12);
+
+    TEST_ASSERT_EQUAL_UINT16(
+        3072,
+        right.startQ12);
+
+    TEST_ASSERT_EQUAL_UINT16(
+        2304,
+        right.endQ12);
+}
+
+void test_spatial_bridge_stale_snapshot_fails_open() {
+    PerimeterGainSnapshot gains;
+    gains.generation = 1;
+    gains.timestampUs = 1000000;
+    gains.planeUsable = true;
+    gains.failOpen = false;
+
+    gains.segment[
+        static_cast<std::size_t>(SegmentId::Left)].startQ12 =
+            1000;
+
+    const auto context =
+        TofRenderGainBridge::make(
+            gains,
+            true,
+            1000000 +
+                TofRenderGainBridge::
+                    kMaxGainSnapshotAgeUs +
+                1);
+
+    TEST_ASSERT_FALSE(context.sourceUsable);
+    TEST_ASSERT_TRUE(context.failOpen);
+
+    TEST_ASSERT_EQUAL_UINT16(
+        kGainUnityQ12,
+        context.gainForPosition(
+            SegmentId::Left,
+            0,
+            160));
+}
+
 void test_tof_bridge_maps_four_uniform_side_gains() {
     GainSnapshot gains;
     gains.generation = 42;
@@ -350,6 +455,8 @@ int main(int, char**) {
     RUN_TEST(test_shadow_preview_changes_rgb_but_not_original_value);
     RUN_TEST(test_shadow_policy_never_applies_candidate);
     RUN_TEST(test_render_profile_comparison_ignores_metadata_but_not_usability);
+    RUN_TEST(test_spatial_bridge_preserves_segment_endpoints);
+    RUN_TEST(test_spatial_bridge_stale_snapshot_fails_open);
     RUN_TEST(test_tof_bridge_maps_four_uniform_side_gains);
     RUN_TEST(test_tof_bridge_stale_or_future_snapshot_fails_open);
     RUN_TEST(test_bridge_clamps_gain_above_unity);
