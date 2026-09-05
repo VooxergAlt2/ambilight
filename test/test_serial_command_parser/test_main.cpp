@@ -117,6 +117,10 @@ void test_immediate_debug_commands_are_case_insensitive() {
     assertEvent(
         parser.feed('m'),
         SerialCommandKind::CorrectionStatus);
+
+    assertEvent(
+        parser.feed('V'),
+        SerialCommandKind::FirmwareStatus);
 }
 
 void test_correction_waits_for_exactly_one_argument_byte() {
