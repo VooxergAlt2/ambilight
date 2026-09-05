@@ -1109,28 +1109,21 @@ void resetTofGainCurve() {
     printTofGainCurve();
 }
 
-void resetGainCurveCommand() {
-    gainCurveCommandPending = false;
-    gainCurveCommandLength = 0;
-    gainCurveCommandBuffer.fill('\0');
-}
+void handleGainCurveCommand(
+    const char* command) {
 
-void finishGainCurveCommand() {
-    gainCurveCommandBuffer[
-        gainCurveCommandLength] = '\0';
+    if (command == nullptr ||
+        command[0] == '\0') {
 
-    if (gainCurveCommandLength == 0) {
         printTofGainCurve();
-        resetGainCurveCommand();
         return;
     }
 
     if (std::strcmp(
-            gainCurveCommandBuffer.data(),
+            command,
             "reset") == 0) {
 
         resetTofGainCurve();
-        resetGainCurveCommand();
         return;
     }
 
@@ -1142,21 +1135,18 @@ void finishGainCurveCommand() {
     std::size_t count = 0;
 
     if (!parseGainCurveText(
-            gainCurveCommandBuffer.data(),
+            command,
             points,
             count)) {
 
         Serial.println(
             "TOF CURVE command invalid. Example: q50:2048,500:3072,4000:4096");
-        resetGainCurveCommand();
         return;
     }
 
     applyTofGainCurve(
         points,
         count);
-
-    resetGainCurveCommand();
 }
 
 void printCorrectionMode() {
