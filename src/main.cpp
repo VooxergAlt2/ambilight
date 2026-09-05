@@ -85,8 +85,6 @@ void printCorrectionMode() {
         "CORRECTION mode=%s persisted=%s nvs=%s writes=%lu write_fail=%lu invalid_stored=%lu\n",
         ambilight::correctionModeName(
             correctionMode),
-        static_cast<unsigned>(
-            ledEngine.brightness()),
         runtimeSettings.persistenceAvailable()
             ? "yes"
             : "no",
@@ -1185,6 +1183,8 @@ void printRuntimeStatus() {
         "tofinit=%lu toffail=%lu tofreadfail=%lu tofrestart=%lu black=%lu heap=%u minheap=%u\n",
         ambilight::correctionModeName(
             correctionMode),
+        static_cast<unsigned>(
+            ledEngine.brightness()),
         runtimeSettings.persistenceAvailable()
             ? "yes"
             : "no",
@@ -1330,7 +1330,7 @@ void printRuntimeStatus() {
 void printConfiguration() {
     Serial.println();
     Serial.println(
-        "ESP32-C6 Ambilight Stage 20: runtime correction modes + slow ToF wall plane");
+        "ESP32-C6 Ambilight Stage 21: runtime output brightness + correction modes");
 
     Serial.printf(
         "Logical LEDs=%u payload=%uB DDP=%u poll_budget=%uus max_datagrams=%u\n",
