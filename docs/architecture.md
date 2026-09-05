@@ -2,129 +2,114 @@
 
 ## Current stage
 
-Stage 11 introduces the first connection between ToF-derived gains and rendering, but the connection is shadow-only.
+Stage 12 adds a render-rate gain controller to the shadow-only ToF integration.
 
-RGB source remains Wi-Fi/DDP only.
+Physical RGB remains original HyperHDR RGB.
 
-## Data paths
-
-### RGB
+## RGB path
 
     HyperHDR
       -> Wi-Fi/DDP
-      -> DdpAssembler
-      -> FrameMailbox
       -> RgbFrame
+      -> FrameMailbox
 
-### ToF
-
-    VL53L5CX
-      -> TofProcessor
-      -> TofGeometrySnapshot
-      -> TofGainModel
-      -> GainSnapshot
-
-### Integration
-
-At one RGB frame boundary:
+At each new RGB frame:
 
     GainSnapshot
       -> TofRenderGainBridge
-      -> RenderGainContext
+      -> target RenderGainContext
+      -> optional debug ShadowGainProbe target
+      -> RenderGainController
+      -> effective RenderGainContext
 
 Then:
 
-    RgbFrame + RenderGainContext
-      -> LedRenderer
-      -> shadow candidate RGB
+    RgbFrame + effective RenderGainContext
+      -> LedRenderer shadow math
       -> ShadowRenderPolicy
-      -> original RGB
+      -> ORIGINAL RGB
       -> LedEngine
       -> PARLIO x4
 
-## Dependency rule
+## Rate domains
 
-LedRenderer knows only:
+ToF:
 
-- RgbFrame
-- RenderGainContext
-- SegmentMapper
-- LedEngine
+    ~10 Hz
 
-It does not know:
+RGB:
 
-- VL53L5CX
-- TofService
-- TofProcessor
-- TofGainModel
+    ~60 Hz
 
-The only ToF/render coupling is TofRenderGainBridge at the application integration layer.
+The controller is the boundary between those rate domains.
 
-## Context semantics
+It prevents future active brightness from inheriting 10 Hz stair-step behavior.
 
-RenderGainContext is immutable for one render call.
+## State ownership
 
-It contains:
+TofService owns:
 
-- source generation
-- source timestamp/age
-- source present
-- source usable
-- fail-open
-- start/end Q12 gain for each SegmentId
+- sensor
+- geometry
+- GainSnapshot
 
-## Segment endpoint model
+Main/integration owns:
 
-Each segment has logical start/end gain.
+- target context selection
+- debug shadow probe
+- RenderGainController
 
-This supports:
+LedRenderer owns:
 
-- uniform side gain now
-- future linear top/bottom gradients
-- wiring reversal without profile reversal
+- per-pixel shadow evaluation
+- render diagnostics
 
-Physical lane reversal remains SegmentMapper responsibility.
+LedEngine owns:
 
-## Hardware safety invariant
+- physical lanes
+- PARLIO output
 
-Stage 11 physical RGB is defined by:
+## Fail-open
 
-    ShadowRenderPolicy::physicalOutput(original, candidate)
+Renderer-side bridge validates GainSnapshot freshness.
 
-which returns:
+RenderGainController treats unusable/fail-open targets as an immediate unity command.
 
-    original
+Therefore stale attenuation cannot survive either:
 
-There is no runtime flag to change this.
+- ToF model failure
+- sensor-task stall
+- integration-layer stale snapshot
 
-## Failure policy
+## Gradient readiness
 
-Absent, stale or invalid gain data creates a unity RenderGainContext.
+RenderGainContext carries logical start/end gains per SegmentId.
 
-ToF failure cannot:
+RenderGainController slews both endpoints independently.
 
-- change RGB
-- stop DDP
-- restart Wi-Fi
-- restart PARLIO
-- hold stale attenuation indefinitely
+LedRenderer interpolates them per logical pixel.
 
-## Runtime observability
+Current real ToF bridge still produces uniform endpoints.
 
-Command set:
+ShadowGainProbe exercises non-uniform endpoints before a physical wall-plane model exists.
 
-- t: raw ToF grid
-- g: processed ToF geometry
-- k: ToF GainSnapshot
-- c: 5-second calibration capture
-- r: renderer shadow diagnostics
+## Safety invariant
 
-## Current activation gate
+Physical output remains compile-time shadow-only.
 
-Physical gain application remains prohibited until:
+No Stage 12 code path can select shadow candidate RGB for LedEngine.
 
-- real calibration curve exists
-- logical segment screen orientation is verified
-- shadow mode demonstrates correct per-segment behavior
-- render preparation cost is acceptable
-- DDP latency does not regress materially
+## Debug commands
+
+- t: raw ToF map
+- g: processed geometry
+- k: gain snapshot
+- c: calibration capture
+- r: target/effective render shadow state
+- x: 10-second aggressive shadow probe
+
+## Next gate
+
+Use x + r on hardware to validate the renderer mechanics independently from ToF calibration.
+
+Then derive real calibration values and keep them in shadow mode before considering physical application.

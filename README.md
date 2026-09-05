@@ -4,60 +4,46 @@ Custom ESP32-C6 Ambilight endpoint for HyperHDR.
 
 ## Current stage
 
-Stage 11 runs one PC over Wi-Fi/DDP and feeds ToF gains into the renderer in **shadow mode only**.
+Stage 12 keeps the active transport at one PC over Wi-Fi/DDP and models the complete future ToF-to-render timing path in shadow mode.
 
-Physical LEDs still receive the original HyperHDR RGB.
+Physical LEDs still receive original HyperHDR RGB.
 
-    HyperHDR
-      -> Wi-Fi/DDP
-      -> RgbFrame
-      -> LedRenderer
+## Current shadow pipeline
+
+    VL53L5CX ~10 Hz
+      -> geometry
+      -> gain model
+      -> target RenderGainContext
+      -> RenderGainController ~60 Hz
+      -> effective RenderGainContext
+      -> LedRenderer shadow RGB
+      -> ShadowRenderPolicy
       -> ORIGINAL RGB
       -> PARLIO x4
 
-In parallel:
+## Why the controller exists
 
-    VL53L5CX
-      -> geometry
-      -> gain model
-      -> RenderGainContext
-      -> shadow RGB calculation only
+ToF updates much slower than video.
 
-## Render gain mechanics
+Future gains therefore need render-rate interpolation instead of 10 Hz brightness steps.
 
-Gain format:
+Current shadow slew:
+
+    8192 Q12 / second
+
+with unity:
 
     4096 = 100%
 
-Each logical segment has start/end gain endpoints.
+Valid changes are smoothed.
 
-Current gain model supplies uniform endpoints, but the renderer already supports a logical gradient along a segment for future yaw/plane compensation.
-
-Gain math:
-
-    channel_out = round(channel_in * gain / 4096)
-
-R, G and B use the same gain.
-
-## Hard shadow safety
-
-There is no runtime switch that enables correction.
-
-`ShadowRenderPolicy` always returns the original RGB for physical output.
-
-Native tests assert this contract.
-
-## Frame synchronization
-
-For every new RGB frame the controller copies one small GainSnapshot, releases the ToF mutex, creates an immutable RenderGainContext and uses it for all 780 LEDs.
-
-ToF cannot change coefficients halfway through one frame.
+Fail-open immediately returns to 100%.
 
 ## Debug commands
 
     t
 
-Raw 8x8 ToF map.
+Raw 8x8 ToF.
 
     g
 
@@ -73,23 +59,53 @@ Five-second calibration capture.
 
     r
 
-Renderer shadow diagnostics, including:
+Renderer target/effective shadow state and timing.
 
-- source age/usability
-- segment start/end gains
-- pixels that would change
-- maximum channel delta
-- shadow/original RGB ratio
-- renderer preparation time
+    x
+
+Ten-second aggressive shadow self-test:
+
+- TOP 100% -> 75%
+- RIGHT 75%
+- BOTTOM 50% -> 100%
+- LEFT 25%
+
+Even during x, physical LEDs remain original RGB.
 
 ## Current calibration
 
-Still pass-through:
+Still identity:
 
     50 mm   -> 100%
     4000 mm -> 100%
 
-So expected Stage 11 shadow result is 0 changed pixels while all future math is exercised.
+So x is the easiest way to exercise non-unity shadow behavior before real calibration exists.
+
+## Hardware checks for this stage
+
+Run normal HyperHDR at 60 FPS and compare:
+
+- DDP p50/p95/p99
+- render prepare time
+- PARLIO show time
+- backlog skips
+
+Then run:
+
+    x
+
+and inspect:
+
+    r
+
+Expected:
+
+- target becomes strongly non-unity
+- effective gains move gradually
+- would-change pixels rise on non-black content
+- changed-by-segment counters rise
+- physical LEDs do not visibly change
+- after probe, effective shadow returns toward real ToF target
 
 ## USB/AWA
 
@@ -98,7 +114,3 @@ Preserved separately in:
     stage/07-usb-awa
 
 Active development remains Wi-Fi/DDP.
-
-## Next gate
-
-Collect real ToF calibration data, install a real attenuation curve while staying in shadow mode, verify segment orientation and render timing, then consider a separate physical-application stage.
