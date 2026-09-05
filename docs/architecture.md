@@ -2,7 +2,7 @@
 
 ## Current stage
 
-Stage 30 is the current software-integration line.
+Stage 32 is the current software-integration line.
 
 The active firmware now combines:
 
@@ -20,6 +20,7 @@ The active firmware now combines:
 - commissioning patterns
 - guarded NVS factory recovery
 - generic non-RGB render-state scheduling
+- typed pure-C++ serial command framing
 
 USB/AWA work remains preserved separately in:
 
@@ -319,3 +320,16 @@ Physical commissioning remains a later stage for:
 - exact X/Y/Z mounting offsets
 - real noise/deadband tuning
 - real photometric distance/gain points
+
+
+## Serial runtime control path
+
+    USB serial bytes
+      -> SerialCommandParser
+      -> SerialCommandEvent
+      -> main dispatch
+      -> subsystem semantic handler
+
+The parser is pure C++ and participates in native tests.
+
+Framing errors discard the rest of the damaged line before returning to idle parsing. Subsystem validation stays outside the parser.
