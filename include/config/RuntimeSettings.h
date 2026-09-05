@@ -28,10 +28,17 @@ public:
         return correctionMode_;
     }
 
+    std::uint8_t outputBrightness() const {
+        return outputBrightness_;
+    }
+
     // Runtime state changes even if persistence is unavailable. Return value
     // reports whether the new value is durably stored.
     bool setCorrectionMode(
         CorrectionMode mode);
+
+    bool setOutputBrightness(
+        std::uint8_t brightness);
 
     bool persistenceAvailable() const {
         return persistenceAvailable_;
@@ -46,11 +53,15 @@ private:
         "ambilight";
     static constexpr const char* kCorrectionModeKey =
         "corr_mode";
+    static constexpr const char* kOutputBrightnessKey =
+        "brightness";
 
     Preferences preferences_;
 
     CorrectionMode correctionMode_ =
         CorrectionMode::Shadow;
+
+    std::uint8_t outputBrightness_ = 32;
 
     bool persistenceAvailable_ = false;
 
