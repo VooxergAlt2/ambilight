@@ -123,6 +123,12 @@ void test_flat_wall_recovers_zero_slopes() {
         30,
         0,
         plane.pitchCentiDeg);
+
+    TEST_ASSERT_TRUE(
+        plane.observedHalfSpanXmm > 200);
+
+    TEST_ASSERT_TRUE(
+        plane.observedHalfSpanYmm > 200);
 }
 
 void test_combined_yaw_and_pitch_are_recovered() {
