@@ -2,7 +2,7 @@
 
 ## Current stage
 
-Stage 33 is the current software-integration line.
+Stage 34 is the current software-integration line.
 
 The active firmware now combines:
 
@@ -22,6 +22,7 @@ The active firmware now combines:
 - generic non-RGB render-state scheduling
 - typed pure-C++ serial command framing
 - typed pure-C++ runtime payload parsing
+- centralized firmware identity/version diagnostics
 
 USB/AWA work remains preserved separately in:
 
@@ -346,3 +347,16 @@ For typed configuration commands:
       -> runtime apply/persist handler
 
 The parser directly produces existing validated domain types instead of parallel DTO layers.
+
+
+## Firmware identity
+
+Firmware identity is centralized in config/FirmwareInfo.h.
+
+The same constants feed:
+
+- startup banner
+- v serial command
+- STATCFG
+
+This prevents commissioning logs from depending on a manually maintained banner string.
