@@ -10,13 +10,32 @@
 
 namespace ambilight {
 
+struct DdpPollResult {
+    std::uint32_t datagrams = 0;
+    std::uint32_t completeFrames = 0;
+    std::uint32_t elapsedUs = 0;
+
+    bool socketDrained = false;
+    bool backlogLikely = false;
+    bool mailboxPublished = false;
+};
+
 struct DdpUdpStats {
     std::uint32_t datagramsReceived = 0;
     std::uint64_t bytesReceived = 0;
-    std::uint32_t completeFramesPublished = 0;
+
+    std::uint32_t completeFramesAssembled = 0;
+    std::uint32_t mailboxPublications = 0;
+    std::uint32_t collapsedCompleteFrames = 0;
     std::uint32_t publishFailures = 0;
+
     std::uint32_t socketErrors = 0;
+    std::uint32_t pollBudgetExhaustions = 0;
+    std::uint32_t pollDatagramLimitHits = 0;
+
     std::uint32_t maxDatagramsPerPoll = 0;
+    std::uint32_t maxPollUs = 0;
+
     int lastSocketErrno = 0;
 };
 
@@ -24,7 +43,12 @@ class DdpUdpService {
 public:
     static constexpr std::uint16_t kPort = 4048;
     static constexpr std::size_t kRxBufferSize = 1536;
-    static constexpr std::size_t kMaxDatagramsPerPoll = 32;
+
+    // A temporary backlog is more efficiently collapsed by parsing packets
+    // than by rendering old frames. Both a packet cap and a time budget keep
+    // the single C6 core bounded.
+    static constexpr std::size_t kMaxDatagramsPerPoll = 128;
+    static constexpr std::uint32_t kPollBudgetUs = 3000;
 
     explicit DdpUdpService(FrameMailbox& mailbox)
         : mailbox_(mailbox) {}
@@ -37,7 +61,7 @@ public:
     bool begin();
     void stop();
 
-    std::uint32_t poll();
+    DdpPollResult poll();
 
     bool running() const { return socket_ >= 0; }
 

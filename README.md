@@ -4,64 +4,87 @@ Custom ESP32-C6 Ambilight endpoint for HyperHDR.
 
 ## Current development stage
 
-Stage 5 is the first runtime MVP: one PC can drive all four physical LED sides over HyperHDR DDP/Wi-Fi.
+Stage 6 hardens the first one-PC Wi-Fi/DDP MVP.
 
 Runtime path:
 
     HyperHDR 22
         |
-        | DDP v1 / UDP 4048
+        | DDP / UDP 4048
         v
-    ESP32-C6 static UDP RX buffer
+    static UDP RX buffer
         |
         v
     DdpAssembler
         |
-        | complete 2340-byte frames only
+        | newest complete frame
         v
     FrameMailbox
         |
-        | latest frame wins
         v
     LedRenderer
         |
         v
-    SegmentMapper
-        |
-        v
-    LiteLED PARLIO x4
+    PARLIO x4
 
-## Why raw lwIP/BSD UDP instead of Arduino WiFiUDP
+## Current hardware target
 
-Arduino-ESP32 3.3.11 NetworkUDP::parsePacket() allocates a temporary 1460-byte heap buffer for every received datagram.
+- ESP32-C6
+- 780 logical RGB LEDs
+- TOP 230
+- RIGHT 160
+- BOTTOM 230
+- LEFT 160
+- four synchronized PARLIO lanes
 
-A 780-pixel HyperHDR frame normally uses two DDP datagrams. At 60 FPS that would mean roughly 120 malloc/free cycles per second in the realtime path.
+## DDP runtime
 
-Stage 5 instead uses one statically allocated 1536-byte RX buffer with a non-blocking lwIP socket.
+Supported subset:
 
-## Supported DDP subset
-
-- port 4048
-- DDP version 1
-- sequence 1..15
+- DDP v1
+- UDP port 4048
 - RGB type 0x0B
 - destination 1
-- exactly 780 RGB LEDs / 2340 bytes
-- one PC/sender for the current stage
+- sequence 1..15
+- exactly 2340 RGB bytes per complete frame
+- one HyperHDR sender
 
-HyperHDR 22 normally sends the frame as 1440 bytes + 900 bytes.
+No application heap allocation is performed per UDP datagram.
+
+## Backlog handling
+
+A temporary queue of old UDP frames is actively collapsed.
+
+- up to 128 datagrams can be drained in one poll
+- each poll has a 3 ms CPU budget
+- multiple complete frames in one poll collapse to the newest frame
+- if the socket still appears backlogged, up to four LED renders may be skipped while the receiver catches up
+- render starvation is bounded
+
+The goal is to drop historical frames instead of converting a short stall into growing Ambilight latency.
+
+## Latency metrics
+
+The controller tracks allocation-free internal frame-age percentiles:
+
+- p50
+- p95
+- p99
+- overflow above 128 ms
+- maximum observed age
+
+This measures DDP completion inside C6 to renderer consumption. It is not network RTT.
 
 ## HyperHDR setup
 
-Configure one LED device:
+Use one DDP device:
 
-- protocol/device: DDP
 - target: ESP32-C6 IPv4 address
 - port: 4048
 - LED count: 780
 - continuous output: enabled
 
-Keep only one HyperHDR sender active during Stage 5.
+Keep only one sender active during this stage.
 
 ## Wi-Fi credentials
 
@@ -70,33 +93,7 @@ Copy include/secrets.example.h to include/secrets.h and set:
     AMBILIGHT_WIFI_SSID
     AMBILIGHT_WIFI_PASSWORD
 
-The real secrets file is ignored by Git.
-
-Wi-Fi modem power saving is disabled for lower realtime jitter.
-
-## Runtime behavior
-
-- only complete DDP frames are published
-- multiple completed frames received before rendering collapse to the newest mailbox generation
-- the UDP socket is drained in bounded batches of up to 32 datagrams
-- malformed/incomplete frames never reach LEDs
-- if no complete DDP frame arrives for 1 second, the controller publishes one black frame
-- a new valid DDP frame immediately resumes normal output
-- Wi-Fi reconnect does not reboot the LED engine
-
-## Metrics
-
-A compact runtime line is emitted every 10 seconds with:
-
-- Wi-Fi state/RSSI
-- DDP datagrams and complete frames
-- rejected/stale/timed-out/superseded frames
-- sender IPv4/port
-- renderer frames/mapping errors
-- mailbox frame age
-- max PARLIO show time
-- idle blackouts
-- heap/minimum heap
+Wi-Fi power saving is disabled for lower latency/jitter.
 
 ## Build
 
@@ -108,6 +105,16 @@ Native tests:
 
     pio test -e native
 
-## Next stage
+## Acceptance before USB work
 
-Stage 6 is a stress/hardening pass around this working Wi-Fi MVP. It will focus on queue/backlog behavior, reconnects, packet-loss recovery, frame-age percentiles, and longer-duration stability before USB/AWA is introduced.
+At minimum:
+
+- 60 FPS DDP works on all four lanes
+- 2-hour interactive test passes
+- 24-hour soak shows no progressive heap or latency growth
+- p95 internal age stays below one 60 FPS frame under normal conditions
+- HyperHDR/AP restart recovery works
+- no partial/malformed frame is rendered
+- mapping errors remain zero
+
+USB/AWA is intentionally the next major transport only after this path is proven on hardware.

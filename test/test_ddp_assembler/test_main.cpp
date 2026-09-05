@@ -268,6 +268,50 @@ void test_wrong_type_destination_and_bounds_are_rejected() {
             outOfBounds.data(), outOfBounds.size(), 12200, frame)));
 }
 
+void test_random_datagrams_preserve_assembler_invariants() {
+    DdpAssembler assembler;
+    RgbFrame frame;
+
+    std::uint32_t state = 0xC6A5D31Fu;
+    std::uint64_t nowUs = 20000;
+
+    auto nextRandom = [&state]() {
+        state ^= state << 13;
+        state ^= state >> 17;
+        state ^= state << 5;
+        return state;
+    };
+
+    for (std::size_t iteration = 0; iteration < 5000; ++iteration) {
+        const std::size_t length =
+            static_cast<std::size_t>(nextRandom() % 1600U);
+
+        std::vector<std::uint8_t> packet(length);
+        for (std::size_t index = 0; index < packet.size(); ++index) {
+            packet[index] =
+                static_cast<std::uint8_t>(nextRandom() & 0xFFU);
+        }
+
+        nowUs += static_cast<std::uint64_t>(
+            (nextRandom() % 2000U) + 1U);
+
+        assembler.ingest(
+            packet.empty() ? nullptr : packet.data(),
+            packet.size(),
+            nowUs,
+            frame);
+
+        TEST_ASSERT_TRUE(
+            assembler.coveredBytes() <= DdpAssembler::kFrameBytes);
+
+        if (assembler.active()) {
+            TEST_ASSERT_TRUE(
+                assembler.activeSequence() >= 1 &&
+                assembler.activeSequence() <= 15);
+        }
+    }
+}
+
 void test_conflicting_overlap_rejects_active_frame() {
     DdpAssembler assembler;
     RgbFrame frame;
@@ -305,6 +349,7 @@ int main(int, char**) {
     RUN_TEST(test_timeout_discards_incomplete_frame);
     RUN_TEST(test_wrong_type_destination_and_bounds_are_rejected);
     RUN_TEST(test_conflicting_overlap_rejects_active_frame);
+    RUN_TEST(test_random_datagrams_preserve_assembler_invariants);
 
     return UNITY_END();
 }

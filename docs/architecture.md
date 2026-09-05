@@ -1,124 +1,114 @@
 # Architecture
 
-## Stage 5 scope
+## Stage 6 scope
 
-Stage 5 is the first end-to-end HyperHDR runtime for one PC:
+Stage 6 hardens the one-PC DDP runtime against temporary receive backlog and adds allocation-free latency observability.
 
-    HyperHDR
-      |
-      | DDP / UDP 4048
-      v
-    DdpUdpService
-      |
-      v
-    DdpAssembler
-      |
-      | complete RgbFrame only
-      v
-    FrameMailbox
-      |
-      v
-    LedRenderer
-      |
-      v
-    SegmentMapper
-      |
-      v
-    LedEngine
-      |
-      v
-    PARLIO x4
+The feature set is intentionally unchanged:
 
-USB/AWA, ToF, source arbitration, Web UI, OTA, and multi-PC behavior remain explicitly out of scope.
+- one PC
+- Wi-Fi / DDP only
+- 780 RGB logical LEDs
+- four PARLIO outputs
+- no USB/AWA
+- no VL53L5CX
+- no source arbitration
+- no Web UI/OTA
 
-## UDP implementation
+## Realtime receive policy
 
-The runtime intentionally does not use Arduino NetworkUDP/WiFiUDP.
+A normal HyperHDR frame is two DDP datagrams, but temporary scheduler or radio stalls can leave several frames queued in the UDP socket.
 
-Arduino-ESP32 3.3.11 NetworkUDP::parsePacket() allocates a 1460-byte temporary heap buffer for every UDP datagram. HyperHDR emits roughly two datagrams per RGB frame, so at 60 FPS this becomes about 120 temporary allocations per second.
+Rendering every completed historical frame would convert a temporary stall into persistent visible latency.
 
-DdpUdpService therefore uses an ESP-IDF/lwIP BSD UDP socket:
+Stage 6 therefore collapses backlog in two places.
 
-- AF_INET / SOCK_DGRAM
-- bound to INADDR_ANY:4048
-- static 1536-byte receive buffer
-- non-blocking MSG_DONTWAIT receive
-- requested 32 KiB socket RX queue
-- at most 32 datagrams drained per application poll
+### 1. Inside one UDP poll
 
-No allocation is performed per DDP datagram by application code.
+DdpUdpService drains datagrams until one of three conditions:
 
-## Backlog policy
+- socket reaches EWOULDBLOCK/EAGAIN
+- 128 datagrams were parsed
+- 3 ms polling budget was consumed
 
-DdpUdpService may publish more than one complete frame during a single poll.
+If several complete DDP frames are assembled during that drain, only the newest complete frame is published to FrameMailbox.
 
-FrameMailbox stores only the latest publication generation from the point of view of the renderer. The main loop renders once after the socket drain.
+Intermediate complete frames never take the mailbox mutex and never reach the renderer.
 
-Therefore, if several complete frames accumulated while PARLIO was busy, intermediate completed frames are intentionally skipped.
+### 2. Across successive polls
 
-This preserves the core realtime policy:
+If a poll stops because of its time/packet budget instead of reaching an empty socket, backlogLikely is returned.
 
-    drop intermediate frames before accumulating visible latency
+The main loop may skip LED rendering for up to four consecutive backlog polls so parsing can catch up faster than PARLIO rendering.
 
-The socket drain is bounded to 32 datagrams so a large backlog cannot monopolize the single ESP32-C6 core forever.
+After four skips it renders anyway, preventing pathological network load from starving LEDs indefinitely.
 
-## Single sender assumption
+This encodes the system rule:
 
-Stage 5 intentionally has no sender lease or multi-host arbitration.
+    newest frame > historical frame completeness
 
-The most recent sender address is recorded for diagnostics only.
+## Why this matters
 
-Only one HyperHDR instance/PC is allowed to transmit to the controller during this stage.
+At 60 FPS a frame arrives every 16.7 ms while a 230-pixel WS2812 lane takes about 6.9 ms to transmit.
 
-## Idle behavior
+The receiver normally has ample time.
 
-The LED engine starts black.
+Backlog handling is therefore primarily a recovery mechanism for temporary stalls, not normal scheduling.
 
-Once at least one valid DDP frame has been seen, a one-second absence of complete DDP frames causes one synthetic black frame to be published.
+## Latency histogram
 
-The black frame goes through the normal FrameMailbox and LedRenderer path.
+The main loop measures internal age:
 
-A later complete DDP frame clears the idle state immediately.
+    last DDP packet completing frame
+        ->
+    renderer starts consuming published frame
 
-## Observability
+A fixed-memory histogram records buckets:
 
-Runtime diagnostics expose both transport and rendering state.
+- <=0.25 ms
+- <=0.5 ms
+- <=1 ms
+- <=2 ms
+- <=4 ms
+- <=8 ms
+- <=16 ms
+- <=32 ms
+- <=64 ms
+- <=128 ms
+- overflow
 
-Transport:
-- UDP datagrams/bytes
-- completed frames
-- socket errors
-- publication failures
-- current sender
-- DDP reject/stale/timeout/supersede counters
+Runtime diagnostics expose approximate p50/p95/p99 upper bounds plus overflow count and absolute max age.
 
-Renderer:
-- rendered frame count
-- mapping errors
-- latest internal frame age
-- maximum internal frame age
-- maximum PARLIO show time
+This does not measure PC-to-ESP network latency. It measures queue/scheduling delay inside the controller, which is the part firmware can actually control.
 
-System:
-- Wi-Fi/RSSI
-- free heap
-- minimum free heap
+## Heap policy
 
-## Stage 5 acceptance
+The packet path uses:
 
-With one HyperHDR sender:
+- one static 1536-byte UDP RX buffer
+- one fixed DDP staging frame
+- one 293-byte coverage bitmap
+- fixed RgbFrame objects
+- no application malloc/free per frame or datagram
 
-- controller receives DDP on UDP/4048
-- 780 logical LEDs map to all four physical lanes
-- 60 FPS video runs continuously
-- no malformed or partial frame is rendered
-- mappingErrors remains zero
-- frame age remains bounded rather than growing over time
-- stopping HyperHDR blanks the LEDs within about one second
-- restarting HyperHDR resumes without C6 reboot
-- AP/router reconnect recovers without restarting the LED engine
-- no progressive heap loss during a multi-hour run
+The Wi-Fi/lwIP stack itself still owns normal network buffers internally.
+
+## Stress acceptance
+
+The one-PC Wi-Fi runtime should pass:
+
+- >=2 hours at 60 FPS before first field use
+- 24-hour soak before calling the DDP path stable
+- no progressive frame-age growth
+- no progressive heap loss
+- mappingErrors = 0
+- no watchdog/reset
+- HyperHDR stop -> black within ~1 s
+- HyperHDR restart -> immediate sequence resync
+- AP restart -> automatic recovery
+- temporary CPU/network stall -> backlog collapses rather than accumulating
+- p95 internal frame age stays comfortably below one 16.7 ms video frame under normal conditions
 
 ## Next stage
 
-Stage 6 hardens this path under sustained load and faults before any second transport is introduced.
+After this DDP path is demonstrated on real hardware, USB/AWA can be implemented as a completely independent producer of the same RgbFrame contract.

@@ -1,7 +1,6 @@
 #include "network/DdpUdpService.h"
 
 #include <cerrno>
-#include <cstring>
 #include <unistd.h>
 
 #include <esp_timer.h>
@@ -81,18 +80,31 @@ void DdpUdpService::stop() {
     socket_ = -1;
 }
 
-std::uint32_t DdpUdpService::poll() {
+DdpPollResult DdpUdpService::poll() {
+    DdpPollResult result;
+
     if (socket_ < 0) {
-        return 0;
+        return result;
     }
 
-    assembler_.expire(
-        static_cast<std::uint64_t>(esp_timer_get_time()));
+    const std::uint64_t pollStartedUs =
+        static_cast<std::uint64_t>(esp_timer_get_time());
 
-    std::uint32_t drained = 0;
-    std::uint32_t completedThisPoll = 0;
+    assembler_.expire(pollStartedUs);
 
-    while (drained < kMaxDatagramsPerPoll) {
+    bool haveCompletedFrame = false;
+
+    while (result.datagrams < kMaxDatagramsPerPoll) {
+        const std::uint64_t beforeReceiveUs =
+            static_cast<std::uint64_t>(esp_timer_get_time());
+
+        if (result.datagrams > 0 &&
+            beforeReceiveUs - pollStartedUs >= kPollBudgetUs) {
+            result.backlogLikely = true;
+            ++stats_.pollBudgetExhaustions;
+            break;
+        }
+
         sockaddr_in sender{};
         socklen_t senderLength = sizeof(sender);
 
@@ -106,6 +118,7 @@ std::uint32_t DdpUdpService::poll() {
 
         if (received < 0) {
             if (errno == EWOULDBLOCK || errno == EAGAIN) {
+                result.socketDrained = true;
                 break;
             }
 
@@ -114,7 +127,7 @@ std::uint32_t DdpUdpService::poll() {
             break;
         }
 
-        ++drained;
+        ++result.datagrams;
         ++stats_.datagramsReceived;
         stats_.bytesReceived += static_cast<std::uint64_t>(received);
 
@@ -125,31 +138,59 @@ std::uint32_t DdpUdpService::poll() {
         lastSenderIpv4_ = sender.sin_addr.s_addr;
         lastSenderPort_ = ntohs(sender.sin_port);
 
-        const DdpIngestResult result = assembler_.ingest(
+        const DdpIngestResult ingestResult = assembler_.ingest(
             rxBuffer_.data(),
             static_cast<std::size_t>(received),
             packetUs,
             completedFrame_);
 
-        if (result != DdpIngestResult::Complete) {
-            continue;
+        if (ingestResult == DdpIngestResult::Complete) {
+            ++result.completeFrames;
+            ++stats_.completeFramesAssembled;
+            haveCompletedFrame = true;
         }
+    }
 
-        if (!mailbox_.publish(completedFrame_)) {
+    if (result.datagrams == kMaxDatagramsPerPoll &&
+        !result.socketDrained) {
+        result.backlogLikely = true;
+        ++stats_.pollDatagramLimitHits;
+    }
+
+    // Publish at most once per socket drain. If several complete frames were
+    // assembled, only the newest one survives. This collapses backlog before
+    // taking the mailbox mutex and before paying PARLIO render cost.
+    if (haveCompletedFrame) {
+        if (mailbox_.publish(completedFrame_)) {
+            result.mailboxPublished = true;
+            ++stats_.mailboxPublications;
+
+            if (result.completeFrames > 1) {
+                stats_.collapsedCompleteFrames +=
+                    result.completeFrames - 1;
+            }
+
+            lastCompleteFrameUs_ = completedFrame_.receivedUs;
+        } else {
             ++stats_.publishFailures;
-            continue;
         }
-
-        ++stats_.completeFramesPublished;
-        ++completedThisPoll;
-        lastCompleteFrameUs_ = packetUs;
     }
 
-    if (drained > stats_.maxDatagramsPerPoll) {
-        stats_.maxDatagramsPerPoll = drained;
+    const std::uint64_t pollFinishedUs =
+        static_cast<std::uint64_t>(esp_timer_get_time());
+
+    result.elapsedUs = static_cast<std::uint32_t>(
+        pollFinishedUs - pollStartedUs);
+
+    if (result.datagrams > stats_.maxDatagramsPerPoll) {
+        stats_.maxDatagramsPerPoll = result.datagrams;
     }
 
-    return completedThisPoll;
+    if (result.elapsedUs > stats_.maxPollUs) {
+        stats_.maxPollUs = result.elapsedUs;
+    }
+
+    return result;
 }
 
 } // namespace ambilight
