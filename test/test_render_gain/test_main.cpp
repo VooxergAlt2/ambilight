@@ -4,8 +4,11 @@
 
 #include "integration/TofRenderGainBridge.h"
 #include "led/SegmentMapper.h"
+#include "render/CorrectionMode.h"
 #include "render/RenderGainContext.h"
 
+using ambilight::CorrectionMode;
+using ambilight::CorrectionOutputPolicy;
 using ambilight::GainSnapshot;
 using ambilight::PerimeterGainSnapshot;
 using ambilight::RenderGainContext;
@@ -135,22 +138,102 @@ void test_shadow_preview_changes_rgb_but_not_original_value() {
         preview.maxChannelDelta);
 }
 
-void test_shadow_policy_never_applies_candidate() {
+void test_correction_output_modes_have_explicit_physical_contract() {
     constexpr Rgb8 original{200, 100, 50};
 
-    ambilight::ShadowPixelResult shadow;
-    shadow.original = original;
-    shadow.wouldOutput = Rgb8{10, 20, 30};
-    shadow.wouldChange = true;
+    ambilight::ShadowPixelResult preview;
+    preview.original = original;
+    preview.wouldOutput = Rgb8{10, 20, 30};
+    preview.wouldChange = true;
+
+    const Rgb8 disabled =
+        CorrectionOutputPolicy::physicalOutput(
+            CorrectionMode::Disabled,
+            original,
+            preview);
+
+    const Rgb8 shadow =
+        CorrectionOutputPolicy::physicalOutput(
+            CorrectionMode::Shadow,
+            original,
+            preview);
+
+    const Rgb8 active =
+        CorrectionOutputPolicy::physicalOutput(
+            CorrectionMode::Active,
+            original,
+            preview);
+
+    TEST_ASSERT_EQUAL_UINT8(200, disabled.r);
+    TEST_ASSERT_EQUAL_UINT8(100, disabled.g);
+    TEST_ASSERT_EQUAL_UINT8(50, disabled.b);
+
+    TEST_ASSERT_EQUAL_UINT8(200, shadow.r);
+    TEST_ASSERT_EQUAL_UINT8(100, shadow.g);
+    TEST_ASSERT_EQUAL_UINT8(50, shadow.b);
+
+    TEST_ASSERT_EQUAL_UINT8(10, active.r);
+    TEST_ASSERT_EQUAL_UINT8(20, active.g);
+    TEST_ASSERT_EQUAL_UINT8(30, active.b);
+
+    TEST_ASSERT_FALSE(
+        CorrectionOutputPolicy::evaluatesGain(
+            CorrectionMode::Disabled));
+
+    TEST_ASSERT_TRUE(
+        CorrectionOutputPolicy::evaluatesGain(
+            CorrectionMode::Shadow));
+
+    TEST_ASSERT_TRUE(
+        CorrectionOutputPolicy::physicallyAppliesGain(
+            CorrectionMode::Active));
+}
+
+void test_active_mode_remains_original_when_gain_context_fails_open() {
+    RenderGainContext context;
+    context.sourcePresent = true;
+    context.sourceUsable = false;
+    context.failOpen = true;
+
+    // Hidden values must not escape fail-open.
+    context.logicalGainQ12[0] = 1000;
+
+    constexpr Rgb8 original{180, 90, 45};
+
+    const auto preview =
+        RenderGainMath::preview(
+            original,
+            0,
+            SegmentId::Top,
+            context);
 
     const Rgb8 physical =
-        ambilight::ShadowRenderPolicy::physicalOutput(
+        CorrectionOutputPolicy::physicalOutput(
+            CorrectionMode::Active,
             original,
-            shadow);
+            preview);
 
-    TEST_ASSERT_EQUAL_UINT8(200, physical.r);
-    TEST_ASSERT_EQUAL_UINT8(100, physical.g);
-    TEST_ASSERT_EQUAL_UINT8(50, physical.b);
+    TEST_ASSERT_FALSE(preview.wouldChange);
+    TEST_ASSERT_EQUAL_UINT8(180, physical.r);
+    TEST_ASSERT_EQUAL_UINT8(90, physical.g);
+    TEST_ASSERT_EQUAL_UINT8(45, physical.b);
+}
+
+void test_correction_mode_raw_values_are_bounded() {
+    TEST_ASSERT_TRUE(
+        ambilight::correctionModeValid(0));
+
+    TEST_ASSERT_TRUE(
+        ambilight::correctionModeValid(1));
+
+    TEST_ASSERT_TRUE(
+        ambilight::correctionModeValid(2));
+
+    TEST_ASSERT_FALSE(
+        ambilight::correctionModeValid(3));
+
+    TEST_ASSERT_FALSE(
+        ambilight::correctionModeValid(255));
 }
 
 void test_render_profile_comparison_ignores_metadata_but_not_usability() {
@@ -448,7 +531,9 @@ int main(int, char**) {
     RUN_TEST(test_fail_open_context_is_always_unity);
     RUN_TEST(test_logical_gain_field_is_authoritative);
     RUN_TEST(test_shadow_preview_changes_rgb_but_not_original_value);
-    RUN_TEST(test_shadow_policy_never_applies_candidate);
+    RUN_TEST(test_correction_output_modes_have_explicit_physical_contract);
+    RUN_TEST(test_active_mode_remains_original_when_gain_context_fails_open);
+    RUN_TEST(test_correction_mode_raw_values_are_bounded);
     RUN_TEST(test_render_profile_comparison_ignores_metadata_but_not_usability);
     RUN_TEST(test_spatial_bridge_preserves_segment_endpoints);
     RUN_TEST(test_spatial_bridge_stale_snapshot_fails_open);
