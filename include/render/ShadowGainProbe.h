@@ -14,7 +14,7 @@ namespace ambilight {
 // diagnostics are obvious. ShadowRenderPolicy still prevents physical output.
 class ShadowGainProbe {
 public:
-    static constexpr RenderGainContext make(
+    static RenderGainContext make(
         std::uint32_t generation,
         std::uint64_t nowUs) {
 
@@ -60,21 +60,16 @@ public:
     }
 
 private:
-    static constexpr void set(
+    static void set(
         RenderGainContext& context,
         SegmentId segment,
         std::uint16_t startQ12,
         std::uint16_t endQ12) {
 
-        const auto index =
-            static_cast<std::size_t>(
-                segment);
-
-        context.segmentGain[index].startQ12 =
-            sanitizeGainQ12(startQ12);
-
-        context.segmentGain[index].endQ12 =
-            sanitizeGainQ12(endQ12);
+        context.setSegmentLinear(
+            segment,
+            startQ12,
+            endQ12);
     }
 };
 
