@@ -2,90 +2,82 @@
 
 Custom ESP32-C6 Ambilight endpoint for HyperHDR.
 
-## Active path
+## Active firmware
 
-Development is currently Wi-Fi/DDP only.
+Current development remains **one PC over Wi-Fi/DDP**.
 
-Stage 8 adds robust VL53L5CX geometry processing while leaving the RGB frame path untouched.
+Runtime RGB path:
 
     HyperHDR
-        |
-        v
-    Wi-Fi / DDP
-        |
-        v
-    ESP32-C6
-        |
-        v
-    FrameMailbox -> LedRenderer -> PARLIO x4
+        -> DDP / UDP 4048
+        -> ESP32-C6
+        -> FrameMailbox
+        -> LedRenderer
+        -> four PARLIO lanes
 
-In parallel:
+ToF runs independently:
 
-    VL53L5CX 8x8 @ 10 Hz
-        |
-        v
-    raw ToF frame
-        |
-        v
-    TofProcessor
-        |
-        v
-    LEFT / CENTER / RIGHT diagnostic geometry
+    VL53L5CX 8x8
+        -> robust geometry
+        -> diagnostic gain model
 
-No ToF value modifies brightness yet.
+The gain model does not modify RGB yet.
 
-## ToF processing
+## Current LED geometry
 
-Normalized bands:
+- TOP: 230 LEDs
+- RIGHT: 160 LEDs
+- BOTTOM: 230 LEDs
+- LEFT: 160 LEDs
+- total: 780 RGB LEDs
 
-- LEFT: columns 0..2
-- CENTER: columns 3..4
-- RIGHT: columns 5..7
+## ToF pipeline
 
-Filtering:
-
-- statuses 5/9 only
-- 50..4000 mm range gate
-- median
-- MAD-based outlier rejection
-- minimum accepted-zone threshold
+- 8x8 @ 10 Hz
+- GPIO6 SDA / GPIO7 SCL, provisional
+- status 5/9 only
+- median + MAD rejection
+- LEFT/CENTER/RIGHT bands
 - 600 ms temporal smoothing
 - 10 mm deadband
+- sensor-only stale/error recovery
 
-Orientation supports four rotations and optional horizontal mirroring.
+## Gain model
 
-Current provisional config is in `include/config/BoardConfig.h`.
+Future attenuation is represented in Q12:
+
+    4096 = 100%
+
+Current default calibration is intentionally pass-through:
+
+    50 mm   -> 100%
+    4000 mm -> 100%
+
+No guessed attenuation curve is active.
+
+The model already implements:
+
+- monotonic piecewise interpolation
+- max gain = 1.0
+- invalid geometry fail-open
+- stale geometry fail-open
+- four future side gains
+
+Current V1 mapping uses CENTER for TOP/BOTTOM.
 
 ## Debug commands
 
-On debug serial:
-
     t
 
-prints one raw 8x8 distance/status map.
+raw 8x8 ToF map.
 
     g
 
-prints processed geometry:
+processed LEFT/CENTER/RIGHT geometry.
 
-- candidates / accepted zones
-- raw median
-- MAD
-- robust median
-- filtered LEFT/CENTER/RIGHT
-- right-minus-left delta
+    k
 
-Continuous full-grid logging is intentionally avoided because it would perturb realtime DDP timing.
-
-## Sensor fault handling
-
-VL53L5CX is isolated from Ambilight.
-
-- init happens in a low-priority task
-- failed init retries
-- five consecutive read failures restart only ToF
-- 3 seconds without a successful ToF frame restarts only ToF
-- DDP and PARLIO continue running
+future gain snapshot and fail-open state.
 
 ## USB/AWA
 
@@ -93,7 +85,7 @@ Preserved separately in:
 
     stage/07-usb-awa
 
-It is not part of the active firmware line yet.
+It remains outside the active firmware line.
 
 ## Build
 
@@ -105,8 +97,8 @@ Native tests:
 
     pio test -e native
 
-## Before adaptive brightness
+## Current gate
 
-Capture real `t` + `g` data for parallel/extended/left-yaw/right-yaw TV positions and review whether the three bands behave monotonically and robustly.
+Do not connect gains to LedRenderer until real `t` + `g` captures are collected for the actual TV/bracket/wall geometry.
 
-Only after that should ToF-derived gains enter LedRenderer.
+That data is required to choose a real distance-to-brightness curve instead of inventing one.

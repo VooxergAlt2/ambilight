@@ -8,6 +8,7 @@
 #include <esp_timer.h>
 
 #include "config/BoardConfig.h"
+#include "config/TofCalibration.h"
 
 namespace ambilight {
 namespace {
@@ -48,10 +49,21 @@ TofProcessorConfig makeProcessorConfig() {
     return processorConfig;
 }
 
+TofGainModelConfig makeGainModelConfig() {
+    TofGainModelConfig gainConfig;
+
+    gainConfig.curve.configure(
+        config::kTofGainPoints,
+        config::kTofGainPointCount);
+
+    return gainConfig;
+}
+
 } // namespace
 
 TofService::TofService()
-    : processor_(makeProcessorConfig()) {}
+    : processor_(makeProcessorConfig()),
+      gainModel_(makeGainModelConfig()) {}
 
 TofService::~TofService() {
     if (task_ != nullptr) {
@@ -240,6 +252,11 @@ void TofService::publishResults(
     const TofGeometrySnapshot geometry =
         processor_.process(raw);
 
+    const GainSnapshot gains =
+        gainModel_.evaluate(
+            geometry,
+            timestampUs);
+
     TofSnapshot next;
 
     if (mutex_ != nullptr &&
@@ -261,6 +278,7 @@ void TofService::publishResults(
     next.distanceMm = raw.distanceMm;
     next.targetStatus = raw.targetStatus;
     next.geometry = geometry;
+    next.gains = gains;
 
     next.medianMm = medianOfValid(
         results,
@@ -273,6 +291,35 @@ void TofService::publishResults(
     }
 }
 
+void TofService::refreshGainStaleness(
+    std::uint64_t nowUs) {
+
+    TofGeometrySnapshot geometry;
+
+    if (mutex_ == nullptr) {
+        return;
+    }
+
+    if (xSemaphoreTake(mutex_, portMAX_DELAY) == pdTRUE) {
+        geometry = snapshot_.geometry;
+        xSemaphoreGive(mutex_);
+    }
+
+    const GainSnapshot gains =
+        gainModel_.evaluate(
+            geometry,
+            nowUs);
+
+    if (!gains.failOpen) {
+        return;
+    }
+
+    if (xSemaphoreTake(mutex_, portMAX_DELAY) == pdTRUE) {
+        snapshot_.gains = gains;
+        xSemaphoreGive(mutex_);
+    }
+}
+
 void TofService::taskLoop() {
     for (;;) {
         if (!initializeSensor()) {
@@ -280,6 +327,11 @@ void TofService::taskLoop() {
                 xSemaphoreTake(mutex_, portMAX_DELAY) == pdTRUE) {
                 ++snapshot_.initFailures;
                 snapshot_.state = TofState::Error;
+                snapshot_.gains =
+                    gainModel_.evaluate(
+                        TofGeometrySnapshot{},
+                        static_cast<std::uint64_t>(
+                            esp_timer_get_time()));
                 xSemaphoreGive(mutex_);
             }
 
@@ -297,6 +349,8 @@ void TofService::taskLoop() {
                 static_cast<std::uint64_t>(esp_timer_get_time());
 
             if (!sensor_->isDataReady()) {
+                refreshGainStaleness(nowUs);
+
                 if (nowUs - lastSuccessfulFrameUs >
                     static_cast<std::uint64_t>(
                         kRangingStaleMs) * 1000ULL) {
@@ -330,6 +384,8 @@ void TofService::taskLoop() {
                 }
 
                 ++consecutiveReadFailures;
+                refreshGainStaleness(nowUs);
+
                 if (consecutiveReadFailures >=
                     kMaxConsecutiveReadFailures) {
 

@@ -220,6 +220,48 @@ void dumpTofGeometry() {
     Serial.println();
 }
 
+std::uint32_t gainPercentX10(std::uint16_t gainQ12) {
+    return static_cast<std::uint32_t>(
+        (static_cast<std::uint32_t>(gainQ12) * 1000U +
+         ambilight::kGainUnityQ12 / 2U) /
+        ambilight::kGainUnityQ12);
+}
+
+void dumpTofGains() {
+    ambilight::TofSnapshot snapshot;
+
+    if (!tof.copySnapshot(snapshot)) {
+        Serial.println(
+            "TOF gain snapshot unavailable: snapshot mutex busy/not initialized.");
+        return;
+    }
+
+    const auto& gains = snapshot.gains;
+
+    Serial.printf(
+        "TOF GAINS gen=%lu geometry_usable=%s fail_open=%s "
+        "L=%u(%lu.%lu%%) R=%u(%lu.%lu%%) T=%u(%lu.%lu%%) B=%u(%lu.%lu%%)\n",
+        static_cast<unsigned long>(gains.generation),
+        gains.geometryUsable ? "yes" : "no",
+        gains.failOpen ? "yes" : "no",
+        gains.leftQ12,
+        static_cast<unsigned long>(gainPercentX10(gains.leftQ12) / 10U),
+        static_cast<unsigned long>(gainPercentX10(gains.leftQ12) % 10U),
+        gains.rightQ12,
+        static_cast<unsigned long>(gainPercentX10(gains.rightQ12) / 10U),
+        static_cast<unsigned long>(gainPercentX10(gains.rightQ12) % 10U),
+        gains.topQ12,
+        static_cast<unsigned long>(gainPercentX10(gains.topQ12) / 10U),
+        static_cast<unsigned long>(gainPercentX10(gains.topQ12) % 10U),
+        gains.bottomQ12,
+        static_cast<unsigned long>(gainPercentX10(gains.bottomQ12) / 10U),
+        static_cast<unsigned long>(gainPercentX10(gains.bottomQ12) % 10U));
+
+    Serial.println(
+        "Stage 9 note: GainSnapshot is diagnostic only; LedRenderer does not consume it.");
+    Serial.println();
+}
+
 void serviceDebugCommands() {
     while (Serial.available() > 0) {
         const int input = Serial.read();
@@ -228,6 +270,8 @@ void serviceDebugCommands() {
             dumpTofMap();
         } else if (input == 'g' || input == 'G') {
             dumpTofGeometry();
+        } else if (input == 'k' || input == 'K') {
+            dumpTofGains();
         }
     }
 }
@@ -265,8 +309,8 @@ void printRuntimeStatus() {
         "budget=%lu lim=%lu pollmax=%luus sender=%s:%u render=%lu skip=%lu "
         "p50<=%luus p95<=%luus p99<=%luus ovf=%llu agemax=%lluus showmax=%luus "
         "tof=%s tofgen=%lu rawvalid=%u rawmed=%u tofage=%llums tofread=%luus tofreadmax=%luus "
-        "geom=%s l=%u c=%u r=%u delta=%d acc=%u tofinit=%lu toffail=%lu tofreadfail=%lu "
-        "tofrestart=%lu black=%lu heap=%u minheap=%u\n",
+        "geom=%s l=%u c=%u r=%u delta=%d acc=%u gainfail=%s gl=%u gt=%u gb=%u gr=%u "
+        "tofinit=%lu toffail=%lu tofreadfail=%lu tofrestart=%lu black=%lu heap=%u minheap=%u\n",
         wifi.connected() ? "up" : "down",
         wifi.connected() ? WiFi.RSSI() : 0,
         static_cast<unsigned long>(udp.datagramsReceived),
@@ -325,6 +369,11 @@ void printRuntimeStatus() {
         haveTof
             ? static_cast<unsigned>(geometry.acceptedZones)
             : 0U,
+        haveTof && tofSnapshot.gains.failOpen ? "yes" : "no",
+        haveTof ? tofSnapshot.gains.leftQ12 : ambilight::kGainUnityQ12,
+        haveTof ? tofSnapshot.gains.topQ12 : ambilight::kGainUnityQ12,
+        haveTof ? tofSnapshot.gains.bottomQ12 : ambilight::kGainUnityQ12,
+        haveTof ? tofSnapshot.gains.rightQ12 : ambilight::kGainUnityQ12,
         haveTof
             ? static_cast<unsigned long>(tofSnapshot.initAttempts)
             : 0UL,
@@ -346,7 +395,7 @@ void printRuntimeStatus() {
 void printConfiguration() {
     Serial.println();
     Serial.println(
-        "ESP32-C6 Ambilight Stage 8: Wi-Fi/DDP + processed VL53L5CX");
+        "ESP32-C6 Ambilight Stage 9: Wi-Fi/DDP + diagnostic ToF gain model");
 
     Serial.printf(
         "Logical LEDs=%u payload=%uB DDP=%u poll_budget=%uus max_datagrams=%u\n",
@@ -367,7 +416,7 @@ void printConfiguration() {
 
     Serial.printf(
         "VL53L5CX SDA=%u SCL=%u 8x8@10Hz rotation=%u mirror_x=%s; "
-        "geometry is diagnostic only and does NOT modify RGB.\n",
+        "gain model is diagnostic only and does NOT modify RGB.\n",
         ambilight::config::kTofSdaGpio,
         ambilight::config::kTofSclGpio,
         static_cast<unsigned>(
@@ -375,7 +424,7 @@ void printConfiguration() {
         ambilight::config::kTofMirrorX ? "yes" : "no");
 
     Serial.println(
-        "Debug: 't' = raw 8x8 map, 'g' = processed LEFT/CENTER/RIGHT geometry.");
+        "Debug: 't' = raw map, 'g' = processed geometry, 'k' = future side gains.");
     Serial.println(
         "Active frame transport remains Wi-Fi/DDP only. "
         "USB/AWA is preserved separately as WIP.");

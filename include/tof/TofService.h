@@ -8,6 +8,7 @@
 #include <freertos/semphr.h>
 #include <freertos/task.h>
 
+#include "tof/TofGainModel.h"
 #include "tof/TofProcessor.h"
 #include "tof/TofTypes.h"
 
@@ -33,6 +34,7 @@ struct TofSnapshot {
     std::uint16_t medianMm = 0;
 
     TofGeometrySnapshot geometry{};
+    GainSnapshot gains{};
 
     std::uint32_t initAttempts = 0;
     std::uint32_t initFailures = 0;
@@ -66,6 +68,7 @@ private:
         const VL53L5CX_ResultsData& results,
         std::uint32_t readUs,
         std::uint64_t timestampUs);
+    void refreshGainStaleness(std::uint64_t nowUs);
 
     static bool isUsableStatus(std::uint8_t status);
     static std::uint16_t medianOfValid(
@@ -79,6 +82,8 @@ private:
     VL53L5CX_ResultsData results_{};
 
     TofProcessor processor_;
+    TofGainModel gainModel_;
+
     TofSnapshot snapshot_{};
 };
 

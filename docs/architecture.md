@@ -2,7 +2,7 @@
 
 ## Current stage
 
-Stage 8 keeps the one-PC Wi-Fi/DDP renderer as the only active frame transport and adds a pure C++ VL53L5CX geometry processor.
+Stage 9 keeps Wi-Fi/DDP as the only active RGB transport and adds a fully testable, diagnostic-only ToF gain model.
 
 Active RGB path:
 
@@ -22,141 +22,93 @@ Independent ToF path:
       -> TofRawFrame
       -> TofProcessor
       -> TofGeometrySnapshot
+      -> TofGainModel
+      -> GainSnapshot
 
-The two paths are intentionally not connected yet.
+There is still no edge from GainSnapshot to LedRenderer.
 
-## RGB transport invariant
+## Layer boundaries
 
-ToF cannot:
+### DDP transport
 
-- modify RgbFrame
-- call LedRenderer
-- call LedEngine
-- block DDP receive
+Owns packet receive/reassembly only.
+
+It cannot see ToF.
+
+### TofProcessor
+
+Pure C++ spatial/temporal geometry processor.
+
+It cannot see RGB or LED hardware.
+
+### TofGainModel
+
+Pure C++ calibration/fail-open layer.
+
+It converts stable geometry into future side attenuation coefficients.
+
+It cannot see RGB or LED hardware.
+
+### LedRenderer
+
+Still consumes only RgbFrame.
+
+This prevents calibration bugs from changing live Ambilight before hardware calibration is complete.
+
+## Gain contract
+
+GainSnapshot contains:
+
+- leftQ12
+- rightQ12
+- topQ12
+- bottomQ12
+- geometryUsable
+- failOpen
+- generation/timestamp
+
+Unity is Q12 4096.
+
+Gain values above unity are not supported.
+
+## Current calibration
+
+Production/default curve is intentionally identity:
+
+    50..4000 mm -> 4096
+
+No brightness change is possible from Stage 9 model output.
+
+## Fail-open
+
+The gain model produces unity when geometry is invalid or older than 1.5 seconds.
+
+The ToF task refreshes stale state even when the sensor stops producing frames, so a future renderer integration will not indefinitely hold old attenuation.
+
+## Fault isolation
+
+VL53L5CX failures can:
+
+- invalidate geometry
+- force future gains to unity
+- restart the ToF sensor task
+
+They cannot:
+
 - restart Wi-Fi
-- restart the MCU
+- restart DDP
+- clear valid RGB transport state
+- reboot MCU
+- call LedRenderer
 
-This keeps the proven DDP renderer isolated while ToF math is validated.
+## Debug commands
 
-## ToF processing contract
+- `t`: raw 8x8 ToF
+- `g`: processed geometry
+- `k`: diagnostic future gains
 
-TofProcessor is Arduino-free pure C++.
+## Next gate
 
-Input:
+Actual brightness integration is blocked on real hardware calibration captures.
 
-    TofRawFrame
-      timestampUs
-      distanceMm[64]
-      targetStatus[64]
-
-Output:
-
-    TofGeometrySnapshot
-      LEFT estimate
-      CENTER estimate
-      RIGHT estimate
-      accepted zone count
-      rightMinusLeftMm
-
-Each band contains:
-
-- candidate count
-- accepted count
-- raw median
-- MAD
-- robust median
-- temporally filtered distance
-- validity
-
-## Spatial filtering
-
-Normalized 8x8 grid:
-
-- LEFT = columns 0..2
-- CENTER = columns 3..4
-- RIGHT = columns 5..7
-
-Sample gate:
-
-- status 5 or 9
-- distance 50..4000 mm
-
-Outlier rejection:
-
-    threshold = max(100 mm, 4 * MAD)
-
-Minimum accepted samples:
-
-- LEFT/RIGHT: 6
-- CENTER: 4
-
-## Orientation
-
-Raw ST zone order is normalized before band extraction.
-
-Compile-time transform supports:
-
-- 0 degrees
-- 90 degrees
-- 180 degrees
-- 270 degrees
-- optional horizontal mirror
-
-Current values are provisional until actual mounted-sensor captures are reviewed.
-
-## Temporal filtering
-
-Each band has independent state.
-
-- time constant: 600 ms
-- deadband: 10 mm
-- alpha derived from actual timestamp delta
-- Q16 integer arithmetic
-- first valid sample initializes immediately
-
-## ToF recovery
-
-Sensor work stays in a low-priority FreeRTOS task.
-
-Recovery conditions:
-
-- init failure -> retry after 5 s
-- five consecutive ranging read failures -> sensor-only restart
-- 3 s with no successful ranging frame -> sensor-only restart
-
-DDP and PARLIO remain operational throughout.
-
-## Debug
-
-Serial command:
-
-    t
-
-prints one raw 8x8 map.
-
-Serial command:
-
-    g
-
-prints processed LEFT/CENTER/RIGHT diagnostics.
-
-Full maps are manual only so logging does not become a hidden source of DDP jitter.
-
-## Native test boundary
-
-Pure C++ tests cover:
-
-- logical LED mapping
-- DDP assembler
-- latency histogram
-- ToF processor
-
-The ToF processor tests include rotation mapping, flat wall, asymmetric wall, invalid samples, outliers, low confidence, temporal smoothing, deadband, and status handling.
-
-## Next architectural step
-
-Do not connect ToF to LedRenderer yet.
-
-First collect real measurements at several TV poses and define a calibration/model layer that maps stable geometry to desired side brightness gains.
-
-Only after that layer has independent tests should a GainSnapshot be consumed by LedRenderer.
+The code may proceed to renderer integration only after control points are chosen from measured behavior rather than guessed.
