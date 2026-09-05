@@ -54,14 +54,25 @@ function Invoke-PlatformIoLogged {
     Write-Host ""
     Write-Host ">>> PlatformIO $($Arguments -join ' ')"
 
-    if ($PlatformIo.Kind -eq "pio") {
-        & $PlatformIo.Command @Arguments 2>&1 | Tee-Object -FilePath $LogFile | Out-Host
-    }
-    else {
-        & $PlatformIo.Command -m platformio @Arguments 2>&1 | Tee-Object -FilePath $LogFile | Out-Host
-    }
+    # Windows PowerShell 5 treats stderr from a native command as an error
+    # record.  Keep the script's normal fail-fast behavior, but let this
+    # wrapper collect the process exit code so the other validation gate runs.
+    $PreviousErrorActionPreference = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
 
-    return [int]$LASTEXITCODE
+    try {
+        if ($PlatformIo.Kind -eq "pio") {
+            & $PlatformIo.Command @Arguments 2>&1 | Tee-Object -FilePath $LogFile | Out-Host
+        }
+        else {
+            & $PlatformIo.Command -m platformio @Arguments 2>&1 | Tee-Object -FilePath $LogFile | Out-Host
+        }
+
+        return [int]$LASTEXITCODE
+    }
+    finally {
+        $ErrorActionPreference = $PreviousErrorActionPreference
+    }
 }
 
 Push-Location $RepoRoot
