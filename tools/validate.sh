@@ -45,10 +45,8 @@ run_logged() {
     echo
     echo ">>> PlatformIO $*"
 
-    set +e
     "${pio_cmd[@]}" "$@" 2>&1 | tee "$log_file"
     local command_exit=${PIPESTATUS[0]}
-    set -e
 
     return "$command_exit"
 }
@@ -59,17 +57,13 @@ native_exit=0
 firmware_exit=0
 
 if [[ "$skip_native" -eq 0 ]]; then
-    set +e
     run_logged "$output_dir/native-test.log" test -e native
     native_exit=$?
-    set -e
 fi
 
 if [[ "$skip_firmware" -eq 0 ]]; then
-    set +e
     run_logged "$output_dir/firmware-build.log" run -e esp32-c6-devkitc-1
     firmware_exit=$?
-    set -e
 fi
 
 cat > "$output_dir/summary.txt" <<EOF
