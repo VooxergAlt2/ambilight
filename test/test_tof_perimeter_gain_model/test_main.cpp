@@ -347,6 +347,58 @@ void test_per_pixel_curve_evaluation_is_exact_across_calibration_knot() {
 }
 
 
+
+void test_runtime_geometry_replacement_changes_projected_distances() {
+    auto model = makeModel();
+
+    const auto plane =
+        makePlane(
+            600.0F,
+            0.20F,
+            0.0F,
+            1000000);
+
+    const auto before =
+        model.evaluate(
+            plane,
+            1100000);
+
+    TEST_ASSERT_EQUAL_UINT16(
+        500,
+        segment(
+            before,
+            SegmentId::Top).startDistanceMm);
+
+    TEST_ASSERT_EQUAL_UINT16(
+        700,
+        segment(
+            before,
+            SegmentId::Top).endDistanceMm);
+
+    TEST_ASSERT_TRUE(
+        model.setGeometry(
+            makeRectangle(
+                2000.0F,
+                500.0F)));
+
+    const auto after =
+        model.evaluate(
+            plane,
+            1200000);
+
+    TEST_ASSERT_EQUAL_UINT16(
+        400,
+        segment(
+            after,
+            SegmentId::Top).startDistanceMm);
+
+    TEST_ASSERT_EQUAL_UINT16(
+        800,
+        segment(
+            after,
+            SegmentId::Top).endDistanceMm);
+}
+
 void test_runtime_curve_replacement_rebuilds_exact_per_pixel_values() {
     auto model = makeModel();
 
@@ -570,6 +622,7 @@ int main(int, char**) {
     RUN_TEST(test_pitch_creates_vertical_within_segment_gradients);
     RUN_TEST(test_combined_yaw_pitch_changes_all_four_segments);
     RUN_TEST(test_per_pixel_curve_evaluation_is_exact_across_calibration_knot);
+    RUN_TEST(test_runtime_geometry_replacement_changes_projected_distances);
     RUN_TEST(test_runtime_curve_replacement_rebuilds_exact_per_pixel_values);
     RUN_TEST(test_invalid_runtime_curve_does_not_replace_perimeter_curve);
     RUN_TEST(test_led_plane_z_offset_is_subtracted);
