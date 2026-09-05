@@ -2,67 +2,69 @@
 
 ## Current stage
 
-Stage 16 adds confidence diagnostics to the 2D spatial perimeter-gain pipeline.
+Stage 17 carries exact spatial gain all the way from the wall plane to each of the 780 logical LEDs.
 
-Physical correction remains disabled.
+Physical gain application remains disabled.
 
-## Spatial chain
+## Exact spatial chain
 
-    VL53L5CX
-      -> robust 3D wall points
-      -> wall plane
-      -> observed wall X/Y span
-      -> screen perimeter projection
-      -> endpoint distances
-      -> endpoint gains
-      -> RenderGainContext
-      -> render-rate slew
-      -> per-pixel shadow interpolation
+    VL53L5CX 8x8
+      -> robust wall plane
+      -> segment endpoint wall distances
+      -> linear distance for each logical LED
+      -> distance-to-gain curve per LED
+      -> PerimeterGainSnapshot.logicalGainQ12[780]
+      -> TofRenderGainBridge
+      -> RenderGainContext.logicalGainQ12[780]
+      -> RenderGainController per-pixel slew
+      -> LedRenderer logical-index lookup
+      -> ShadowRenderPolicy
       -> ORIGINAL RGB
 
-## Confidence layers
+## Why per-pixel field
 
-Plane validity answers:
+The geometry gives linear distance along a segment.
 
-    did the accepted ToF points support a coherent wall plane?
+The calibration law is piecewise linear in distance.
 
-Projection validity answers:
+Composing those functions is piecewise linear in segment position, not necessarily one straight gain line from segment start to end.
 
-    can that plane produce sane wall distances at every configured LED endpoint?
+The exact per-pixel field preserves all calibration knots.
 
-Extrapolation warning answers:
+## Rate domains
 
-    how far outside the directly observed wall patch are we projecting?
+ToF measurement/model:
 
-These are intentionally separate signals.
+    ~10 Hz
 
-## Extrapolation
+Large spatial snapshot polling:
 
-The estimator records accepted point half-spans X/Y.
+    20 Hz
 
-The spatial model compares those spans to the configured LED perimeter half-spans.
+Effective per-pixel gain slew/render:
 
-A ratio over 4.0x currently produces a warning only.
+    up to ~60 Hz
 
-No hard extrapolation fail-open is enabled before real bracket measurements exist.
+The 20 Hz polling rate avoids repeatedly copying a ~1.6 KB field under the ToF mutex when the sensor itself only updates around 10 Hz.
 
-## Renderer contract
+## Memory
 
-TofRenderGainBridge requires:
+One logical field is:
 
-- snapshot fresh
-- plane usable
-- projection usable
-- not fail-open
+    780 * 2 bytes = 1560 bytes
 
-Extrapolation warning alone does not disable shadow gains.
+Several cached/controller copies consume only a few kilobytes and avoid complex dynamic allocation.
 
-## Remaining mathematical concern
+## Screen-space invariants
 
-The renderer currently interpolates gain linearly between segment endpoint gains.
+Logical gain index remains independent from physical lane/index reversal.
 
-Distance itself is linear along a straight segment under the fitted plane, but a calibrated distance-to-gain curve can contain multiple piecewise-linear intervals.
+The screen-space geometry controls which wall point belongs to which logical LED.
 
-Therefore endpoint-gain interpolation is not exact if one segment spans calibration breakpoints.
+SegmentMapper controls wiring only.
 
-The next stage should carry distance through the render profile and evaluate the calibration curve at the actual per-pixel distance.
+## Safety
+
+Any invalid/stale spatial source returns a full unity field.
+
+Physical output is still hardwired to original RGB by ShadowRenderPolicy.
