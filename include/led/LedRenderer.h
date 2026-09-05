@@ -8,6 +8,7 @@
 
 #include "core/RgbFrame.h"
 #include "led/LedEngine.h"
+#include "render/CorrectionMode.h"
 #include "render/RenderGainContext.h"
 
 namespace ambilight {
@@ -22,6 +23,11 @@ struct RenderShadowStats {
 
     std::uint64_t evaluatedPixels = 0;
     std::uint64_t wouldChangePixels = 0;
+    std::uint64_t physicalChangedPixels = 0;
+
+    std::uint32_t disabledFrames = 0;
+    std::uint32_t shadowFrames = 0;
+    std::uint32_t activeFrames = 0;
 
     std::array<
         std::uint64_t,
@@ -31,6 +37,7 @@ struct RenderShadowStats {
     std::uint8_t maxChannelDelta = 0;
 
     std::uint16_t lastWouldChangePixels = 0;
+    std::uint16_t lastPhysicalChangedPixels = 0;
     std::uint8_t lastMaxChannelDelta = 0;
 
     std::uint32_t lastInputChannelSum = 0;
@@ -50,13 +57,15 @@ public:
 
     esp_err_t render(const RgbFrame& frame);
 
-    // Stage 11 shadow path.
-    //
-    // Gain math is evaluated for every logical pixel. ShadowRenderPolicy
-    // guarantees that the actual physical output remains original RGB.
+    // Backward-compatible preview path. Equivalent to SHADOW mode.
     esp_err_t render(
         const RgbFrame& frame,
         const RenderGainContext& gainContext);
+
+    esp_err_t render(
+        const RgbFrame& frame,
+        const RenderGainContext& gainContext,
+        CorrectionMode correctionMode);
 
     std::uint32_t renderedFrames() const {
         return renderedFrames_;
@@ -74,6 +83,10 @@ public:
         return lastGainContext_;
     }
 
+    CorrectionMode lastCorrectionMode() const {
+        return lastCorrectionMode_;
+    }
+
 private:
     static crgb_t toCrgb(const Rgb8& color);
 
@@ -84,6 +97,8 @@ private:
 
     RenderShadowStats shadowStats_{};
     RenderGainContext lastGainContext_{};
+    CorrectionMode lastCorrectionMode_ =
+        CorrectionMode::Disabled;
 };
 
 } // namespace ambilight
