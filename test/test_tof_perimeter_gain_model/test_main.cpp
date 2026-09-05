@@ -569,7 +569,7 @@ void test_observed_fov_span_does_not_gate_plane_projection() {
         makePlane(
             600.0F,
             0.05F,
-            0.03F,
+            0.02F,
             1000000);
 
     // Deliberately tiny directly observed wall patch. Once the plane is valid,
@@ -591,11 +591,11 @@ void test_observed_fov_span_does_not_gate_plane_projection() {
         segment(result, SegmentId::Top);
 
     TEST_ASSERT_EQUAL_UINT16(
-        583,
+        580,
         top.startDistanceMm);
 
     TEST_ASSERT_EQUAL_UINT16(
-        633,
+        630,
         top.endDistanceMm);
 }
 
