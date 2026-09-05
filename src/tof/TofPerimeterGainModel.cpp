@@ -60,6 +60,9 @@ PerimeterGainSnapshot TofPerimeterGainModel::unitySnapshot(
         segment.endQ12 = kGainUnityQ12;
     }
 
+    snapshot.logicalGainQ12.fill(
+        kGainUnityQ12);
+
     return snapshot;
 }
 
@@ -241,13 +244,95 @@ PerimeterGainSnapshot TofPerimeterGainModel::evaluate(
             return latest_;
         }
 
-        segment.startQ12 =
-            config_.curve.evaluate(
+        const auto& logicalSegment =
+            kSegments[index];
+
+        if (logicalSegment.id !=
+                segmentGeometry.id ||
+            logicalSegment.logicalLength == 0) {
+
+            latest_ =
+                unitySnapshot(
+                    generation,
+                    nowUs,
+                    true);
+
+            return latest_;
+        }
+
+        const std::int32_t distanceSpan =
+            static_cast<std::int32_t>(
+                segment.endDistanceMm) -
+            static_cast<std::int32_t>(
                 segment.startDistanceMm);
 
+        const std::uint32_t denominator =
+            logicalSegment.logicalLength > 1
+                ? logicalSegment.logicalLength - 1
+                : 1;
+
+        for (std::uint16_t offset = 0;
+             offset <
+                logicalSegment.logicalLength;
+             ++offset) {
+
+            const std::int64_t numerator =
+                static_cast<std::int64_t>(
+                    distanceSpan) *
+                offset;
+
+            const std::int64_t rounded =
+                numerator >= 0
+                    ? numerator +
+                        static_cast<std::int64_t>(
+                            denominator / 2U)
+                    : numerator -
+                        static_cast<std::int64_t>(
+                            denominator / 2U);
+
+            const std::int32_t distance =
+                static_cast<std::int32_t>(
+                    segment.startDistanceMm) +
+                static_cast<std::int32_t>(
+                    rounded /
+                    static_cast<std::int64_t>(
+                        denominator));
+
+            if (distance <
+                    config_.minDistanceMm ||
+                distance >
+                    config_.maxDistanceMm) {
+
+                latest_ =
+                    unitySnapshot(
+                        generation,
+                        nowUs,
+                        true);
+
+                return latest_;
+            }
+
+            const std::uint16_t logicalIndex =
+                static_cast<std::uint16_t>(
+                    logicalSegment.logicalStart +
+                    offset);
+
+            next.logicalGainQ12[
+                logicalIndex] =
+                config_.curve.evaluate(
+                    static_cast<std::uint16_t>(
+                        distance));
+        }
+
+        segment.startQ12 =
+            next.logicalGainQ12[
+                logicalSegment.logicalStart];
+
         segment.endQ12 =
-            config_.curve.evaluate(
-                segment.endDistanceMm);
+            next.logicalGainQ12[
+                logicalSegment.logicalStart +
+                logicalSegment.logicalLength -
+                1];
 
         minDistance =
             std::min(
