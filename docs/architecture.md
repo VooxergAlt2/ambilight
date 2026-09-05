@@ -69,6 +69,11 @@ Wall-plane transfer and processing:
 
     about every 12 seconds
 
+Plane acceptance:
+
+    rebuild only if predicted wall position changes by >=10 mm
+    somewhere on the LED rectangle
+
 Large gain target polling:
 
     1 Hz
@@ -78,6 +83,8 @@ Effective gain slew/render after a target update:
     up to about 60 Hz
 
 The slow ToF cadence is intentional because TV pose changes are rare compared with video frames.
+
+The 10 mm deadband is cumulative against the last applied plane. Measurements inside the deadband refresh freshness only and do not rebuild the 780-value field.
 
 ## Memory
 
