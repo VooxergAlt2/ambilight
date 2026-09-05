@@ -331,6 +331,41 @@ void dumpTofGeometry() {
     Serial.println();
 }
 
+void dumpTofPlane() {
+    ambilight::TofSnapshot snapshot;
+
+    if (!tof.copySnapshot(snapshot)) {
+        Serial.println(
+            "TOF plane unavailable: snapshot mutex busy/not initialized.");
+        return;
+    }
+
+    const auto& plane =
+        snapshot.geometry.plane;
+
+    Serial.printf(
+        "TOF PLANE valid=%s candidates=%u accepted=%u z0=%.1fmm "
+        "slope_x=%.5f slope_y=%.5f yaw=%d.%02ddeg pitch=%d.%02ddeg "
+        "residual_med=%umm residual_mad=%umm\n",
+        plane.valid ? "yes" : "no",
+        static_cast<unsigned>(plane.candidates),
+        static_cast<unsigned>(plane.accepted),
+        static_cast<double>(plane.interceptMm),
+        static_cast<double>(plane.slopeX),
+        static_cast<double>(plane.slopeY),
+        static_cast<int>(plane.yawCentiDeg / 100),
+        static_cast<int>(std::abs(plane.yawCentiDeg % 100)),
+        static_cast<int>(plane.pitchCentiDeg / 100),
+        static_cast<int>(std::abs(plane.pitchCentiDeg % 100)),
+        plane.residualMedianMm,
+        plane.residualMadMm);
+
+    Serial.println(
+        "Plane coordinates: +X right, +Y up, +Z toward wall. "
+        "Positive yaw means wall farther on right; positive pitch means farther at top.");
+    Serial.println();
+}
+
 std::uint32_t gainPercentX10(std::uint16_t gainQ12) {
     return static_cast<std::uint32_t>(
         (static_cast<std::uint32_t>(gainQ12) * 1000U +
@@ -660,6 +695,8 @@ void serviceDebugCommands() {
             dumpTofMap();
         } else if (input == 'g' || input == 'G') {
             dumpTofGeometry();
+        } else if (input == 'p' || input == 'P') {
+            dumpTofPlane();
         } else if (input == 'k' || input == 'K') {
             dumpTofGains();
         } else if (input == 'c' || input == 'C') {
@@ -705,7 +742,9 @@ void printRuntimeStatus() {
         "budget=%lu lim=%lu pollmax=%luus sender=%s:%u render=%lu skip=%lu "
         "p50<=%luus p95<=%luus p99<=%luus ovf=%llu agemax=%lluus showmax=%luus "
         "tof=%s tofgen=%lu rawvalid=%u rawmed=%u tofage=%llums tofread=%luus tofreadmax=%luus "
-        "geom=%s l=%u c=%u r=%u delta=%d acc=%u gainfail=%s gl=%u gt=%u gb=%u gr=%u "
+        "geom=%s l=%u c=%u r=%u delta=%d acc=%u "
+        "plane=%s pyaw=%d ppitch=%d pacc=%u pmad=%u "
+        "gainfail=%s gl=%u gt=%u gb=%u gr=%u "
         "shadow_usable=%lu shadow_nonunity=%lu shadow_changed=%u shadow_delta=%u shadowprep=%luus "
         "slew_snap=%lu probe=%s sched_rgb=%lu sched_gain=%lu sched_comb=%lu sched_def=%lu rgbgen=%lu "
         "tofinit=%lu toffail=%lu tofreadfail=%lu tofrestart=%lu black=%lu heap=%u minheap=%u\n",
@@ -767,6 +806,19 @@ void printRuntimeStatus() {
         haveTof
             ? static_cast<unsigned>(geometry.acceptedZones)
             : 0U,
+        haveTof && geometry.plane.valid ? "ok" : "bad",
+        haveTof
+            ? static_cast<int>(geometry.plane.yawCentiDeg)
+            : 0,
+        haveTof
+            ? static_cast<int>(geometry.plane.pitchCentiDeg)
+            : 0,
+        haveTof
+            ? static_cast<unsigned>(geometry.plane.accepted)
+            : 0U,
+        haveTof
+            ? geometry.plane.residualMadMm
+            : 0U,
         haveTof && tofSnapshot.gains.failOpen ? "yes" : "no",
         haveTof ? tofSnapshot.gains.leftQ12 : ambilight::kGainUnityQ12,
         haveTof ? tofSnapshot.gains.topQ12 : ambilight::kGainUnityQ12,
@@ -815,7 +867,7 @@ void printRuntimeStatus() {
 void printConfiguration() {
     Serial.println();
     Serial.println(
-        "ESP32-C6 Ambilight Stage 13: Wi-Fi/DDP + render dirty scheduler");
+        "ESP32-C6 Ambilight Stage 14: Wi-Fi/DDP + robust ToF wall plane");
 
     Serial.printf(
         "Logical LEDs=%u payload=%uB DDP=%u poll_budget=%uus max_datagrams=%u\n",
@@ -844,7 +896,7 @@ void printConfiguration() {
         ambilight::config::kTofMirrorX ? "yes" : "no");
 
     Serial.println(
-        "Debug: 't'=raw, 'g'=geometry, 'k'=gains, 'c'=capture, 'r'=shadow/scheduler, 'x'=10s shadow probe.");
+        "Debug: 't'=raw, 'g'=bands, 'p'=plane, 'k'=gains, 'c'=capture, 'r'=shadow/scheduler, 'x'=10s probe.");
     Serial.println(
         "Active frame transport remains Wi-Fi/DDP only. "
         "USB/AWA is preserved separately as WIP.");
