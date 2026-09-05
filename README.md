@@ -4,7 +4,7 @@ Custom ESP32-C6 Ambilight endpoint for HyperHDR.
 
 ## Current development line
 
-Stage 29 adds guarded full runtime configuration recovery on top of commissioning and persistent profiles.
+Stage 30 cleans up render scheduling semantics: every non-RGB output change is now explicit render state rather than being mislabeled as gain-only.
 
 The firmware stack now includes:
 
@@ -224,3 +224,26 @@ With LEDs disabled:
 The command clears the complete `ambilight` NVS namespace and restarts only after a successful durable clear.
 
 If NVS clear fails, runtime settings are left unchanged and the controller does not reboot.
+
+
+## Render-state scheduling
+
+A cached HyperHDR frame is rerendered when output state changes even if no new RGB arrives.
+
+Current state-dirty sources include:
+
+- ToF gain target/slew
+- correction mode
+- output brightness
+- runtime LED mapping
+
+State-only rerenders are limited to about 60 Hz.
+
+Fresh RGB frames bypass that limiter.
+
+Telemetry now reports:
+
+    sched_state
+    sched_state_def
+
+instead of the old misleading gain-only names.
