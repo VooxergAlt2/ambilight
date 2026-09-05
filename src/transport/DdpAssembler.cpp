@@ -101,6 +101,26 @@ bool DdpAssembler::isComplete() const {
     return pushSeen_ && coveredBytes_ == kFrameBytes;
 }
 
+bool DdpAssembler::canStartSequence(
+    std::uint8_t sequence,
+    std::uint64_t nowUs) {
+
+    if (!hasLastCompletedSequence_) {
+        return true;
+    }
+
+    if (sequence == lastCompletedSequence_) {
+        return false;
+    }
+
+    if (nowUs - lastCompletedUs_ > kSequenceResyncSilenceUs) {
+        ++stats_.sequenceResyncs;
+        return true;
+    }
+
+    return ddpSequenceIsNewer(sequence, lastCompletedSequence_);
+}
+
 DdpIngestResult DdpAssembler::ingest(
     const std::uint8_t* datagram,
     std::size_t datagramLength,
@@ -120,14 +140,9 @@ DdpIngestResult DdpAssembler::ingest(
     }
 
     if (!active_) {
-        if (hasLastCompletedSequence_) {
-            if (packet.sequence == lastCompletedSequence_ ||
-                !ddpSequenceIsNewer(
-                    packet.sequence,
-                    lastCompletedSequence_)) {
-                ++stats_.stale;
-                return DdpIngestResult::Stale;
-            }
+        if (!canStartSequence(packet.sequence, nowUs)) {
+            ++stats_.stale;
+            return DdpIngestResult::Stale;
         }
 
         startFrame(packet.sequence, nowUs);
@@ -170,6 +185,7 @@ DdpIngestResult DdpAssembler::ingest(
 
     hasLastCompletedSequence_ = true;
     lastCompletedSequence_ = activeSequence_;
+    lastCompletedUs_ = nowUs;
 
     resetActive();
 

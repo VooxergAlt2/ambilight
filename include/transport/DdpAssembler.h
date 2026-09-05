@@ -24,6 +24,7 @@ struct DdpAssemblerStats {
     std::uint32_t completed = 0;
     std::uint32_t superseded = 0;
     std::uint32_t timedOut = 0;
+    std::uint32_t sequenceResyncs = 0;
     std::uint32_t duplicateBytes = 0;
     std::uint32_t conflictingDatagrams = 0;
 };
@@ -35,6 +36,7 @@ public:
     static constexpr std::size_t kCoverageBytes =
         (kFrameBytes + 7) / 8;
     static constexpr std::uint64_t kDefaultAssemblyTimeoutUs = 50000;
+    static constexpr std::uint64_t kSequenceResyncSilenceUs = 250000;
 
     explicit DdpAssembler(
         std::uint64_t assemblyTimeoutUs = kDefaultAssemblyTimeoutUs)
@@ -62,6 +64,7 @@ private:
     bool isCovered(std::size_t index) const;
     void markCovered(std::size_t index);
     bool isComplete() const;
+    bool canStartSequence(std::uint8_t sequence, std::uint64_t nowUs);
 
     std::array<std::uint8_t, kFrameBytes> staging_{};
     std::array<std::uint8_t, kCoverageBytes> coverage_{};
@@ -76,6 +79,7 @@ private:
     std::uint16_t coveredBytes_ = 0;
 
     std::uint64_t lastPacketUs_ = 0;
+    std::uint64_t lastCompletedUs_ = 0;
     std::uint64_t assemblyTimeoutUs_ = kDefaultAssemblyTimeoutUs;
 
     DdpAssemblerStats stats_{};

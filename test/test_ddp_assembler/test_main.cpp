@@ -197,6 +197,37 @@ void test_sequence_wrap_15_to_1_is_newer() {
             b1.data(), b1.size(), 6300, frame)));
 }
 
+void test_sequence_resync_after_silence_accepts_any_valid_sequence() {
+    DdpAssembler assembler;
+    RgbFrame frame;
+
+    auto a0 = makePacket(2, 0, 1440, false);
+    auto a1 = makePacket(2, 1440, 900, true);
+
+    assembler.ingest(a0.data(), a0.size(), 7000, frame);
+    assembler.ingest(a1.data(), a1.size(), 7100, frame);
+
+    // Sequence 11 is outside the normal half-ring "newer" window from 2,
+    // but after a long stream silence it must become a new baseline.
+    auto b0 = makePacket(11, 0, 1440, false);
+    auto b1 = makePacket(11, 1440, 900, true);
+
+    const std::uint64_t resumedUs =
+        7100 + DdpAssembler::kSequenceResyncSilenceUs + 1;
+
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(DdpIngestResult::Partial),
+        static_cast<int>(assembler.ingest(
+            b0.data(), b0.size(), resumedUs, frame)));
+
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(DdpIngestResult::Complete),
+        static_cast<int>(assembler.ingest(
+            b1.data(), b1.size(), resumedUs + 100, frame)));
+
+    TEST_ASSERT_EQUAL_UINT32(1, assembler.stats().sequenceResyncs);
+}
+
 void test_timeout_discards_incomplete_frame() {
     DdpAssembler assembler(1000);
     RgbFrame frame;
@@ -270,6 +301,7 @@ int main(int, char**) {
     RUN_TEST(test_new_sequence_supersedes_incomplete_frame);
     RUN_TEST(test_stale_sequence_is_rejected_after_completion);
     RUN_TEST(test_sequence_wrap_15_to_1_is_newer);
+    RUN_TEST(test_sequence_resync_after_silence_accepts_any_valid_sequence);
     RUN_TEST(test_timeout_discards_incomplete_frame);
     RUN_TEST(test_wrong_type_destination_and_bounds_are_rejected);
     RUN_TEST(test_conflicting_overlap_rejects_active_frame);
