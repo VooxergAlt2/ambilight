@@ -27,7 +27,6 @@ void TofCalibrationCapture::start(
     storedSamples_ = 0;
     planeSamplesCount_ = 0;
     spatialSamplesCount_ = 0;
-    spatialWarningFrames_ = 0;
 
     left_ = {};
     center_ = {};
@@ -254,12 +253,6 @@ bool TofCalibrationCapture::captureSpatial(
     spatial_.maxDistanceMm[index] =
         spatial.maxDistanceMm;
 
-    spatial_.extrapolationXPermille[index] =
-        spatial.extrapolationXPermille;
-
-    spatial_.extrapolationYPermille[index] =
-        spatial.extrapolationYPermille;
-
     for (std::size_t segmentIndex = 0;
          segmentIndex <
             spatial.segment.size();
@@ -276,10 +269,6 @@ bool TofCalibrationCapture::captureSpatial(
             spatial.segment[
                 segmentIndex].
                 endDistanceMm;
-    }
-
-    if (spatial.extrapolationWarning) {
-        ++spatialWarningFrames_;
     }
 
     ++spatialSamplesCount_;
@@ -628,9 +617,6 @@ CalibrationCaptureSummary TofCalibrationCapture::finish() {
         summary.spatial.validFrames =
             spatialSamplesCount_;
 
-        summary.spatial.warningFrames =
-            spatialWarningFrames_;
-
         summary.spatial.minDistanceMm =
             summarizeUnsigned(
                 spatial_.minDistanceMm,
@@ -640,18 +626,6 @@ CalibrationCaptureSummary TofCalibrationCapture::finish() {
             summarizeUnsigned(
                 spatial_.maxDistanceMm,
                 spatialSamplesCount_);
-
-        summary.spatial.medianExtrapolationXPermille =
-            percentile(
-                spatial_.extrapolationXPermille,
-                spatialSamplesCount_,
-                50);
-
-        summary.spatial.medianExtrapolationYPermille =
-            percentile(
-                spatial_.extrapolationYPermille,
-                spatialSamplesCount_,
-                50);
 
         for (std::size_t segmentIndex = 0;
              segmentIndex <
