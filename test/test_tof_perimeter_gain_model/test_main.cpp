@@ -132,6 +132,16 @@ void test_flat_wall_produces_uniform_perimeter() {
             result.segment[index].startQ12,
             result.segment[index].endQ12);
     }
+
+    // 600 mm lies halfway between the 500 mm / 2048 and
+    // 900 mm / 4096 calibration points.
+    for (const auto gain :
+         result.logicalGainQ12) {
+
+        TEST_ASSERT_EQUAL_UINT16(
+            2560,
+            gain);
+    }
 }
 
 void test_yaw_creates_horizontal_within_segment_gradients() {
