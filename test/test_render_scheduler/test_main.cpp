@@ -33,11 +33,11 @@ void test_new_rgb_renders_immediately() {
 
     TEST_ASSERT_TRUE(first.render);
     TEST_ASSERT_TRUE(first.dueToRgb);
-    TEST_ASSERT_FALSE(first.dueToGain);
+    TEST_ASSERT_FALSE(first.dueToState);
 
     scheduler.markRendered(1000);
 
-    // Even inside gain-only rate limit, a fresh RGB frame must not wait.
+    // Even inside state-only rate limit, a fresh RGB frame must not wait.
     auto second =
         scheduler.decide(
             true,
@@ -49,9 +49,9 @@ void test_new_rgb_renders_immediately() {
     TEST_ASSERT_TRUE(second.dueToRgb);
 }
 
-void test_gain_only_render_is_rate_limited() {
+void test_state_only_render_is_rate_limited() {
     RenderSchedulerConfig config;
-    config.gainOnlyMinIntervalUs = 16667;
+    config.stateOnlyMinIntervalUs = 16667;
 
     RenderScheduler scheduler(config);
 
@@ -63,7 +63,7 @@ void test_gain_only_render_is_rate_limited() {
             1000);
 
     TEST_ASSERT_TRUE(first.render);
-    TEST_ASSERT_TRUE(first.dueToGain);
+    TEST_ASSERT_TRUE(first.dueToState);
 
     scheduler.markRendered(1000);
 
@@ -75,7 +75,7 @@ void test_gain_only_render_is_rate_limited() {
             17000);
 
     TEST_ASSERT_FALSE(tooSoon.render);
-    TEST_ASSERT_TRUE(tooSoon.gainDeferred);
+    TEST_ASSERT_TRUE(tooSoon.stateDeferred);
 
     auto allowed =
         scheduler.decide(
@@ -85,7 +85,7 @@ void test_gain_only_render_is_rate_limited() {
             17667);
 
     TEST_ASSERT_TRUE(allowed.render);
-    TEST_ASSERT_TRUE(allowed.dueToGain);
+    TEST_ASSERT_TRUE(allowed.dueToState);
 }
 
 void test_clean_state_does_not_rerender_static_rgb() {
@@ -104,7 +104,7 @@ void test_clean_state_does_not_rerender_static_rgb() {
         scheduler.stats().cleanSkips);
 }
 
-void test_rgb_and_gain_dirty_are_combined_in_one_render() {
+void test_rgb_and_state_dirty_are_combined_in_one_render() {
     RenderScheduler scheduler;
 
     const auto decision =
@@ -116,7 +116,7 @@ void test_rgb_and_gain_dirty_are_combined_in_one_render() {
 
     TEST_ASSERT_TRUE(decision.render);
     TEST_ASSERT_TRUE(decision.dueToRgb);
-    TEST_ASSERT_TRUE(decision.dueToGain);
+    TEST_ASSERT_TRUE(decision.dueToState);
 
     TEST_ASSERT_EQUAL_UINT32(
         1,
@@ -144,7 +144,7 @@ void test_time_rollback_allows_gain_recovery_render() {
             9000);
 
     TEST_ASSERT_TRUE(rollback.render);
-    TEST_ASSERT_TRUE(rollback.dueToGain);
+    TEST_ASSERT_TRUE(rollback.dueToState);
 
     TEST_ASSERT_EQUAL_UINT32(
         1,
@@ -156,9 +156,9 @@ int main(int, char**) {
 
     RUN_TEST(test_no_rgb_frame_never_renders);
     RUN_TEST(test_new_rgb_renders_immediately);
-    RUN_TEST(test_gain_only_render_is_rate_limited);
+    RUN_TEST(test_state_only_render_is_rate_limited);
     RUN_TEST(test_clean_state_does_not_rerender_static_rgb);
-    RUN_TEST(test_rgb_and_gain_dirty_are_combined_in_one_render);
+    RUN_TEST(test_rgb_and_state_dirty_are_combined_in_one_render);
     RUN_TEST(test_time_rollback_allows_gain_recovery_render);
 
     return UNITY_END();
