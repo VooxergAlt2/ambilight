@@ -2,62 +2,71 @@
 
 ## Current stage
 
-Stage 19 uses a slow, physically explicit wall-plane model.
+Stage 20 combines:
 
-Physical gain application remains disabled.
+- realtime Wi-Fi/DDP RGB transport
+- slow VL53L5CX wall-plane geometry
+- exact 780-value spatial gain field
+- cumulative geometry deadband
+- persistent DISABLED / SHADOW / ACTIVE correction modes
 
 ## RGB path
 
     HyperHDR
-      -> Wi-Fi / DDP UDP
+      -> Wi-Fi / DDP UDP/4048
       -> DdpAssembler
       -> FrameMailbox
-      -> cached RGB frame
+      -> cached RgbFrame
+      -> RenderScheduler
+      -> RenderGainController
       -> LedRenderer
-      -> PARLIO
-      -> 4 LED lanes
+      -> SegmentMapper
+      -> PARLIO x4
 
 ## ToF path
 
     VL53L5CX 8x8
       -> perpendicular distance_mm (Z)
-      -> ST zone-center pitch/yaw -> X/Y
+      -> zone geometry -> X/Y
       -> robust wall plane
+      -> PlaneChangeGate
+          insignificant -> refresh freshness only
+          material      -> rebuild
       -> 780 logical LED screen points
-      -> +Z ray / wall-plane intersection per LED
-      -> 780 LED-wall distances
-      -> distance-to-gain curve per LED
+      -> +Z plane intersection per LED
+      -> 780 wall distances
+      -> distance curve per LED
       -> PerimeterGainSnapshot.logicalGainQ12[780]
-      -> RenderGainController per-pixel slew
-      -> shadow render only
+      -> TofRenderGainBridge
+      -> RenderGainContext.logicalGainQ12[780]
 
-## Wall-plane equation
+## Wall model
 
     z_wall = intercept + slope_x*x + slope_y*y
 
-For LED point:
+For one LED:
 
-    P_led = (x_led, y_led, z_led)
+    distance = z_wall(x_led, y_led) - z_led
 
-the corresponding wall spot is:
+This is screen-normal throw distance, not shortest orthogonal distance to a tilted wall.
 
-    P_wall = (x_led, y_led, z_wall)
+## Plane-change gate
 
-and throw distance is:
+The difference between two planes is linear.
 
-    distance = z_wall - z_led
+Over the rectangular LED area, maximum absolute Z difference occurs at a corner.
 
-This is deliberate screen-normal projection, not shortest orthogonal distance to the tilted wall.
+Therefore the gate compares the four screen corners instead of scanning all 780 LED positions just to decide whether a rebuild is necessary.
 
-## Why no extrapolation-confidence ratio
+Current threshold:
 
-The fitted plane is the geometric model of the wall.
+    10 mm
 
-Once that plane passes its own validity checks, screen points are evaluated from the plane directly. The size of the wall patch directly observed by the ToF sensor is useful diagnostics for the plane fit, but it is not a separate gain/projection confidence term.
+Skipped candidates do not replace the accepted reference, so slow motion accumulates until it becomes material.
 
 ## Rate domains
 
-RGB / DDP:
+DDP/RGB:
 
     realtime
 
@@ -65,43 +74,64 @@ VL53L5CX internal ranging:
 
     1 Hz
 
-Wall-plane transfer and processing:
+Pose transfer / robust plane:
 
-    about every 12 seconds
+    about every 12 s
 
-Plane acceptance:
+Per-pixel field rebuild:
 
-    rebuild only if predicted wall position changes by >=10 mm
-    somewhere on the LED rectangle
+    only on material accepted plane change
 
-Large gain target polling:
+Main target polling:
 
     1 Hz
 
-Effective gain slew/render after a target update:
+Gain slew and gain-only rerender:
 
-    up to about 60 Hz
+    up to about 60 Hz while moving toward target
 
-The slow ToF cadence is intentional because TV pose changes are rare compared with video frames.
+## Correction output policy
 
-The 10 mm deadband is cumulative against the last applied plane. Measurements inside the deadband refresh freshness only and do not rebuild the 780-value field.
+    DISABLED:
+        original RGB
+        gain pipeline ignored by renderer scheduling
 
-## Memory
+    SHADOW:
+        calculate candidate
+        original RGB to physical output
 
-One exact logical gain field:
+    ACTIVE:
+        calculate candidate
+        candidate RGB to physical output
 
-    780 * 2 bytes = 1560 bytes
+ACTIVE still depends on RenderGainContext usability. Fail-open is unity, so physical output returns to original RGB.
 
-Several fixed-size copies remain inexpensive on ESP32-C6 and avoid dynamic allocation.
+Mode is persisted in NVS and defaults to SHADOW.
 
 ## Screen-space invariant
 
-Logical screen geometry is independent from physical strip reversal.
+All geometry/gain indices are logical HyperHDR indices.
 
-Wall projection always uses logical screen coordinates. SegmentMapper handles wiring only.
+Physical wiring reversal occurs later in SegmentMapper and cannot reverse the mathematical wall correction.
 
-## Safety
+## Memory
 
-Invalid/stale plane or an out-of-range calculated LED-wall distance resolves the complete gain field to unity.
+One Q12 gain field:
 
-Physical output remains original RGB through ShadowRenderPolicy.
+    780 * 2 = 1560 bytes
+
+Fixed-size cached copies are deliberately used instead of dynamic allocation.
+
+## Recovery independence
+
+ToF failure does not restart or block DDP.
+
+Wi-Fi reconnect does not reset ToF.
+
+Invalid/stale ToF only changes correction state to fail-open unity.
+
+## Validation strategy
+
+Software functionality is completed using deterministic native tests and synthetic sensor contracts.
+
+Physical hardware is a later validation/calibration stage, not a prerequisite for implementing the remaining firmware.
