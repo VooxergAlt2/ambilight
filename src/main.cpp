@@ -2118,7 +2118,7 @@ void printRuntimeStatus() {
     char senderIp[INET_ADDRSTRLEN] = "none";
 
     const std::uint32_t sender =
-        ddp.lastSenderIpv4NetworkOrder();
+        ddp.activeSenderIpv4NetworkOrder();
 
     if (sender != 0) {
         in_addr address{};
@@ -2128,6 +2128,8 @@ void printRuntimeStatus() {
 
     const auto& udp = ddp.stats();
     const auto& asmStats = ddp.assemblerStats();
+    const auto& senderStats =
+        ddp.senderGateStats();
 
     ambilight::TofSnapshot tofSnapshot;
     const bool haveTof = tof.copySnapshot(tofSnapshot);
@@ -2144,7 +2146,8 @@ void printRuntimeStatus() {
 
     Serial.printf(
         "STAT corr=%s brightness=%u persist=%s wifi=%s wsrc=%s rssi=%d pkt=%lu asm=%lu pub=%lu collapse=%lu rej=%lu stale=%lu timeout=%lu "
-        "budget=%lu lim=%lu pollmax=%luus sender=%s:%u render=%lu skip=%lu "
+        "budget=%lu lim=%lu pollmax=%luus sender_lock=%s sender=%s:%u "
+        "saccept=%lu sinvalid=%lu sforeign=%lu sacq=%lu srel=%lu render=%lu skip=%lu "
         "p50<=%luus p95<=%luus p99<=%luus ovf=%llu agemax=%lluus showmax=%luus "
         "tof=%s tofgen=%lu rawvalid=%u rawmed=%u tofage=%llums tofread=%luus tofreadmax=%luus "
         "geom=%s l=%u c=%u r=%u delta=%d acc=%u "
@@ -2176,8 +2179,19 @@ void printRuntimeStatus() {
         static_cast<unsigned long>(udp.pollBudgetExhaustions),
         static_cast<unsigned long>(udp.pollDatagramLimitHits),
         static_cast<unsigned long>(udp.maxPollUs),
+        ddp.senderLocked() ? "yes" : "no",
         senderIp,
-        ddp.lastSenderPort(),
+        ddp.activeSenderPort(),
+        static_cast<unsigned long>(
+            senderStats.acceptedDatagrams),
+        static_cast<unsigned long>(
+            senderStats.invalidDatagrams),
+        static_cast<unsigned long>(
+            senderStats.foreignSenderDrops),
+        static_cast<unsigned long>(
+            senderStats.lockAcquisitions),
+        static_cast<unsigned long>(
+            senderStats.lockTimeoutReleases),
         static_cast<unsigned long>(renderer.renderedFrames()),
         static_cast<unsigned long>(backlogRenderSkips),
         static_cast<unsigned long>(
@@ -2321,7 +2335,7 @@ void printRuntimeStatus() {
 void printConfiguration() {
     Serial.println();
     Serial.println(
-        "ESP32-C6 Ambilight Stage 24: runtime spatial profile + calibration/settings");
+        "ESP32-C6 Ambilight Stage 25: DDP sender isolation + runtime calibration/settings");
 
     Serial.printf(
         "Logical LEDs=%u payload=%uB DDP=%u poll_budget=%uus max_datagrams=%u\n",
