@@ -2,97 +2,51 @@
 
 ## Current stage
 
-Stage 13 adds independent render dirtiness for RGB and gain state.
+Stage 14 adds a robust 2D wall plane estimate to the existing ToF geometry pipeline.
 
-Physical gain application remains disabled.
+RGB remains one-PC Wi-Fi/DDP and physical gain application remains disabled.
 
-## Sources
+## ToF geometry
 
-RGB:
+    VL53L5CX 8x8
+      -> normalized zone rays
+      -> weighted 3D points
+      -> robust plane fit
+      -> TofPlaneEstimate
 
-    HyperHDR -> Wi-Fi/DDP -> FrameMailbox -> cached RgbFrame
+In parallel, the existing LEFT/CENTER/RIGHT robust-band processing remains unchanged.
 
-ToF:
+TofGeometrySnapshot now contains both:
 
-    VL53L5CX
-      -> TofProcessor
-      -> TofGainModel
-      -> cached GainSnapshot
-      -> TofRenderGainBridge
-      -> target RenderGainContext
+- left / center / right
+- plane
 
-## Render state
+## Wall model
 
-The application now owns:
+    z = c + ax + by
 
-- cached RGB frame
-- RGB dirty flag
-- cached target gain context
-- RenderGainController
-- RenderScheduler
+where:
 
-## Decision model
+- a = horizontal wall slope
+- b = vertical wall slope
+- c = wall distance at the sensor X/Y origin
 
-Every loop:
+This is the geometric basis for within-segment compensation.
 
-1. drain DDP
-2. update cached RGB if mailbox generation changed
-3. refresh cached gain target at <=100 Hz
-4. compute:
-   - target profile changed?
-   - gain controller unsettled?
-5. scheduler decides render/no-render
-6. if rendering:
-   - new RGB updates DDP latency metrics
-   - gain-only does not
-   - controller advances effective gains
-   - LedRenderer evaluates shadow
-   - ShadowRenderPolicy outputs original RGB
+A horizontal segment can vary with X.
+A vertical segment can vary with Y.
+With both a and b non-zero, all four perimeter segments can have distinct gradients.
 
-## Rate limits
+## Current safety boundary
 
-RGB frames:
-- immediate
+Plane validity is independent from legacy geometry validity.
 
-Gain-only:
-- <= about 60 Hz
+No Stage 14 code changes GainSnapshot or RenderGainContext.
 
-ToF target polling:
-- <=100 Hz
+Physical LEDs remain original HyperHDR RGB.
 
-Sensor ranging:
-- about 10 Hz
+## Next stage
 
-## Snapshot failure behavior
+Project the fitted wall plane onto calibrated TV/perimeter coordinates and derive separate gain endpoints for every segment.
 
-A transient failed GainSnapshot mutex copy keeps the previous cached snapshot.
-
-Staleness is determined from the snapshot timestamp by TofRenderGainBridge.
-
-This distinguishes:
-
-- temporary synchronization miss
-- genuine stale sensor data
-
-## Dirty-profile semantics
-
-Render profile equality ignores diagnostic metadata.
-
-It compares:
-
-- usable/fail-open state
-- effective segment gain endpoints
-
-This minimizes unnecessary rerenders.
-
-## Static image behavior
-
-A cached RGB frame may be rendered multiple times with evolving shadow gains even if no new DDP frame arrives.
-
-This is required for environmental correction to work independently from source-frame cadence.
-
-## Safety
-
-Stage 13 still cannot apply gains physically.
-
-The final hardware color remains original HyperHDR RGB.
+That stage remains shadow-only.
