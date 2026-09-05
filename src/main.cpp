@@ -22,6 +22,7 @@
 #include "render/RenderGainController.h"
 #include "render/ShadowGainProbe.h"
 #include "render/RenderScheduler.h"
+#include "runtime/SerialCommandParser.h"
 #include "network/DdpUdpService.h"
 #include "network/WifiService.h"
 #include "tof/TofCalibrationCapture.h"
@@ -35,17 +36,6 @@ constexpr std::uint8_t kMaxConsecutiveBacklogRenderSkips = 4;
 constexpr std::uint64_t kGainTargetPollIntervalUs = 1000000;
 constexpr std::uint64_t kCommissioningDurationUs = 15000000ULL;
 constexpr std::uint8_t kCommissioningMaxBrightness = 64;
-
-constexpr std::size_t kWifiCommandBufferSize =
-    ambilight::RuntimeSettings::kMaxWifiSsidLength +
-    1 +
-    ambilight::RuntimeSettings::kMaxWifiPasswordLength +
-    1;
-
-constexpr std::size_t kGainCurveCommandBufferSize = 128;
-constexpr std::size_t kSpatialCommandBufferSize = 128;
-constexpr std::size_t kLedMapCommandBufferSize = 64;
-constexpr std::size_t kFactoryCommandBufferSize = 16;
 
 ambilight::LedEngine ledEngine;
 ambilight::LedRenderer renderer(ledEngine);
@@ -72,37 +62,7 @@ bool correctionModeDirty = false;
 bool brightnessDirty = false;
 bool ledMappingDirty = false;
 
-bool correctionCommandPending = false;
-bool brightnessCommandPending = false;
-bool wifiCommandPending = false;
-bool gainCurveCommandPending = false;
-bool spatialCommandPending = false;
-bool ledMapCommandPending = false;
-bool commissioningCommandPending = false;
-bool factoryCommandPending = false;
-
-std::uint16_t brightnessCommandValue = 0;
-std::uint8_t brightnessCommandDigits = 0;
-
-std::array<char, kWifiCommandBufferSize>
-    wifiCommandBuffer{};
-std::size_t wifiCommandLength = 0;
-
-std::array<char, kGainCurveCommandBufferSize>
-    gainCurveCommandBuffer{};
-std::size_t gainCurveCommandLength = 0;
-
-std::array<char, kSpatialCommandBufferSize>
-    spatialCommandBuffer{};
-std::size_t spatialCommandLength = 0;
-
-std::array<char, kLedMapCommandBufferSize>
-    ledMapCommandBuffer{};
-std::size_t ledMapCommandLength = 0;
-
-std::array<char, kFactoryCommandBufferSize>
-    factoryCommandBuffer{};
-std::size_t factoryCommandLength = 0;
+ambilight::SerialCommandParser serialCommandParser;
 
 enum class WifiCredentialSource : std::uint8_t {
     None = 0,
