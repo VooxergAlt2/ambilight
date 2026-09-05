@@ -33,7 +33,7 @@ std::int16_t toCentiDegrees(double radians) {
     return static_cast<std::int16_t>(scaled);
 }
 
-std::uint16_t clampResidualMm(double value) {
+std::uint16_t clampUnsignedMm(double value) {
     if (value <= 0.0) {
         return 0;
     }
@@ -484,12 +484,12 @@ TofPlaneEstimate TofPlaneEstimator::estimate(
             acceptedCount);
 
     result.residualMedianMm =
-        clampResidualMm(
+        clampUnsignedMm(
             std::abs(
                 residualMedian));
 
     result.residualMadMm =
-        clampResidualMm(
+        clampUnsignedMm(
             residualMad);
 
     if (acceptedCount <
@@ -527,6 +527,36 @@ TofPlaneEstimate TofPlaneEstimator::estimate(
     result.slopeY =
         static_cast<float>(
             refined.slopeY);
+
+    double maxAbsX = 0.0;
+    double maxAbsY = 0.0;
+
+    for (std::size_t index = 0;
+         index < candidateCount;
+         ++index) {
+
+        if (!accepted[index]) {
+            continue;
+        }
+
+        maxAbsX =
+            std::max(
+                maxAbsX,
+                std::abs(
+                    points[index].xMm));
+
+        maxAbsY =
+            std::max(
+                maxAbsY,
+                std::abs(
+                    points[index].yMm));
+    }
+
+    result.observedHalfSpanXmm =
+        clampUnsignedMm(maxAbsX);
+
+    result.observedHalfSpanYmm =
+        clampUnsignedMm(maxAbsY);
 
     // Positive slopeX means the wall is farther away toward normalized right.
     // Positive slopeY means the wall is farther away toward normalized top.
