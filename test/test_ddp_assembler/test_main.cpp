@@ -228,6 +228,72 @@ void test_sequence_resync_after_silence_accepts_any_valid_sequence() {
     TEST_ASSERT_EQUAL_UINT32(1, assembler.stats().sequenceResyncs);
 }
 
+
+void test_reset_stream_clears_completed_sequence_epoch() {
+    DdpAssembler assembler;
+    RgbFrame frame;
+
+    auto a0 =
+        makePacket(
+            10,
+            0,
+            1440,
+            false);
+
+    auto a1 =
+        makePacket(
+            10,
+            1440,
+            900,
+            true);
+
+    assembler.ingest(
+        a0.data(),
+        a0.size(),
+        1000,
+        frame);
+
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(
+            DdpIngestResult::Complete),
+        static_cast<int>(
+            assembler.ingest(
+                a1.data(),
+                a1.size(),
+                1100,
+                frame)));
+
+    // Sequence 3 would normally be stale immediately after completed 10.
+    auto b0 =
+        makePacket(
+            3,
+            0,
+            1440,
+            false);
+
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(
+            DdpIngestResult::Stale),
+        static_cast<int>(
+            assembler.ingest(
+                b0.data(),
+                b0.size(),
+                1200,
+                frame)));
+
+    assembler.resetStream();
+
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(
+            DdpIngestResult::Partial),
+        static_cast<int>(
+            assembler.ingest(
+                b0.data(),
+                b0.size(),
+                1300,
+                frame)));
+}
+
 void test_timeout_discards_incomplete_frame() {
     DdpAssembler assembler(1000);
     RgbFrame frame;
@@ -346,6 +412,7 @@ int main(int, char**) {
     RUN_TEST(test_stale_sequence_is_rejected_after_completion);
     RUN_TEST(test_sequence_wrap_15_to_1_is_newer);
     RUN_TEST(test_sequence_resync_after_silence_accepts_any_valid_sequence);
+    RUN_TEST(test_reset_stream_clears_completed_sequence_epoch);
     RUN_TEST(test_timeout_discards_incomplete_frame);
     RUN_TEST(test_wrong_type_destination_and_bounds_are_rejected);
     RUN_TEST(test_conflicting_overlap_rejects_active_frame);
