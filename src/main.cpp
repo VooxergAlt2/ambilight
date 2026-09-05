@@ -1,11 +1,16 @@
 #include <Arduino.h>
 #include <WiFi.h>
+
+#include <array>
+#include <cstddef>
+#include <cstring>
 #include <esp_err.h>
 #include <esp_timer.h>
 #include <lwip/inet.h>
 
 #include "config/BoardConfig.h"
 #include "config/RuntimeSettings.h"
+#include "config/WifiCredentials.h"
 #include "core/FrameMailbox.h"
 #include "core/LatencyHistogram.h"
 #include "core/RgbFrame.h"
@@ -27,6 +32,12 @@ constexpr std::uint64_t kIdleBlackoutUs = 1000000;
 constexpr std::uint32_t kStatusIntervalMs = 30000;
 constexpr std::uint8_t kMaxConsecutiveBacklogRenderSkips = 4;
 constexpr std::uint64_t kGainTargetPollIntervalUs = 1000000;
+
+constexpr std::size_t kWifiCommandBufferSize =
+    ambilight::RuntimeSettings::kMaxWifiSsidLength +
+    1 +
+    ambilight::RuntimeSettings::kMaxWifiPasswordLength +
+    1;
 
 ambilight::LedEngine ledEngine;
 ambilight::LedRenderer renderer(ledEngine);
@@ -54,9 +65,24 @@ bool brightnessDirty = false;
 
 bool correctionCommandPending = false;
 bool brightnessCommandPending = false;
+bool wifiCommandPending = false;
 
 std::uint16_t brightnessCommandValue = 0;
 std::uint8_t brightnessCommandDigits = 0;
+
+std::array<char, kWifiCommandBufferSize>
+    wifiCommandBuffer{};
+std::size_t wifiCommandLength = 0;
+
+enum class WifiCredentialSource : std::uint8_t {
+    None = 0,
+    CompileTime,
+    Nvs,
+    RuntimeVolatile
+};
+
+WifiCredentialSource wifiCredentialSource =
+    WifiCredentialSource::None;
 
 bool haveCachedPerimeterGainSnapshot = false;
 
@@ -79,6 +105,190 @@ std::uint64_t lastFrameAgeUs = 0;
 std::uint64_t maxFrameAgeUs = 0;
 
 bool shadowGainProbeActive();
+
+const char* wifiCredentialSourceName(
+    WifiCredentialSource source) {
+
+    switch (source) {
+    case WifiCredentialSource::None:
+        return "NONE";
+    case WifiCredentialSource::CompileTime:
+        return "COMPILE_TIME";
+    case WifiCredentialSource::Nvs:
+        return "NVS";
+    case WifiCredentialSource::RuntimeVolatile:
+        return "RUNTIME_VOLATILE";
+    }
+
+    return "INVALID";
+}
+
+bool ensureDdpRunning() {
+    if (!wifi.enabled()) {
+        return false;
+    }
+
+    if (ddp.running()) {
+        return true;
+    }
+
+    if (!ddp.begin()) {
+        Serial.println(
+            "DDP start failed after Wi-Fi configuration.");
+        return false;
+    }
+
+    Serial.printf(
+        "DDP socket bound to UDP/%u. Waiting for HyperHDR.\n",
+        ambilight::DdpUdpService::kPort);
+
+    return true;
+}
+
+void printWifiProvisioningStatus() {
+    wifi.printStatus();
+
+    Serial.printf(
+        "Wi-Fi credentials source=%s persisted_nvs=%s password=hidden\n",
+        wifiCredentialSourceName(
+            wifiCredentialSource),
+        runtimeSettings.wifiCredentialsPresent()
+            ? "yes"
+            : "no");
+}
+
+bool applyWifiCredentials(
+    const char* ssid,
+    const char* password,
+    bool persist) {
+
+    bool persisted = false;
+
+    if (persist) {
+        persisted =
+            runtimeSettings.setWifiCredentials(
+                ssid,
+                password);
+    }
+
+    if (!wifi.configure(
+            ssid,
+            password)) {
+
+        Serial.println(
+            "Wi-Fi credentials rejected: SSID/password length is invalid.");
+        return false;
+    }
+
+    wifiCredentialSource =
+        persisted
+            ? WifiCredentialSource::Nvs
+            : WifiCredentialSource::RuntimeVolatile;
+
+    if (!ensureDdpRunning()) {
+        Serial.println(
+            "Wi-Fi configured, but DDP socket is not running.");
+    }
+
+    Serial.printf(
+        "Wi-Fi credentials applied: ssid='%s' source=%s password=hidden\n",
+        wifi.ssid(),
+        wifiCredentialSourceName(
+            wifiCredentialSource));
+
+    return true;
+}
+
+void clearRuntimeWifiCredentials() {
+    const bool cleared =
+        runtimeSettings.clearWifiCredentials();
+
+    if (ambilight::config::wifiCredentialsPresent()) {
+        if (!wifi.configure(
+                ambilight::config::kWifiSsid,
+                ambilight::config::kWifiPassword)) {
+
+            Serial.println(
+                "Compile-time Wi-Fi fallback is invalid.");
+            return;
+        }
+
+        wifiCredentialSource =
+            WifiCredentialSource::CompileTime;
+
+        ensureDdpRunning();
+
+        Serial.printf(
+            "Wi-Fi NVS credentials cleared (%s); using compile-time fallback SSID '%s'.\n",
+            cleared ? "persisted" : "volatile-only",
+            wifi.ssid());
+
+        return;
+    }
+
+    wifi.disable();
+    ddp.stop();
+
+    wifiCredentialSource =
+        WifiCredentialSource::None;
+
+    Serial.printf(
+        "Wi-Fi NVS credentials cleared (%s); no compile-time fallback, Wi-Fi/DDP disabled.\n",
+        cleared ? "persisted" : "volatile-only");
+}
+
+void resetWifiCommand() {
+    wifiCommandPending = false;
+    wifiCommandLength = 0;
+    wifiCommandBuffer.fill('\0');
+}
+
+void finishWifiCommand() {
+    wifiCommandBuffer[
+        wifiCommandLength] = '\0';
+
+    if (wifiCommandLength == 0) {
+        printWifiProvisioningStatus();
+        resetWifiCommand();
+        return;
+    }
+
+    if (std::strcmp(
+            wifiCommandBuffer.data(),
+            "clear") == 0) {
+
+        clearRuntimeWifiCredentials();
+        resetWifiCommand();
+        return;
+    }
+
+    char* separator =
+        std::strchr(
+            wifiCommandBuffer.data(),
+            '|');
+
+    if (separator == nullptr) {
+        Serial.println(
+            "Wi-Fi command invalid. Use wSSID|PASSWORD or wclear.");
+        resetWifiCommand();
+        return;
+    }
+
+    *separator = '\0';
+
+    const char* ssid =
+        wifiCommandBuffer.data();
+
+    const char* password =
+        separator + 1;
+
+    applyWifiCredentials(
+        ssid,
+        password,
+        true);
+
+    resetWifiCommand();
+}
 
 void printCorrectionMode() {
     Serial.printf(
@@ -1038,6 +1248,35 @@ void serviceDebugCommands() {
     while (Serial.available() > 0) {
         const int input = Serial.read();
 
+        if (wifiCommandPending) {
+            if (input == '\r' || input == '\n') {
+                finishWifiCommand();
+                continue;
+            }
+
+            if (input < 32 || input > 126) {
+                Serial.println(
+                    "Wi-Fi command contains unsupported control characters.");
+                resetWifiCommand();
+                continue;
+            }
+
+            if (wifiCommandLength + 1 >=
+                wifiCommandBuffer.size()) {
+
+                Serial.println(
+                    "Wi-Fi command too long.");
+                resetWifiCommand();
+                continue;
+            }
+
+            wifiCommandBuffer[
+                wifiCommandLength++] =
+                static_cast<char>(input);
+
+            continue;
+        }
+
         if (brightnessCommandPending) {
             if (input >= '0' && input <= '9') {
                 if (brightnessCommandDigits >= 3) {
@@ -1114,6 +1353,10 @@ void serviceDebugCommands() {
 
         if (input == '!') {
             correctionCommandPending = true;
+        } else if (input == 'w' || input == 'W') {
+            wifiCommandPending = true;
+            wifiCommandLength = 0;
+            wifiCommandBuffer.fill('\0');
         } else if (input == 'b' || input == 'B') {
             brightnessCommandPending = true;
             brightnessCommandValue = 0;
@@ -1169,7 +1412,7 @@ void printRuntimeStatus() {
     const auto& geometry = tofSnapshot.geometry;
 
     Serial.printf(
-        "STAT corr=%s brightness=%u persist=%s wifi=%s rssi=%d pkt=%lu asm=%lu pub=%lu collapse=%lu rej=%lu stale=%lu timeout=%lu "
+        "STAT corr=%s brightness=%u persist=%s wifi=%s wsrc=%s rssi=%d pkt=%lu asm=%lu pub=%lu collapse=%lu rej=%lu stale=%lu timeout=%lu "
         "budget=%lu lim=%lu pollmax=%luus sender=%s:%u render=%lu skip=%lu "
         "p50<=%luus p95<=%luus p99<=%luus ovf=%llu agemax=%lluus showmax=%luus "
         "tof=%s tofgen=%lu rawvalid=%u rawmed=%u tofage=%llums tofread=%luus tofreadmax=%luus "
@@ -1189,6 +1432,8 @@ void printRuntimeStatus() {
             ? "yes"
             : "no",
         wifi.connected() ? "up" : "down",
+        wifiCredentialSourceName(
+            wifiCredentialSource),
         wifi.connected() ? WiFi.RSSI() : 0,
         static_cast<unsigned long>(udp.datagramsReceived),
         static_cast<unsigned long>(udp.completeFramesAssembled),
@@ -1375,6 +1620,8 @@ void printConfiguration() {
     Serial.println(
         "Output brightness: b0..b255 followed by Enter; b + Enter prints status.");
     Serial.println(
+        "Wi-Fi: wSSID|PASSWORD + Enter sets/reconnects, w + Enter=status, wclear + Enter=clear NVS.");
+    Serial.println(
         "Active frame transport remains Wi-Fi/DDP only. "
         "USB/AWA is preserved separately as WIP.");
     Serial.println();
@@ -1408,21 +1655,52 @@ void setup() {
         fatal("LedEngine::begin failed", ledResult);
     }
 
-    if (!wifi.begin()) {
-        fatal("WifiService::begin failed", ESP_FAIL);
+    const char* startupWifiSsid = "";
+    const char* startupWifiPassword = "";
+
+    if (runtimeSettings.wifiCredentialsPresent()) {
+        startupWifiSsid =
+            runtimeSettings.wifiSsid();
+
+        startupWifiPassword =
+            runtimeSettings.wifiPassword();
+
+        wifiCredentialSource =
+            WifiCredentialSource::Nvs;
+    } else if (
+        ambilight::config::wifiCredentialsPresent()) {
+
+        startupWifiSsid =
+            ambilight::config::kWifiSsid;
+
+        startupWifiPassword =
+            ambilight::config::kWifiPassword;
+
+        wifiCredentialSource =
+            WifiCredentialSource::CompileTime;
+    } else {
+        wifiCredentialSource =
+            WifiCredentialSource::None;
+    }
+
+    if (!wifi.begin(
+            startupWifiSsid,
+            startupWifiPassword)) {
+
+        fatal(
+            "WifiService::begin failed",
+            ESP_FAIL);
     }
 
     if (wifi.enabled()) {
-        if (!ddp.begin()) {
-            fatal("DdpUdpService::begin failed", ESP_FAIL);
+        if (!ensureDdpRunning()) {
+            fatal(
+                "DdpUdpService::begin failed",
+                ESP_FAIL);
         }
-
-        Serial.printf(
-            "DDP socket bound to UDP/%u. Waiting for HyperHDR.\n",
-            ambilight::DdpUdpService::kPort);
     } else {
         Serial.println(
-            "DDP runtime inactive because Wi-Fi credentials are absent.");
+            "DDP runtime inactive because Wi-Fi credentials are absent. Provision with wSSID|PASSWORD.");
     }
 
     if (!tof.begin()) {
