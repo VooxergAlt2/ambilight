@@ -48,13 +48,13 @@ function Invoke-PlatformIoLogged {
     Write-Host ">>> PlatformIO $($Arguments -join ' ')"
 
     if ($PlatformIo.Kind -eq "pio") {
-        & $PlatformIo.Command @Arguments 2>&1 | Tee-Object -FilePath $LogFile
+        & $PlatformIo.Command @Arguments 2>&1 | Tee-Object -FilePath $LogFile | Out-Host
     }
     else {
-        & $PlatformIo.Command -m platformio @Arguments 2>&1 | Tee-Object -FilePath $LogFile
+        & $PlatformIo.Command -m platformio @Arguments 2>&1 | Tee-Object -FilePath $LogFile | Out-Host
     }
 
-    return $LASTEXITCODE
+    return [int]$LASTEXITCODE
 }
 
 Push-Location $RepoRoot
