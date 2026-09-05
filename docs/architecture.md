@@ -2,113 +2,84 @@
 
 ## Current stage
 
-Stage 9 keeps Wi-Fi/DDP as the only active RGB transport and adds a fully testable, diagnostic-only ToF gain model.
+Stage 10 keeps Wi-Fi/DDP as the only active RGB transport and adds fixed-memory calibration capture tooling around the already isolated ToF pipeline.
 
-Active RGB path:
+RGB:
 
     HyperHDR
-      -> Wi-Fi / DDP
+      -> Wi-Fi/DDP
       -> DdpUdpService
       -> DdpAssembler
       -> FrameMailbox
       -> LedRenderer
-      -> SegmentMapper
       -> PARLIO x4
 
-Independent ToF path:
+ToF:
 
-    VL53L5CX 8x8 @ 10 Hz
-      -> TofService
-      -> TofRawFrame
+    VL53L5CX
       -> TofProcessor
       -> TofGeometrySnapshot
       -> TofGainModel
       -> GainSnapshot
+      -> TofCalibrationCapture
 
-There is still no edge from GainSnapshot to LedRenderer.
+There is still no connection from GainSnapshot or calibration data to LedRenderer.
 
-## Layer boundaries
+## Calibration collector
 
-### DDP transport
+TofCalibrationCapture is pure C++.
 
-Owns packet receive/reassembly only.
+It stores at most 64 unique valid geometry samples.
 
-It cannot see ToF.
+Each sample contains only compact diagnostic values, not the full 8x8 raw grid.
 
-### TofProcessor
+Stored per band:
 
-Pure C++ spatial/temporal geometry processor.
+- robust median distance
+- MAD
+- accepted-zone count
 
-It cannot see RGB or LED hardware.
+Stored global:
 
-### TofGainModel
+- robust RIGHT minus LEFT delta
 
-Pure C++ calibration/fail-open layer.
+## Duplicate control
 
-It converts stable geometry into future side attenuation coefficients.
+The main loop may run hundreds of times faster than the 10 Hz ToF sensor.
 
-It cannot see RGB or LED hardware.
+Runtime therefore forwards only a new geometry generation into the capture collector.
 
-### LedRenderer
+The collector itself also protects against duplicate generations.
 
-Still consumes only RgbFrame.
+## Summary statistics
 
-This prevents calibration bugs from changing live Ambilight before hardware calibration is complete.
+At capture completion:
 
-## Gain contract
+- p10 / median / p90 distance
+- median MAD
+- min/max accepted zones
+- median right-minus-left
 
-GainSnapshot contains:
+These are deliberately simple, robust metrics that can be reasoned about from terminal logs.
 
-- leftQ12
-- rightQ12
-- topQ12
-- bottomQ12
-- geometryUsable
-- failOpen
-- generation/timestamp
+## Memory
 
-Unity is Q12 4096.
+Three bands x 64 samples plus metadata remain small fixed arrays.
 
-Gain values above unity are not supported.
+No heap allocation occurs during capture.
 
-## Current calibration
+## Safety
 
-Production/default curve is intentionally identity:
+Calibration capture can never:
 
-    50..4000 mm -> 4096
-
-No brightness change is possible from Stage 9 model output.
-
-## Fail-open
-
-The gain model produces unity when geometry is invalid or older than 1.5 seconds.
-
-The ToF task refreshes stale state even when the sensor stops producing frames, so a future renderer integration will not indefinitely hold old attenuation.
-
-## Fault isolation
-
-VL53L5CX failures can:
-
-- invalidate geometry
-- force future gains to unity
-- restart the ToF sensor task
-
-They cannot:
-
+- change RGB
+- invoke LedRenderer
+- change DDP source state
 - restart Wi-Fi
-- restart DDP
-- clear valid RGB transport state
-- reboot MCU
-- call LedRenderer
-
-## Debug commands
-
-- `t`: raw 8x8 ToF
-- `g`: processed geometry
-- `k`: diagnostic future gains
+- restart MCU
 
 ## Next gate
 
-Actual brightness integration is blocked on real hardware calibration captures.
+Use real captures to choose actual gain curve points.
 
-The code may proceed to renderer integration only after control points are chosen from measured behavior rather than guessed.
+Only then should the renderer begin consuming GainSnapshot.

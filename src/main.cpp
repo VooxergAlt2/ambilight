@@ -12,6 +12,7 @@
 #include "led/LedRenderer.h"
 #include "network/DdpUdpService.h"
 #include "network/WifiService.h"
+#include "tof/TofCalibrationCapture.h"
 #include "tof/TofService.h"
 
 namespace {
@@ -27,6 +28,7 @@ ambilight::WifiService wifi;
 ambilight::DdpUdpService ddp(mailbox);
 ambilight::LatencyHistogram frameAgeHistogram;
 ambilight::TofService tof;
+ambilight::TofCalibrationCapture calibrationCapture;
 
 ambilight::RgbFrame renderSnapshot;
 
@@ -35,6 +37,7 @@ std::uint32_t lastObservedPublications = 0;
 std::uint32_t idleBlackouts = 0;
 std::uint32_t lastStatusMs = 0;
 std::uint32_t backlogRenderSkips = 0;
+std::uint32_t calibrationLastGeometryGeneration = 0;
 
 std::uint8_t consecutiveBacklogRenderSkips = 0;
 
@@ -262,6 +265,84 @@ void dumpTofGains() {
     Serial.println();
 }
 
+void printCalibrationBand(
+    const char* name,
+    const ambilight::CalibrationBandSummary& band) {
+
+    Serial.printf(
+        "CAL %s valid=%s p10=%umm median=%umm p90=%umm mad50=%umm accepted=%u..%u\n",
+        name,
+        band.valid ? "yes" : "no",
+        band.p10Mm,
+        band.medianMm,
+        band.p90Mm,
+        band.medianMadMm,
+        static_cast<unsigned>(band.minAccepted),
+        static_cast<unsigned>(band.maxAccepted));
+}
+
+void printCalibrationSummary(
+    const ambilight::CalibrationCaptureSummary& summary) {
+
+    Serial.printf(
+        "CAL SUMMARY total=%lu valid=%lu duplicates=%lu overflow=%lu delta_median=%dmm\n",
+        static_cast<unsigned long>(summary.totalFrames),
+        static_cast<unsigned long>(summary.validFrames),
+        static_cast<unsigned long>(summary.duplicateFrames),
+        static_cast<unsigned long>(summary.overflowFrames),
+        static_cast<int>(summary.medianRightMinusLeftMm));
+
+    printCalibrationBand("LEFT  ", summary.left);
+    printCalibrationBand("CENTER", summary.center);
+    printCalibrationBand("RIGHT ", summary.right);
+
+    Serial.println(
+        "CAL note: pair this summary with the physical TV pose; RGB is unchanged.");
+    Serial.println();
+}
+
+void startCalibrationCapture() {
+    const std::uint64_t nowUs =
+        static_cast<std::uint64_t>(esp_timer_get_time());
+
+    calibrationLastGeometryGeneration = 0;
+    calibrationCapture.start(nowUs);
+
+    Serial.println(
+        "CAL started: collecting 5 seconds of unique ToF geometry. Keep the TV still.");
+}
+
+void serviceCalibrationCapture() {
+    if (!calibrationCapture.active()) {
+        return;
+    }
+
+    ambilight::TofSnapshot snapshot;
+    if (tof.copySnapshot(snapshot) &&
+        snapshot.geometry.generation != 0 &&
+        snapshot.geometry.generation !=
+            calibrationLastGeometryGeneration) {
+
+        calibrationLastGeometryGeneration =
+            snapshot.geometry.generation;
+
+        calibrationCapture.ingest(
+            snapshot.geometry);
+    }
+
+    const std::uint64_t nowUs =
+        static_cast<std::uint64_t>(esp_timer_get_time());
+
+    if (!calibrationCapture.expired(nowUs)) {
+        return;
+    }
+
+    const auto summary =
+        calibrationCapture.finish();
+
+    printCalibrationSummary(summary);
+}
+
 void serviceDebugCommands() {
     while (Serial.available() > 0) {
         const int input = Serial.read();
@@ -272,6 +353,8 @@ void serviceDebugCommands() {
             dumpTofGeometry();
         } else if (input == 'k' || input == 'K') {
             dumpTofGains();
+        } else if (input == 'c' || input == 'C') {
+            startCalibrationCapture();
         }
     }
 }
@@ -395,7 +478,7 @@ void printRuntimeStatus() {
 void printConfiguration() {
     Serial.println();
     Serial.println(
-        "ESP32-C6 Ambilight Stage 9: Wi-Fi/DDP + diagnostic ToF gain model");
+        "ESP32-C6 Ambilight Stage 10: Wi-Fi/DDP + ToF calibration capture");
 
     Serial.printf(
         "Logical LEDs=%u payload=%uB DDP=%u poll_budget=%uus max_datagrams=%u\n",
@@ -424,7 +507,7 @@ void printConfiguration() {
         ambilight::config::kTofMirrorX ? "yes" : "no");
 
     Serial.println(
-        "Debug: 't' = raw map, 'g' = processed geometry, 'k' = future side gains.");
+        "Debug: 't'=raw, 'g'=geometry, 'k'=gains, 'c'=5s calibration capture.");
     Serial.println(
         "Active frame transport remains Wi-Fi/DDP only. "
         "USB/AWA is preserved separately as WIP.");
@@ -477,6 +560,7 @@ void setup() {
 void loop() {
     wifi.tick(millis());
     serviceDebugCommands();
+    serviceCalibrationCapture();
 
     ambilight::DdpPollResult pollResult;
     if (ddp.running()) {

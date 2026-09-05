@@ -4,80 +4,69 @@ Custom ESP32-C6 Ambilight endpoint for HyperHDR.
 
 ## Active firmware
 
-Current development remains **one PC over Wi-Fi/DDP**.
+Current development remains one PC over Wi-Fi/DDP.
 
-Runtime RGB path:
+RGB path:
 
     HyperHDR
-        -> DDP / UDP 4048
-        -> ESP32-C6
-        -> FrameMailbox
-        -> LedRenderer
-        -> four PARLIO lanes
+      -> DDP / UDP 4048
+      -> ESP32-C6
+      -> FrameMailbox
+      -> LedRenderer
+      -> PARLIO x4
 
-ToF runs independently:
+ToF path:
 
-    VL53L5CX 8x8
-        -> robust geometry
-        -> diagnostic gain model
+    VL53L5CX
+      -> robust LEFT/CENTER/RIGHT geometry
+      -> diagnostic fail-open gain model
+      -> calibration capture tooling
 
-The gain model does not modify RGB yet.
-
-## Current LED geometry
-
-- TOP: 230 LEDs
-- RIGHT: 160 LEDs
-- BOTTOM: 230 LEDs
-- LEFT: 160 LEDs
-- total: 780 RGB LEDs
-
-## ToF pipeline
-
-- 8x8 @ 10 Hz
-- GPIO6 SDA / GPIO7 SCL, provisional
-- status 5/9 only
-- median + MAD rejection
-- LEFT/CENTER/RIGHT bands
-- 600 ms temporal smoothing
-- 10 mm deadband
-- sensor-only stale/error recovery
-
-## Gain model
-
-Future attenuation is represented in Q12:
-
-    4096 = 100%
-
-Current default calibration is intentionally pass-through:
-
-    50 mm   -> 100%
-    4000 mm -> 100%
-
-No guessed attenuation curve is active.
-
-The model already implements:
-
-- monotonic piecewise interpolation
-- max gain = 1.0
-- invalid geometry fail-open
-- stale geometry fail-open
-- four future side gains
-
-Current V1 mapping uses CENTER for TOP/BOTTOM.
+No ToF-derived value modifies RGB yet.
 
 ## Debug commands
 
     t
 
-raw 8x8 ToF map.
+One raw 8x8 distance/status map.
 
     g
 
-processed LEFT/CENTER/RIGHT geometry.
+Processed geometry with candidate/accepted counts, median, MAD, robust median and filtered L/C/R.
 
     k
 
-future gain snapshot and fail-open state.
+Future Q12 side gains and fail-open state.
+
+    c
+
+Collect about 5 seconds of stable-pose geometry and print a calibration summary.
+
+The calibration summary contains p10/median/p90, median MAD and accepted-zone range for L/C/R.
+
+## Current calibration
+
+Production gain curve is intentionally pass-through:
+
+    50 mm   -> 100%
+    4000 mm -> 100%
+
+Real attenuation values are blocked on physical calibration captures.
+
+## Capture procedure
+
+Keep the TV still and run `c` once for each meaningful bracket pose.
+
+Recommended minimum:
+
+- parallel close
+- parallel mid
+- parallel fully extended
+- left close / right far
+- right close / left far
+- intermediate yaw in both directions
+
+Keep a note beside each serial summary describing the pose.
 
 ## USB/AWA
 
@@ -85,7 +74,7 @@ Preserved separately in:
 
     stage/07-usb-awa
 
-It remains outside the active firmware line.
+It is not part of the active firmware line.
 
 ## Build
 
@@ -99,6 +88,6 @@ Native tests:
 
 ## Current gate
 
-Do not connect gains to LedRenderer until real `t` + `g` captures are collected for the actual TV/bracket/wall geometry.
+The next step is not renderer integration.
 
-That data is required to choose a real distance-to-brightness curve instead of inventing one.
+First collect real `c` summaries plus representative `t`/`g` dumps. Those measurements are needed to derive an evidence-based distance-to-brightness curve.
