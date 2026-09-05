@@ -6,6 +6,7 @@
 
 #include "core/FrameMailbox.h"
 #include "core/RgbFrame.h"
+#include "network/DdpSenderGate.h"
 #include "transport/DdpAssembler.h"
 
 namespace ambilight {
@@ -70,22 +71,35 @@ public:
         return assembler_.stats();
     }
 
+    const DdpSenderGateStats& senderGateStats() const {
+        return senderGate_.stats();
+    }
+
+    bool senderLocked() const {
+        return senderGate_.active();
+    }
+
+    std::uint32_t activeSenderIpv4NetworkOrder() const {
+        return senderGate_.active()
+            ? senderGate_.activeSender().ipv4NetworkOrder
+            : 0;
+    }
+
+    std::uint16_t activeSenderPort() const {
+        return senderGate_.active()
+            ? senderGate_.activeSender().port
+            : 0;
+    }
+
     std::uint64_t lastPacketUs() const { return lastPacketUs_; }
     std::uint64_t lastCompleteFrameUs() const {
         return lastCompleteFrameUs_;
     }
 
-    std::uint32_t lastSenderIpv4NetworkOrder() const {
-        return lastSenderIpv4_;
-    }
-
-    std::uint16_t lastSenderPort() const {
-        return lastSenderPort_;
-    }
-
 private:
     FrameMailbox& mailbox_;
     DdpAssembler assembler_;
+    DdpSenderGate senderGate_;
 
     int socket_ = -1;
 
@@ -96,9 +110,6 @@ private:
 
     std::uint64_t lastPacketUs_ = 0;
     std::uint64_t lastCompleteFrameUs_ = 0;
-
-    std::uint32_t lastSenderIpv4_ = 0;
-    std::uint16_t lastSenderPort_ = 0;
 };
 
 static_assert(
