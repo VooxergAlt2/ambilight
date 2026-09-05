@@ -4,6 +4,8 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "tof/TofGrid.h"
+#include "tof/TofPlaneEstimator.h"
 #include "tof/TofTypes.h"
 
 namespace ambilight {
@@ -27,6 +29,8 @@ struct TofProcessorConfig {
     // alpha is about 0.14 per sample.
     std::uint32_t filterTimeConstantMs = 600;
     std::uint16_t deadbandMm = 10;
+
+    TofPlaneEstimatorConfig plane{};
 };
 
 class TofProcessor {
@@ -79,6 +83,7 @@ private:
         FilterState& state);
 
     TofProcessorConfig config_{};
+    TofPlaneEstimator planeEstimator_;
 
     FilterState leftFilter_{};
     FilterState centerFilter_{};
@@ -92,39 +97,10 @@ constexpr std::size_t TofProcessor::rawIndexForNormalized(
     std::size_t normalizedCol,
     const TofGridTransform& transform) {
 
-    std::size_t x = normalizedCol;
-    std::size_t y = normalizedRow;
-
-    if (transform.mirrorX) {
-        x = kTofGridWidth - 1 - x;
-    }
-
-    std::size_t rawX = x;
-    std::size_t rawY = y;
-
-    switch (transform.rotation) {
-    case TofRotation::Deg0:
-        rawX = x;
-        rawY = y;
-        break;
-
-    case TofRotation::Deg90:
-        rawX = y;
-        rawY = kTofGridHeight - 1 - x;
-        break;
-
-    case TofRotation::Deg180:
-        rawX = kTofGridWidth - 1 - x;
-        rawY = kTofGridHeight - 1 - y;
-        break;
-
-    case TofRotation::Deg270:
-        rawX = kTofGridWidth - 1 - y;
-        rawY = x;
-        break;
-    }
-
-    return rawY * kTofGridWidth + rawX;
+    return tofRawIndexForNormalized(
+        normalizedRow,
+        normalizedCol,
+        transform);
 }
 
 } // namespace ambilight
