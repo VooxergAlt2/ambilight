@@ -60,6 +60,17 @@ public:
         TofPerimeterGainModelConfig config = {})
         : config_(config) {}
 
+    bool setCurve(
+        const DistanceGainCurve& curve) {
+
+        if (!curve.valid()) {
+            return false;
+        }
+
+        config_.curve = curve;
+        return true;
+    }
+
     PerimeterGainSnapshot evaluate(
         const TofGeometrySnapshot& geometry,
         std::uint64_t nowUs);
