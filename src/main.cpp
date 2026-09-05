@@ -928,6 +928,7 @@ void printRuntimeStatus() {
         "tof=%s tofgen=%lu rawvalid=%u rawmed=%u tofage=%llums tofread=%luus tofreadmax=%luus "
         "geom=%s l=%u c=%u r=%u delta=%d acc=%u "
         "plane=%s pyaw=%d ppitch=%d pacc=%u pmad=%u "
+        "pcalc=%lu pskip=%lu pdelta=%u pfail=%lu "
         "spfail=%s spmin=%u spmax=%u "
         "gainfail=%s gl=%u gt=%u gb=%u gr=%u "
         "shadow_usable=%lu shadow_nonunity=%lu shadow_changed=%u shadow_delta=%u shadowprep=%luus "
@@ -1004,6 +1005,21 @@ void printRuntimeStatus() {
         haveTof
             ? geometry.plane.residualMadMm
             : 0U,
+        haveTof
+            ? static_cast<unsigned long>(
+                  tofSnapshot.planeRecalculations)
+            : 0UL,
+        haveTof
+            ? static_cast<unsigned long>(
+                  tofSnapshot.planeDeadbandSkips)
+            : 0UL,
+        haveTof
+            ? tofSnapshot.lastPlaneWallDeltaMm
+            : 0U,
+        haveTof
+            ? static_cast<unsigned long>(
+                  tofSnapshot.planeFailOpens)
+            : 0UL,
         haveTof && tofSnapshot.perimeterGains.failOpen ? "yes" : "no",
         haveTof
             ? tofSnapshot.perimeterGains.minDistanceMm
@@ -1079,10 +1095,13 @@ void printConfiguration() {
         static_cast<unsigned>(ambilight::config::kTestBrightness));
 
     Serial.printf(
-        "VL53L5CX SDA=%u SCL=%u 8x8 internal 1Hz, pose processed about every 12s, rotation=%u mirror_x=%s; "
+        "VL53L5CX SDA=%u SCL=%u 8x8 internal 1Hz, pose processed about every 12s, "
+        "plane_deadband=%.1fmm, rotation=%u mirror_x=%s; "
         "gain model enters renderer in SHADOW mode and does NOT modify physical RGB.\n",
         ambilight::config::kTofSdaGpio,
         ambilight::config::kTofSclGpio,
+        static_cast<double>(
+            ambilight::config::kTofPlaneWallDeadbandMm),
         static_cast<unsigned>(
             ambilight::config::kTofRotationQuarterTurns % 4U),
         ambilight::config::kTofMirrorX ? "yes" : "no");
