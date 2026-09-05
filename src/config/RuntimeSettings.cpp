@@ -2,7 +2,37 @@
 
 #include "config/BoardConfig.h"
 
+#include <algorithm>
+#include <cstring>
+
 namespace ambilight {
+namespace {
+
+template <std::size_t N>
+void copyText(
+    std::array<char, N>& destination,
+    const char* source) {
+
+    destination.fill('\0');
+
+    if (source == nullptr) {
+        return;
+    }
+
+    const std::size_t length =
+        std::min<std::size_t>(
+            std::strlen(source),
+            N - 1);
+
+    std::memcpy(
+        destination.data(),
+        source,
+        length);
+
+    destination[length] = '\0';
+}
+
+} // namespace
 
 RuntimeSettings::~RuntimeSettings() {
     if (persistenceAvailable_) {
@@ -16,6 +46,9 @@ bool RuntimeSettings::begin() {
 
     outputBrightness_ =
         config::kDefaultOutputBrightness;
+
+    wifiSsid_.fill('\0');
+    wifiPassword_.fill('\0');
 
     persistenceAvailable_ =
         preferences_.begin(
@@ -61,6 +94,40 @@ bool RuntimeSettings::begin() {
         preferences_.getUChar(
             kOutputBrightnessKey,
             config::kDefaultOutputBrightness);
+
+    const String storedSsid =
+        preferences_.getString(
+            kWifiSsidKey,
+            "");
+
+    const String storedPassword =
+        preferences_.getString(
+            kWifiPasswordKey,
+            "");
+
+    const bool wifiStoredValueValid =
+        storedSsid.length() <=
+            kMaxWifiSsidLength &&
+        storedPassword.length() <=
+            kMaxWifiPasswordLength;
+
+    if (!wifiStoredValueValid) {
+        ++stats_.invalidStoredValues;
+
+        preferences_.remove(
+            kWifiSsidKey);
+
+        preferences_.remove(
+            kWifiPasswordKey);
+    } else if (storedSsid.length() > 0) {
+        copyText(
+            wifiSsid_,
+            storedSsid.c_str());
+
+        copyText(
+            wifiPassword_,
+            storedPassword.c_str());
+    }
 
     return true;
 }
@@ -128,6 +195,125 @@ bool RuntimeSettings::setOutputBrightness(
     }
 
     ++stats_.writes;
+    return true;
+}
+
+
+bool RuntimeSettings::setWifiCredentials(
+    const char* ssid,
+    const char* password) {
+
+    if (ssid == nullptr) {
+        return false;
+    }
+
+    if (password == nullptr) {
+        password = "";
+    }
+
+    const std::size_t ssidLength =
+        std::strlen(ssid);
+
+    const std::size_t passwordLength =
+        std::strlen(password);
+
+    if (ssidLength == 0 ||
+        ssidLength > kMaxWifiSsidLength ||
+        passwordLength >
+            kMaxWifiPasswordLength) {
+
+        return false;
+    }
+
+    copyText(
+        wifiSsid_,
+        ssid);
+
+    copyText(
+        wifiPassword_,
+        password);
+
+    if (!persistenceAvailable_) {
+        ++stats_.writeFailures;
+        return false;
+    }
+
+    // Write password first and SSID last. SSID acts as the effective commit
+    // marker because a missing/empty SSID means "no persisted credentials".
+    const std::size_t passwordWritten =
+        preferences_.putString(
+            kWifiPasswordKey,
+            password);
+
+    const std::size_t ssidWritten =
+        preferences_.putString(
+            kWifiSsidKey,
+            ssid);
+
+    const bool passwordOk =
+        passwordLength == 0 ||
+        passwordWritten > 0;
+
+    const bool ssidOk =
+        ssidWritten > 0;
+
+    if (!passwordOk ||
+        !ssidOk) {
+
+        ++stats_.writeFailures;
+
+        preferences_.remove(
+            kWifiSsidKey);
+
+        preferences_.remove(
+            kWifiPasswordKey);
+
+        return false;
+    }
+
+    ++stats_.writes;
+    return true;
+}
+
+bool RuntimeSettings::clearWifiCredentials() {
+    wifiSsid_.fill('\0');
+    wifiPassword_.fill('\0');
+
+    if (!persistenceAvailable_) {
+        ++stats_.writeFailures;
+        return false;
+    }
+
+    const bool hadSsid =
+        preferences_.isKey(
+            kWifiSsidKey);
+
+    const bool hadPassword =
+        preferences_.isKey(
+            kWifiPasswordKey);
+
+    const bool ssidOk =
+        !hadSsid ||
+        preferences_.remove(
+            kWifiSsidKey);
+
+    const bool passwordOk =
+        !hadPassword ||
+        preferences_.remove(
+            kWifiPasswordKey);
+
+    if (!ssidOk ||
+        !passwordOk) {
+
+        ++stats_.writeFailures;
+        return false;
+    }
+
+    if (hadSsid ||
+        hadPassword) {
+        ++stats_.writes;
+    }
+
     return true;
 }
 
