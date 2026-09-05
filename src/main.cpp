@@ -5,12 +5,14 @@
 #include <lwip/inet.h>
 
 #include "config/BoardConfig.h"
+#include "config/RuntimeSettings.h"
 #include "core/FrameMailbox.h"
 #include "core/LatencyHistogram.h"
 #include "core/RgbFrame.h"
 #include "led/LedEngine.h"
 #include "led/LedRenderer.h"
 #include "integration/TofRenderGainBridge.h"
+#include "render/CorrectionMode.h"
 #include "render/RenderGainController.h"
 #include "render/ShadowGainProbe.h"
 #include "render/RenderScheduler.h"
@@ -36,6 +38,10 @@ ambilight::TofService tof;
 ambilight::TofCalibrationCapture calibrationCapture;
 ambilight::RenderGainController renderGainController;
 ambilight::RenderScheduler renderScheduler;
+ambilight::RuntimeSettings runtimeSettings;
+
+ambilight::CorrectionMode correctionMode =
+    ambilight::CorrectionMode::Shadow;
 
 ambilight::RgbFrame renderSnapshot;
 ambilight::PerimeterGainSnapshot cachedPerimeterGainSnapshot{};
@@ -43,6 +49,7 @@ ambilight::RenderGainContext cachedTargetGainContext{};
 
 bool rgbFrameValid = false;
 bool rgbDirty = false;
+bool correctionModeDirty = false;
 bool haveCachedPerimeterGainSnapshot = false;
 
 std::uint32_t lastMailboxGeneration = 0;
@@ -64,6 +71,53 @@ std::uint64_t lastFrameAgeUs = 0;
 std::uint64_t maxFrameAgeUs = 0;
 
 bool shadowGainProbeActive();
+
+void printCorrectionMode() {
+    Serial.printf(
+        "CORRECTION mode=%s persisted=%s nvs=%s writes=%lu write_fail=%lu invalid_stored=%lu\n",
+        ambilight::correctionModeName(
+            correctionMode),
+        runtimeSettings.persistenceAvailable()
+            ? "yes"
+            : "no",
+        runtimeSettings.persistenceAvailable()
+            ? "available"
+            : "unavailable",
+        static_cast<unsigned long>(
+            runtimeSettings.stats().writes),
+        static_cast<unsigned long>(
+            runtimeSettings.stats().writeFailures),
+        static_cast<unsigned long>(
+            runtimeSettings.stats().invalidStoredValues));
+}
+
+void setCorrectionMode(
+    ambilight::CorrectionMode mode) {
+
+    if (correctionMode == mode) {
+        printCorrectionMode();
+        return;
+    }
+
+    correctionMode = mode;
+
+    const bool persisted =
+        runtimeSettings.setCorrectionMode(
+            mode);
+
+    // Every mode transition starts the valid correction path from unity.
+    // ACTIVE therefore fades in rather than suddenly applying a previously
+    // accumulated shadow profile.
+    renderGainController.reset();
+
+    correctionModeDirty = true;
+    nextGainTargetPollUs = 0;
+
+    Serial.printf(
+        "CORRECTION changed to %s; persisted=%s.\n",
+        ambilight::correctionModeName(mode),
+        persisted ? "yes" : "no");
+}
 
 [[noreturn]] void fatal(const char* message, esp_err_t error) {
     Serial.printf("FATAL: %s: %s\n", message, esp_err_to_name(error));
@@ -109,6 +163,18 @@ void refreshTargetGainContext(
         return;
     }
 
+    if (!ambilight::CorrectionOutputPolicy::evaluatesGain(
+            correctionMode)) {
+
+        cachedTargetGainContext =
+            ambilight::RenderGainContext::unity();
+
+        nextGainTargetPollUs =
+            nowUs + kGainTargetPollIntervalUs;
+
+        return;
+    }
+
     ambilight::PerimeterGainSnapshot latest{};
 
     if (tof.copyPerimeterGainSnapshot(latest)) {
@@ -123,7 +189,9 @@ void refreshTargetGainContext(
             nowUs);
 
     if (shadowProbeUntilUs != 0 &&
-        nowUs < shadowProbeUntilUs) {
+        nowUs < shadowProbeUntilUs &&
+        correctionMode !=
+            ambilight::CorrectionMode::Active) {
 
         cachedTargetGainContext =
             ambilight::ShadowGainProbe::make(
@@ -139,13 +207,24 @@ bool serviceRender(std::uint64_t nowUs) {
     refreshRgbCache();
     refreshTargetGainContext(nowUs);
 
+    const bool gainPipelineEnabled =
+        ambilight::CorrectionOutputPolicy::evaluatesGain(
+            correctionMode);
+
     const bool targetProfileChanged =
+        gainPipelineEnabled &&
         !cachedTargetGainContext.sameRenderProfileAs(
             renderGainController.target());
 
     const bool gainDirty =
-        targetProfileChanged ||
-        !renderGainController.settled();
+        correctionModeDirty ||
+        (
+            gainPipelineEnabled &&
+            (
+                targetProfileChanged ||
+                !renderGainController.settled()
+            )
+        );
 
     const ambilight::RenderDecision decision =
         renderScheduler.decide(
@@ -182,15 +261,21 @@ bool serviceRender(std::uint64_t nowUs) {
         }
     }
 
-    const ambilight::RenderGainContext effectiveGainContext =
-        renderGainController.update(
-            cachedTargetGainContext,
-            nowUs);
+    ambilight::RenderGainContext effectiveGainContext =
+        ambilight::RenderGainContext::unity();
+
+    if (gainPipelineEnabled) {
+        effectiveGainContext =
+            renderGainController.update(
+                cachedTargetGainContext,
+                nowUs);
+    }
 
     const esp_err_t result =
         renderer.render(
             renderSnapshot,
-            effectiveGainContext);
+            effectiveGainContext,
+            correctionMode);
 
     if (result != ESP_OK) {
         fatal(
@@ -199,6 +284,7 @@ bool serviceRender(std::uint64_t nowUs) {
     }
 
     renderScheduler.markRendered(nowUs);
+    correctionModeDirty = false;
 
     if (decision.dueToRgb) {
         rgbDirty = false;
@@ -840,6 +926,14 @@ void serviceCalibrationCapture() {
 }
 
 void startShadowGainProbe() {
+    if (correctionMode ==
+        ambilight::CorrectionMode::Active) {
+
+        Serial.println(
+            "SHADOW PROBE refused in ACTIVE mode. Switch correction to SHADOW or DISABLED first.");
+        return;
+    }
+
     const std::uint64_t nowUs =
         static_cast<std::uint64_t>(esp_timer_get_time());
 
@@ -889,6 +983,17 @@ void serviceDebugCommands() {
             dumpRenderShadow();
         } else if (input == 'x' || input == 'X') {
             startShadowGainProbe();
+        } else if (input == 'm' || input == 'M') {
+            printCorrectionMode();
+        } else if (input == '0') {
+            setCorrectionMode(
+                ambilight::CorrectionMode::Disabled);
+        } else if (input == '1') {
+            setCorrectionMode(
+                ambilight::CorrectionMode::Shadow);
+        } else if (input == '2') {
+            setCorrectionMode(
+                ambilight::CorrectionMode::Active);
         }
     }
 }
@@ -922,7 +1027,7 @@ void printRuntimeStatus() {
     const auto& geometry = tofSnapshot.geometry;
 
     Serial.printf(
-        "STAT wifi=%s rssi=%d pkt=%lu asm=%lu pub=%lu collapse=%lu rej=%lu stale=%lu timeout=%lu "
+        "STAT corr=%s persist=%s wifi=%s rssi=%d pkt=%lu asm=%lu pub=%lu collapse=%lu rej=%lu stale=%lu timeout=%lu "
         "budget=%lu lim=%lu pollmax=%luus sender=%s:%u render=%lu skip=%lu "
         "p50<=%luus p95<=%luus p99<=%luus ovf=%llu agemax=%lluus showmax=%luus "
         "tof=%s tofgen=%lu rawvalid=%u rawmed=%u tofage=%llums tofread=%luus tofreadmax=%luus "
@@ -931,9 +1036,14 @@ void printRuntimeStatus() {
         "pcalc=%lu pskip=%lu pdelta=%u pfail=%lu "
         "spfail=%s spmin=%u spmax=%u "
         "gainfail=%s gl=%u gt=%u gb=%u gr=%u "
-        "shadow_usable=%lu shadow_nonunity=%lu shadow_changed=%u shadow_delta=%u shadowprep=%luus "
+        "shadow_usable=%lu shadow_nonunity=%lu shadow_changed=%u phys_changed=%u shadow_delta=%u shadowprep=%luus "
         "slew_snap=%lu probe=%s sched_rgb=%lu sched_gain=%lu sched_comb=%lu sched_def=%lu rgbgen=%lu "
         "tofinit=%lu toffail=%lu tofreadfail=%lu tofrestart=%lu black=%lu heap=%u minheap=%u\n",
+        ambilight::correctionModeName(
+            correctionMode),
+        runtimeSettings.persistenceAvailable()
+            ? "yes"
+            : "no",
         wifi.connected() ? "up" : "down",
         wifi.connected() ? WiFi.RSSI() : 0,
         static_cast<unsigned long>(udp.datagramsReceived),
@@ -1037,6 +1147,7 @@ void printRuntimeStatus() {
         static_cast<unsigned long>(
             renderer.shadowStats().nonUnityContextFrames),
         renderer.shadowStats().lastWouldChangePixels,
+        renderer.shadowStats().lastPhysicalChangedPixels,
         static_cast<unsigned>(
             renderer.shadowStats().lastMaxChannelDelta),
         static_cast<unsigned long>(
@@ -1075,7 +1186,7 @@ void printRuntimeStatus() {
 void printConfiguration() {
     Serial.println();
     Serial.println(
-        "ESP32-C6 Ambilight Stage 19: slow ToF wall-plane + exact per-pixel shadow gain field");
+        "ESP32-C6 Ambilight Stage 20: runtime correction modes + slow ToF wall plane");
 
     Serial.printf(
         "Logical LEDs=%u payload=%uB DDP=%u poll_budget=%uus max_datagrams=%u\n",
@@ -1106,8 +1217,16 @@ void printConfiguration() {
             ambilight::config::kTofRotationQuarterTurns % 4U),
         ambilight::config::kTofMirrorX ? "yes" : "no");
 
+    Serial.printf(
+        "Correction mode=%s (NVS=%s). 0=DISABLED, 1=SHADOW, 2=ACTIVE, m=status.\n",
+        ambilight::correctionModeName(
+            correctionMode),
+        runtimeSettings.persistenceAvailable()
+            ? "available"
+            : "unavailable");
+
     Serial.println(
-        "Debug: 't'=raw, 'g'=bands, 'p'=plane, 'k'=legacy gains, 's'=spatial gains, 'c'=capture, 'r'=shadow, 'x'=probe.");
+        "Debug: 't'=raw, 'g'=bands, 'p'=plane, 'k'=legacy gains, 's'=spatial gains, 'c'=capture, 'r'=render, 'x'=shadow probe.");
     Serial.println(
         "Active frame transport remains Wi-Fi/DDP only. "
         "USB/AWA is preserved separately as WIP.");
@@ -1119,6 +1238,14 @@ void printConfiguration() {
 void setup() {
     Serial.begin(115200);
     delay(1000);
+
+    if (!runtimeSettings.begin()) {
+        Serial.println(
+            "Runtime settings warning: NVS unavailable; using volatile defaults.");
+    }
+
+    correctionMode =
+        runtimeSettings.correctionMode();
 
     printConfiguration();
 
