@@ -43,6 +43,30 @@ struct TofBandEstimate {
     std::uint16_t filteredMm = 0;
 };
 
+struct TofPlaneEstimate {
+    bool valid = false;
+
+    std::uint8_t candidates = 0;
+    std::uint8_t accepted = 0;
+
+    // z_mm = intercept_mm + slope_x * x_mm + slope_y * y_mm
+    //
+    // x increases right, y increases up, z points toward the wall.
+    float interceptMm = 0.0F;
+    float slopeX = 0.0F;
+    float slopeY = 0.0F;
+
+    std::uint16_t residualMedianMm = 0;
+    std::uint16_t residualMadMm = 0;
+
+    // Diagnostic orientation only.
+    //
+    // Positive yaw: wall farther toward normalized right.
+    // Positive pitch: wall farther toward normalized top.
+    std::int16_t yawCentiDeg = 0;
+    std::int16_t pitchCentiDeg = 0;
+};
+
 struct TofGeometrySnapshot {
     std::uint32_t generation = 0;
     std::uint64_t timestampUs = 0;
@@ -50,6 +74,8 @@ struct TofGeometrySnapshot {
     TofBandEstimate left{};
     TofBandEstimate center{};
     TofBandEstimate right{};
+
+    TofPlaneEstimate plane{};
 
     bool valid = false;
     std::uint8_t acceptedZones = 0;
