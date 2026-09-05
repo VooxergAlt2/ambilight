@@ -4,7 +4,7 @@ Custom ESP32-C6 Ambilight endpoint for HyperHDR.
 
 ## Current development line
 
-Stage 33 moves runtime payload grammar for brightness, LED mapping, ToF spatial geometry and gain curves out of main.cpp into a pure typed parser.
+Stage 34 centralizes firmware identity and exposes it through startup diagnostics, STATCFG and the immediate serial v command.
 
 The firmware stack now includes:
 
@@ -293,3 +293,26 @@ After serial framing, configuration payloads are parsed into existing domain obj
 The parser is pure C++ and covered by native contracts.
 
 main.cpp now owns orchestration and subsystem actions rather than numeric command grammar.
+
+
+## Firmware identity
+
+Immediate command:
+
+    v
+
+reports:
+
+    firmware name/version
+    development stage
+    target MCU
+    serial protocol version
+    logical LED count
+    DDP port
+    persisted spatial/map schema versions
+
+Current source identity:
+
+    ambilight-c6 0.34.0-dev Stage 34
+
+Startup uses the same centralized FirmwareInfo constants instead of a handwritten stage banner.
