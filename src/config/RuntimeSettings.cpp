@@ -57,6 +57,8 @@ bool RuntimeSettings::begin() {
         config::kTofGainPointCount;
     tofGainCurveCustomized_ =
         false;
+    tofGainCurvePersisted_ =
+        false;
 
     persistenceAvailable_ =
         preferences_.begin(
@@ -190,6 +192,8 @@ bool RuntimeSettings::begin() {
                 storedCurveCount;
 
             tofGainCurveCustomized_ =
+                true;
+            tofGainCurvePersisted_ =
                 true;
         } else {
             ++stats_.invalidStoredValues;
@@ -408,6 +412,7 @@ bool RuntimeSettings::setTofGainCurve(
     tofGainPoints_ = points;
     tofGainPointCount_ = count;
     tofGainCurveCustomized_ = true;
+    tofGainCurvePersisted_ = false;
 
     if (!persistenceAvailable_) {
         ++stats_.writeFailures;
@@ -440,6 +445,8 @@ bool RuntimeSettings::setTofGainCurve(
         return false;
     }
 
+    tofGainCurvePersisted_ = true;
+
     ++stats_.writes;
     return true;
 }
@@ -452,6 +459,8 @@ bool RuntimeSettings::resetTofGainCurve() {
         config::kTofGainPointCount;
 
     tofGainCurveCustomized_ =
+        false;
+    tofGainCurvePersisted_ =
         false;
 
     if (!persistenceAvailable_) {
