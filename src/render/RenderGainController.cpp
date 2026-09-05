@@ -51,10 +51,7 @@ std::uint16_t RenderGainController::moveTowards(
 void RenderGainController::forceUnity(
     RenderGainContext& context) {
 
-    for (auto& endpoints : context.segmentGain) {
-        endpoints.startQ12 = kGainUnityQ12;
-        endpoints.endQ12 = kGainUnityQ12;
-    }
+    context.forceUnity();
 }
 
 std::uint16_t RenderGainController::maxStepForDeltaTime(
@@ -169,19 +166,14 @@ RenderGainContext RenderGainController::update(
             maxStep);
 
     for (std::size_t index = 0;
-         index < current_.segmentGain.size();
+         index <
+            current_.logicalGainQ12.size();
          ++index) {
 
-        current_.segmentGain[index].startQ12 =
+        current_.logicalGainQ12[index] =
             moveTowards(
-                current_.segmentGain[index].startQ12,
-                target.segmentGain[index].startQ12,
-                maxStep);
-
-        current_.segmentGain[index].endQ12 =
-            moveTowards(
-                current_.segmentGain[index].endQ12,
-                target.segmentGain[index].endQ12,
+                current_.logicalGainQ12[index],
+                target.logicalGainQ12[index],
                 maxStep);
     }
 
