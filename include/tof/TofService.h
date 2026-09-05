@@ -12,6 +12,7 @@
 #include "tof/TofPerimeterGainModel.h"
 #include "tof/TofPlaneChangeGate.h"
 #include "tof/TofProcessor.h"
+#include "tof/TofSpatialProfile.h"
 #include "tof/TofTypes.h"
 
 namespace ambilight {
@@ -51,6 +52,7 @@ struct TofSnapshot {
     std::uint16_t lastPlaneWallDeltaMm = 0;
 
     std::uint32_t gainCurveUpdates = 0;
+    std::uint32_t spatialProfileUpdates = 0;
 
     std::uint32_t lastReadUs = 0;
     std::uint32_t maxReadUs = 0;
@@ -69,6 +71,9 @@ public:
     bool setGainCurve(
         const DistanceGainCurve& curve);
 
+    bool setSpatialProfile(
+        const TofSpatialProfile& profile);
+
     bool copySnapshot(TofSnapshot& destination) const;
     bool copyGainSnapshot(GainSnapshot& destination) const;
     bool copyPerimeterGainSnapshot(
@@ -86,6 +91,7 @@ private:
         std::uint64_t timestampUs);
     void refreshGainStaleness(std::uint64_t nowUs);
     void applyPendingGainCurve();
+    void applyPendingSpatialProfile();
 
     static bool isUsableStatus(std::uint8_t status);
     static std::uint16_t medianOfValid(
@@ -105,6 +111,10 @@ private:
 
     DistanceGainCurve pendingGainCurve_{};
     bool pendingGainCurveDirty_ = false;
+
+    TofSpatialProfile spatialProfile_{};
+    TofSpatialProfile pendingSpatialProfile_{};
+    bool pendingSpatialProfileDirty_ = false;
 
     TofSnapshot snapshot_{};
 };
