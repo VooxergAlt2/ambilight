@@ -349,16 +349,4 @@ public:
     }
 };
 
-// Hard Stage 17 safety boundary.
-// Physical LEDs still receive original HyperHDR RGB.
-class ShadowRenderPolicy {
-public:
-    static constexpr Rgb8 physicalOutput(
-        const Rgb8& original,
-        const ShadowPixelResult&) {
-
-        return original;
-    }
-};
-
 } // namespace ambilight
