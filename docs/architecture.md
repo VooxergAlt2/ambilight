@@ -2,51 +2,61 @@
 
 ## Current stage
 
-Stage 14 adds a robust 2D wall plane estimate to the existing ToF geometry pipeline.
+Stage 15 uses the fitted 2D wall plane to create spatial shadow gains around the complete LED perimeter.
 
-RGB remains one-PC Wi-Fi/DDP and physical gain application remains disabled.
+Physical gains remain disabled.
 
-## ToF geometry
+## Geometry chain
 
     VL53L5CX 8x8
-      -> normalized zone rays
-      -> weighted 3D points
-      -> robust plane fit
-      -> TofPlaneEstimate
+      -> TofPlaneEstimator
+      -> z = c + ax + by
+      -> TofPerimeterGainModel
+      -> endpoint wall distances
+      -> endpoint Q12 gains
+      -> PerimeterGainSnapshot
+      -> TofRenderGainBridge
+      -> RenderGainContext
+      -> RenderGainController
+      -> LedRenderer per-pixel interpolation
+      -> ShadowRenderPolicy
+      -> ORIGINAL RGB
 
-In parallel, the existing LEFT/CENTER/RIGHT robust-band processing remains unchanged.
+## Within-segment correction
 
-TofGeometrySnapshot now contains both:
+Each segment has independent logical start/end values.
 
-- left / center / right
-- plane
+Therefore correction is 2D, not just per-side:
 
-## Wall model
+- yaw creates horizontal gradients
+- pitch creates vertical gradients
+- compound orientation creates gradients on all sides
 
-    z = c + ax + by
+## Parallel legacy path
 
-where:
+The older LEFT/CENTER/RIGHT TofGainModel remains active for diagnostics only.
 
-- a = horizontal wall slope
-- b = vertical wall slope
-- c = wall distance at the sensor X/Y origin
+The renderer target now comes from PerimeterGainSnapshot.
 
-This is the geometric basis for within-segment compensation.
+## Screen geometry
 
-A horizontal segment can vary with X.
-A vertical segment can vary with Y.
-With both a and b non-zero, all four perimeter segments can have distinct gradients.
+Screen-space endpoint coordinates are separate from physical LED lane/index mapping.
 
-## Current safety boundary
+This is critical:
 
-Plane validity is independent from legacy geometry validity.
+- physical strip reversal affects wiring only
+- screen-space logical direction controls spatial compensation
 
-No Stage 14 code changes GainSnapshot or RenderGainContext.
+The current endpoint directions are provisional and must be verified on hardware.
 
-Physical LEDs remain original HyperHDR RGB.
+## Current safety
 
-## Next stage
+The real distance curve remains unity.
 
-Project the fitted wall plane onto calibrated TV/perimeter coordinates and derive separate gain endpoints for every segment.
+ShadowRenderPolicy still sends original RGB to PARLIO.
 
-That stage remains shadow-only.
+## Next concern
+
+Plane projection can extrapolate beyond the area directly observed by the sensor FoV, especially at small wall distance.
+
+A following stage should quantify that extrapolation and endpoint uncertainty before physical gains are allowed.
