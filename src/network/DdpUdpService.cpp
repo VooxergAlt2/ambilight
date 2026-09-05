@@ -107,8 +107,13 @@ DdpPollResult DdpUdpService::poll() {
 
         if (result.datagrams > 0 &&
             beforeReceiveUs - pollStartedUs >= kPollBudgetUs) {
-            result.backlogLikely = true;
+
             ++stats_.pollBudgetExhaustions;
+
+            result.backlogLikely =
+                result.acceptedDatagrams > 0 &&
+                result.senderRejectedDatagrams == 0;
+
             break;
         }
 
@@ -165,9 +170,11 @@ DdpPollResult DdpUdpService::poll() {
         if (senderDecision !=
             DdpSenderDecision::Accepted) {
 
+            ++result.senderRejectedDatagrams;
             continue;
         }
 
+        ++result.acceptedDatagrams;
         lastPacketUs_ = packetUs;
 
         const DdpIngestResult ingestResult = assembler_.ingest(
@@ -185,8 +192,12 @@ DdpPollResult DdpUdpService::poll() {
 
     if (result.datagrams == kMaxDatagramsPerPoll &&
         !result.socketDrained) {
-        result.backlogLikely = true;
+
         ++stats_.pollDatagramLimitHits;
+
+        result.backlogLikely =
+            result.acceptedDatagrams > 0 &&
+            result.senderRejectedDatagrams == 0;
     }
 
     // Publish at most once per socket drain. If several complete frames were
