@@ -5,6 +5,7 @@
 
 #include "render/RenderGainContext.h"
 #include "tof/TofGainModel.h"
+#include "tof/TofPerimeterGainModel.h"
 
 namespace ambilight {
 
@@ -12,6 +13,66 @@ class TofRenderGainBridge {
 public:
     static constexpr std::uint64_t kMaxGainSnapshotAgeUs =
         1500000;
+
+    static constexpr RenderGainContext make(
+        const PerimeterGainSnapshot& gains,
+        bool snapshotPresent,
+        std::uint64_t nowUs) {
+
+        RenderGainContext context;
+        context.sourcePresent = snapshotPresent;
+
+        if (!snapshotPresent) {
+            return context;
+        }
+
+        context.sourceGeneration =
+            gains.generation;
+
+        context.sourceTimestampUs =
+            gains.timestampUs;
+
+        const bool timestampSane =
+            gains.timestampUs != 0 &&
+            nowUs >= gains.timestampUs;
+
+        context.sourceAgeUs =
+            timestampSane
+                ? nowUs - gains.timestampUs
+                : 0;
+
+        const bool fresh =
+            timestampSane &&
+            context.sourceAgeUs <=
+                kMaxGainSnapshotAgeUs;
+
+        context.sourceUsable =
+            fresh &&
+            gains.planeUsable &&
+            !gains.failOpen;
+
+        context.failOpen =
+            !context.sourceUsable;
+
+        if (!context.sourceUsable) {
+            return context;
+        }
+
+        for (std::size_t index = 0;
+             index < context.segmentGain.size();
+             ++index) {
+
+            context.segmentGain[index].startQ12 =
+                sanitizeGainQ12(
+                    gains.segment[index].startQ12);
+
+            context.segmentGain[index].endQ12 =
+                sanitizeGainQ12(
+                    gains.segment[index].endQ12);
+        }
+
+        return context;
+    }
 
     static constexpr RenderGainContext make(
         const GainSnapshot& gains,
