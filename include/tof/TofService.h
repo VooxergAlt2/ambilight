@@ -10,6 +10,7 @@
 
 #include "tof/TofGainModel.h"
 #include "tof/TofPerimeterGainModel.h"
+#include "tof/TofPlaneChangeGate.h"
 #include "tof/TofProcessor.h"
 #include "tof/TofTypes.h"
 
@@ -43,6 +44,11 @@ struct TofSnapshot {
     std::uint32_t rangingReadFailures = 0;
     std::uint32_t staleRestarts = 0;
     std::uint32_t frames = 0;
+
+    std::uint32_t planeRecalculations = 0;
+    std::uint32_t planeDeadbandSkips = 0;
+    std::uint32_t planeFailOpens = 0;
+    std::uint16_t lastPlaneWallDeltaMm = 0;
 
     std::uint32_t lastReadUs = 0;
     std::uint32_t maxReadUs = 0;
@@ -87,6 +93,7 @@ private:
     VL53L5CX_ResultsData results_{};
 
     TofProcessor processor_;
+    TofPlaneChangeGate planeChangeGate_;
     TofGainModel gainModel_;
     TofPerimeterGainModel perimeterGainModel_;
 
