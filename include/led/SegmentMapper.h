@@ -3,6 +3,7 @@
 #include <cstdint>
 
 #include "core/Geometry.h"
+#include "led/LedMappingProfile.h"
 
 namespace ambilight {
 
@@ -48,12 +49,29 @@ public:
         };
     }
 
-    static constexpr PhysicalPixel map(std::uint16_t logicalIndex) {
-        if (logicalIndex >= config::kLogicalLedCount) {
+    static constexpr PhysicalPixel map(
+        std::uint16_t logicalIndex,
+        const LedMappingProfile& profile) {
+
+        if (logicalIndex >= config::kLogicalLedCount ||
+            !profile.valid()) {
             return {};
         }
 
-        for (const auto& segment : kSegments) {
+        for (const auto& baseSegment : kSegments) {
+            SegmentConfig segment =
+                baseSegment;
+
+            const auto runtime =
+                profile.forSegment(
+                    segment.id);
+
+            segment.lane =
+                runtime.lane;
+
+            segment.reversed =
+                runtime.reversed != 0;
+
             const PhysicalPixel mapped = mapInSegment(
                 segment,
                 logicalIndex);
@@ -64,6 +82,14 @@ public:
         }
 
         return {};
+    }
+
+    static constexpr PhysicalPixel map(
+        std::uint16_t logicalIndex) {
+
+        return map(
+            logicalIndex,
+            LedMappingProfile{});
     }
 };
 
