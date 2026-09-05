@@ -123,7 +123,7 @@ void test_rgb_and_state_dirty_are_combined_in_one_render() {
         scheduler.stats().combinedRenders);
 }
 
-void test_time_rollback_allows_gain_recovery_render() {
+void test_time_rollback_allows_state_recovery_render() {
     RenderScheduler scheduler;
 
     auto first =
@@ -159,7 +159,7 @@ int main(int, char**) {
     RUN_TEST(test_state_only_render_is_rate_limited);
     RUN_TEST(test_clean_state_does_not_rerender_static_rgb);
     RUN_TEST(test_rgb_and_state_dirty_are_combined_in_one_render);
-    RUN_TEST(test_time_rollback_allows_gain_recovery_render);
+    RUN_TEST(test_time_rollback_allows_state_recovery_render);
 
     return UNITY_END();
 }
