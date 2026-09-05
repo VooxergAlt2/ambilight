@@ -51,13 +51,11 @@ bool RuntimeSettings::begin() {
 
         correctionMode_ =
             CorrectionMode::Shadow;
-
-        return true;
+    } else {
+        correctionMode_ =
+            static_cast<CorrectionMode>(
+                raw);
     }
-
-    correctionMode_ =
-        static_cast<CorrectionMode>(
-            raw);
 
     outputBrightness_ =
         preferences_.getUChar(
