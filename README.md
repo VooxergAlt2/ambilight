@@ -4,7 +4,7 @@ Custom ESP32-C6 Ambilight endpoint for HyperHDR.
 
 ## Current development line
 
-Stage 31 adds a local validation harness that mirrors the manual CI gates and preserves logs for both native tests and ESP32-C6 firmware builds.
+Stage 32 moves serial command framing out of main.cpp into a pure, native-testable event parser while preserving the existing command syntax.
 
 The firmware stack now includes:
 
@@ -261,3 +261,21 @@ Telemetry now reports:
     sched_state_def
 
 instead of the old misleading gain-only names.
+
+
+## Serial command architecture
+
+Serial command bytes now pass through:
+
+    Serial.read()
+      -> SerialCommandParser
+      -> typed SerialCommandEvent
+      -> subsystem handler
+
+Line commands are bounded and NUL-terminated.
+
+If a line contains an unsupported control byte or overflows its buffer, the remainder of that line is discarded until Enter. This prevents damaged input from accidentally triggering an unrelated single-key debug command.
+
+Framing contracts live in:
+
+    test/test_serial_command_parser
