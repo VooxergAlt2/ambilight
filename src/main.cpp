@@ -24,7 +24,7 @@ namespace {
 constexpr std::uint64_t kIdleBlackoutUs = 1000000;
 constexpr std::uint32_t kStatusIntervalMs = 30000;
 constexpr std::uint8_t kMaxConsecutiveBacklogRenderSkips = 4;
-constexpr std::uint64_t kGainTargetPollIntervalUs = 50000;
+constexpr std::uint64_t kGainTargetPollIntervalUs = 1000000;
 
 ambilight::LedEngine ledEngine;
 ambilight::LedRenderer renderer(ledEngine);
