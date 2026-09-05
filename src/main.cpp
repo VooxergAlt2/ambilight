@@ -363,7 +363,9 @@ void printLedMappingProfile() {
 
     Serial.printf(
         "LED MAP source=%s",
-        ledMappingSourceName());
+        ledMappingSourceName(),
+        commissioningPatternName(
+            commissioningPattern));
 
     for (std::size_t index = 0;
          index < profile.segment.size();
@@ -2348,6 +2350,37 @@ void serviceDebugCommands() {
     while (Serial.available() > 0) {
         const int input = Serial.read();
 
+        if (commissioningCommandPending) {
+            commissioningCommandPending = false;
+
+            const std::uint64_t nowUs =
+                static_cast<std::uint64_t>(
+                    esp_timer_get_time());
+
+            if (input == '0') {
+                finishCommissioning(
+                    nowUs,
+                    true,
+                    "serial cancel");
+            } else if (input == '1') {
+                startCommissioning(
+                    ambilight::LedCommissioningPattern::SegmentIdentity);
+            } else if (input == '2') {
+                startCommissioning(
+                    ambilight::LedCommissioningPattern::DirectionMarkers);
+            } else if (
+                input == '\r' ||
+                input == '\n') {
+
+                printCommissioningStatus();
+            } else {
+                Serial.println(
+                    "LED TEST invalid. Use i0, i1, i2, or i + Enter.");
+            }
+
+            continue;
+        }
+
         if (ledMapCommandPending) {
             if (input == '\r' || input == '\n') {
                 finishLedMapCommand();
@@ -2534,6 +2567,8 @@ void serviceDebugCommands() {
 
         if (input == '!') {
             correctionCommandPending = true;
+        } else if (input == 'i' || input == 'I') {
+            commissioningCommandPending = true;
         } else if (input == 'l' || input == 'L') {
             ledMapCommandPending = true;
             ledMapCommandLength = 0;
@@ -2786,7 +2821,7 @@ void printRuntimeStatus() {
         ESP.getMinFreeHeap());
 
     Serial.printf(
-        "STATCFG curve=%s curve_points=%u curve_updates=%lu spatial=%s spatial_updates=%lu ledmap=%s\n",
+        "STATCFG curve=%s curve_points=%u curve_updates=%lu spatial=%s spatial_updates=%lu ledmap=%s ledtest=%s\n",
         gainCurveSourceName(),
         static_cast<unsigned>(
             runtimeSettings.tofGainPointCount()),
@@ -2805,7 +2840,7 @@ void printRuntimeStatus() {
 void printConfiguration() {
     Serial.println();
     Serial.println(
-        "ESP32-C6 Ambilight Stage 27: runtime LED mapping + DDP hardening");
+        "ESP32-C6 Ambilight Stage 28: LED commissioning patterns + runtime mapping");
 
     Serial.printf(
         "Logical LEDs=%u payload=%uB DDP=%u poll_budget=%uus max_datagrams=%u\n",
@@ -2878,6 +2913,8 @@ void printConfiguration() {
         "Spatial: y + Enter=status, yreset, or yW,H,X,Y,Z,ROT,MIRROR,DEADBAND (mm, not in ACTIVE).");
     Serial.println(
         "LED map: l + Enter=status, lreset, or lTlane:Trev,Rlane:Rrev,Blane:Brev,Llane:Lrev; brightness must be 0.");
+    Serial.println(
+        "LED test: i1=segment colors, i2=direction markers, i0=stop, i + Enter=status; brightness 1..64.");
 
     printLedMappingProfile();
 
@@ -3007,7 +3044,9 @@ void loop() {
         updateDdpActivityState();
     }
 
-    if (pollResult.backlogLikely &&
+    if (commissioningPattern ==
+            ambilight::LedCommissioningPattern::None &&
+        pollResult.backlogLikely &&
         consecutiveBacklogRenderSkips <
             kMaxConsecutiveBacklogRenderSkips) {
 
@@ -3024,7 +3063,12 @@ void loop() {
         static_cast<std::uint64_t>(esp_timer_get_time());
 
     serviceIdleBlackout(nowUs);
-    serviceRender(nowUs);
+
+    if (!serviceCommissioning(
+            nowUs)) {
+
+        serviceRender(nowUs);
+    }
 
     const std::uint32_t nowMs = millis();
     if (static_cast<std::int32_t>(
