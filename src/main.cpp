@@ -830,47 +830,37 @@ void resetSpatialProfile() {
     printSpatialProfile();
 }
 
-void resetSpatialCommand() {
-    spatialCommandPending = false;
-    spatialCommandLength = 0;
-    spatialCommandBuffer.fill('\0');
-}
+void handleSpatialCommand(
+    const char* command) {
 
-void finishSpatialCommand() {
-    spatialCommandBuffer[
-        spatialCommandLength] = '\0';
+    if (command == nullptr ||
+        command[0] == '\0') {
 
-    if (spatialCommandLength == 0) {
         printSpatialProfile();
-        resetSpatialCommand();
         return;
     }
 
     if (std::strcmp(
-            spatialCommandBuffer.data(),
+            command,
             "reset") == 0) {
 
         resetSpatialProfile();
-        resetSpatialCommand();
         return;
     }
 
     ambilight::TofSpatialProfile profile;
 
     if (!parseSpatialProfileText(
-            spatialCommandBuffer.data(),
+            command,
             profile)) {
 
         Serial.println(
             "TOF SPATIAL command invalid. Example: y1437.5,1000,0,0,0,0,0,10");
-        resetSpatialCommand();
         return;
     }
 
     applySpatialProfile(
         profile);
-
-    resetSpatialCommand();
 }
 
 const char* gainCurveSourceName() {
