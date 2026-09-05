@@ -1353,7 +1353,7 @@ void printConfiguration() {
     Serial.printf(
         "VL53L5CX SDA=%u SCL=%u 8x8 internal 1Hz, pose processed about every 12s, "
         "plane_deadband=%.1fmm, rotation=%u mirror_x=%s; "
-        "gain model enters renderer in SHADOW mode and does NOT modify physical RGB.\n",
+        "physical correction follows the persisted runtime mode.\n",
         ambilight::config::kTofSdaGpio,
         ambilight::config::kTofSclGpio,
         static_cast<double>(
