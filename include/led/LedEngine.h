@@ -11,23 +11,10 @@
 
 namespace ambilight {
 
-enum class SegmentId : std::uint8_t {
-    Top = 0,
-    Right,
-    Bottom,
-    Left,
-    Count
-};
-
-struct SegmentConfig {
-    SegmentId id;
-    std::uint16_t logicalStart;
-    std::uint16_t logicalLength;
-    std::uint8_t lane;
-    std::uint8_t gpio;
-    bool reversed;
-};
-
+// Thin owner of the ESP32-C6 PARLIO hardware.
+//
+// This class knows only physical lanes. Logical LED geometry belongs to
+// SegmentMapper/LedRenderer.
 class LedEngine {
 public:
     LedEngine();
@@ -36,22 +23,15 @@ public:
     esp_err_t show();
 
     void clear();
-    void fillSegment(SegmentId id, crgb_t color);
-    bool setLogicalPixel(std::uint16_t logicalIndex, crgb_t color);
-
-    void runIdentificationPattern(std::uint32_t holdMs);
-    void runBoundaryPattern(std::uint32_t holdMs);
-    void runLogicalWalk(std::uint32_t stepMs);
-    void runFpsProbe(std::uint16_t targetFps, std::uint32_t durationMs);
+    bool setPhysicalPixel(
+        std::uint8_t lane,
+        std::uint16_t physicalIndex,
+        crgb_t color);
 
     std::uint32_t lastShowTimeUs() const { return lastShowTimeUs_; }
     std::uint32_t maxShowTimeUs() const { return maxShowTimeUs_; }
 
-    static const std::array<SegmentConfig, config::kParlioLaneCount>& segments();
-
 private:
-    static const SegmentConfig* findSegment(SegmentId id);
-
     LiteLEDpioGroup group_;
     std::array<LiteLEDpioLane*, config::kParlioLaneCount> lanes_{};
 

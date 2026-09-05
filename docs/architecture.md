@@ -2,52 +2,99 @@
 
 ## Current scope
 
-Stage 1 proves the physical LED engine only.
+Stage 2 introduces the transport-independent RGB frame core on top of the Stage 1 four-lane PARLIO engine.
 
-The firmware currently contains no Wi-Fi, DDP, USB/AWA, VL53L5CX, Web UI, OTA, source arbitration, or multi-PC logic.
+The firmware still contains no Wi-Fi, DDP, USB/AWA, VL53L5CX, Web UI, OTA, source arbitration, or multi-PC logic.
 
-## Fixed logical frame
+## Logical frame contract
 
-HyperHDR-facing geometry will use one logical RGB frame of 780 LEDs:
+Every future input transport must publish one complete logical frame:
 
-| Segment | Logical range | LEDs |
-| --- | ---: | ---: |
-| TOP | 0..229 | 230 |
-| RIGHT | 230..389 | 160 |
-| BOTTOM | 390..619 | 230 |
-| LEFT | 620..779 | 160 |
+    RgbFrame
+      generation
+      receivedUs
+      pixels[780] as RGB888
 
-The logical order is intentionally isolated from the physical GPIO mapping.
+The RGB payload is exactly 2340 bytes.
 
-## PARLIO layout
+Transport code is not allowed to address PARLIO lanes directly.
 
-LiteLEDpioGroup requires equal lane length. The group therefore uses 230 positions on every lane:
+## Frame mailbox
+
+FrameMailbox owns one published frame and protects task-level copies with a FreeRTOS mutex.
+
+This intentionally chooses simple ownership over zero-copy complexity:
+
+- producer copies one complete frame into the mailbox
+- mailbox assigns a monotonically increasing generation
+- renderer copies only when the generation changed
+- no RGB FIFO is created
+- future realtime transport policy remains "latest frame wins"
+
+A 2340-byte copy is cheap enough that this can be benchmarked before considering a more complex ownership scheme.
+
+## Fixed logical geometry
+
+| Segment | Logical range | LEDs | PARLIO lane |
+| --- | ---: | ---: | ---: |
+| TOP | 0..229 | 230 | 0 |
+| RIGHT | 230..389 | 160 | 1 |
+| BOTTOM | 390..619 | 230 | 2 |
+| LEFT | 620..779 | 160 | 3 |
+
+Geometry is compile-time validated to ensure:
+
+- no gaps between logical segments
+- the final logical index is exactly 779
+- no physical segment exceeds the 230-slot PARLIO lane
+- every lane index is valid
+
+## Segment mapping
+
+SegmentMapper is pure C++ and converts a logical LED index into:
+
+    { lane, physical index, valid }
+
+Reversal is handled here, not in HyperHDR and not in the PARLIO hardware layer.
+
+The mapper has native unit tests for every segment boundary, out-of-range access, and reversed segments.
+
+## PARLIO hardware
+
+LiteLEDpioGroup requires equal lane length. The group uses 230 physical positions per lane:
 
 - lane 0: TOP, 230 real LEDs
-- lane 1: RIGHT, 160 real LEDs + 70 virtual black positions
+- lane 1: RIGHT, 160 real LEDs + 70 untouched virtual positions
 - lane 2: BOTTOM, 230 real LEDs
-- lane 3: LEFT, 160 real LEDs + 70 virtual black positions
+- lane 3: LEFT, 160 real LEDs + 70 untouched virtual positions
 
-All four lanes are emitted by one ESP32-C6 PARLIO TX unit.
+The virtual tail positions are cleared at hardware initialization and never addressed by LedRenderer.
 
-## Design rule for later stages
+## Renderer
 
-Incoming transports must publish complete logical RGB frames. They must not call the LED driver directly.
+LedRenderer is the only logical-frame consumer allowed to write LED pixels.
 
-Future data flow:
+Data flow now used even by built-in test patterns:
 
-    DDP or USB/AWA
-          |
-          v
-      RgbFrame[780]
-          |
-          v
-    optional ToF gain
-          |
-          v
-      LedRenderer
-          |
-          v
-     PARLIO x4
+    test RgbFrame
+         |
+         v
+    FrameMailbox
+         |
+         v
+    LedRenderer
+         |
+         v
+    SegmentMapper
+         |
+         v
+      LedEngine
+         |
+         v
+    LiteLED PARLIO x4
 
-This keeps transport parsing, adaptive brightness, and LED timing independently testable.
+Future DDP and USB/AWA receivers must stop at FrameMailbox.
+
+## Next stage
+
+Stage 3 adds Wi-Fi only. Test-pattern frames remain the source so that any Wi-Fi side effects on PARLIO timing can be isolated before DDP is introduced.
