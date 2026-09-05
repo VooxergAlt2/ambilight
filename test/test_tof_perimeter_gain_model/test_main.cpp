@@ -288,6 +288,54 @@ void test_combined_yaw_pitch_changes_all_four_segments() {
         result.minDistanceMm);
 }
 
+void test_per_pixel_curve_evaluation_is_exact_across_calibration_knot() {
+    auto model = makeModel();
+
+    // Width 1000 mm, slopeX=0.40 around intercept 500 mm:
+    // TOP distance runs 300 -> 700 mm and crosses the 500 mm curve knot.
+    const auto result =
+        model.evaluate(
+            makePlane(
+                500.0F,
+                0.40F,
+                0.0F,
+                1000000),
+            1100000);
+
+    TEST_ASSERT_FALSE(result.failOpen);
+
+    const auto& top =
+        segment(result, SegmentId::Top);
+
+    TEST_ASSERT_EQUAL_UINT16(
+        300,
+        top.startDistanceMm);
+
+    TEST_ASSERT_EQUAL_UINT16(
+        700,
+        top.endDistanceMm);
+
+    // TOP has 230 LEDs, denominator 229.
+    // At logical offset 114:
+    // d = round(300 + 400*114/229) = 499 mm.
+    // The real calibration curve gives Q12=2045.
+    //
+    // Linear interpolation between endpoint gains would be about 2300 and is
+    // intentionally NOT what Stage 17 does.
+    TEST_ASSERT_EQUAL_UINT16(
+        2045,
+        result.logicalGainQ12[114]);
+
+    TEST_ASSERT_TRUE(
+        result.logicalGainQ12[114] <
+        2100);
+
+    // Next LED is just across the 500 mm knot.
+    TEST_ASSERT_TRUE(
+        result.logicalGainQ12[115] >
+        result.logicalGainQ12[114]);
+}
+
 void test_led_plane_z_offset_is_subtracted() {
     TofPerimeterGainModelConfig config;
     config.curve = makeCurve();
@@ -424,6 +472,7 @@ int main(int, char**) {
     RUN_TEST(test_yaw_creates_horizontal_within_segment_gradients);
     RUN_TEST(test_pitch_creates_vertical_within_segment_gradients);
     RUN_TEST(test_combined_yaw_pitch_changes_all_four_segments);
+    RUN_TEST(test_per_pixel_curve_evaluation_is_exact_across_calibration_knot);
     RUN_TEST(test_led_plane_z_offset_is_subtracted);
     RUN_TEST(test_invalid_or_stale_plane_fails_open);
     RUN_TEST(test_large_extrapolation_warns_but_does_not_fail_open);
