@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "config/BoardConfig.h"
 #include "core/GainQ12.h"
 #include "core/Geometry.h"
 #include "core/RgbFrame.h"
@@ -26,113 +27,201 @@ struct RenderGainContext {
     std::uint64_t sourceTimestampUs = 0;
     std::uint64_t sourceAgeUs = 0;
 
-    // Endpoints live in LOGICAL segment order.
+    // Exact logical LED gain field.
     //
-    // Physical lane reversal happens later in SegmentMapper and must never
-    // reverse the mathematical gain profile by accident.
-    //
-    // Future wall-plane logic can therefore create a gradient along a segment
-    // without changing LedRenderer. Activation of physical gradients still
-    // requires verified screen-space orientation for every logical segment.
+    // Index is HyperHDR logical perimeter index, before physical lane mapping
+    // or strip reversal. This keeps spatial correction independent from wiring.
     std::array<
-        SegmentGainEndpoints,
-        static_cast<std::size_t>(SegmentId::Count)>
-        segmentGain{};
+        std::uint16_t,
+        config::kLogicalLedCount>
+        logicalGainQ12{};
 
     bool sourcePresent = false;
     bool sourceUsable = false;
     bool failOpen = true;
 
-    static constexpr RenderGainContext unity() {
+    RenderGainContext() {
+        forceUnity();
+    }
+
+    static RenderGainContext unity() {
+        return RenderGainContext{};
+    }
+
+    void forceUnity() {
+        logicalGainQ12.fill(
+            kGainUnityQ12);
+    }
+
+    std::uint16_t gainForLogicalIndex(
+        std::uint16_t logicalIndex) const {
+
+        if (!sourceUsable ||
+            failOpen ||
+            logicalIndex >=
+                logicalGainQ12.size()) {
+
+            return kGainUnityQ12;
+        }
+
+        return sanitizeGainQ12(
+            logicalGainQ12[
+                logicalIndex]);
+    }
+
+    SegmentGainEndpoints endpointsForSegment(
+        SegmentId segment) const {
+
+        for (const auto& configSegment :
+             kSegments) {
+
+            if (configSegment.id != segment ||
+                configSegment.logicalLength == 0) {
+                continue;
+            }
+
+            const std::uint16_t start =
+                configSegment.logicalStart;
+
+            const std::uint16_t end =
+                static_cast<std::uint16_t>(
+                    configSegment.logicalStart +
+                    configSegment.logicalLength -
+                    1);
+
+            return SegmentGainEndpoints{
+                gainForLogicalIndex(start),
+                gainForLogicalIndex(end)
+            };
+        }
+
         return {};
     }
 
-    constexpr const SegmentGainEndpoints& endpointsForSegment(
-        SegmentId segment) const {
-
-        const auto index =
-            static_cast<std::size_t>(segment);
-
-        if (index >= segmentGain.size()) {
-            return segmentGain[0];
-        }
-
-        return segmentGain[index];
-    }
-
-    constexpr std::uint16_t gainForPosition(
+    // Backward-compatible helper used by diagnostics/tests.
+    // The authoritative data source is logicalGainQ12.
+    std::uint16_t gainForPosition(
         SegmentId segment,
         std::uint16_t logicalOffset,
-        std::uint16_t segmentLength) const {
+        std::uint16_t) const {
 
-        if (!sourceUsable || failOpen) {
-            return kGainUnityQ12;
+        for (const auto& configSegment :
+             kSegments) {
+
+            if (configSegment.id != segment ||
+                logicalOffset >=
+                    configSegment.logicalLength) {
+                continue;
+            }
+
+            return gainForLogicalIndex(
+                static_cast<std::uint16_t>(
+                    configSegment.logicalStart +
+                    logicalOffset));
         }
 
-        const auto& endpoints =
-            endpointsForSegment(segment);
-
-        const std::uint16_t start =
-            sanitizeGainQ12(endpoints.startQ12);
-        const std::uint16_t end =
-            sanitizeGainQ12(endpoints.endQ12);
-
-        if (segmentLength <= 1 ||
-            logicalOffset == 0 ||
-            start == end) {
-            return start;
-        }
-
-        if (logicalOffset >= segmentLength - 1) {
-            return end;
-        }
-
-        const std::int32_t span =
-            static_cast<std::int32_t>(end) -
-            static_cast<std::int32_t>(start);
-
-        const std::uint32_t denominator =
-            static_cast<std::uint32_t>(
-                segmentLength - 1);
-
-        const std::int64_t numerator =
-            static_cast<std::int64_t>(span) *
-            logicalOffset;
-
-        const std::int64_t rounded =
-            numerator >= 0
-                ? numerator +
-                    static_cast<std::int64_t>(
-                        denominator / 2U)
-                : numerator -
-                    static_cast<std::int64_t>(
-                        denominator / 2U);
-
-        const std::int32_t interpolated =
-            static_cast<std::int32_t>(start) +
-            static_cast<std::int32_t>(
-                rounded /
-                static_cast<std::int64_t>(denominator));
-
-        if (interpolated <= 0) {
-            return 0;
-        }
-
-        if (interpolated >= kGainUnityQ12) {
-            return kGainUnityQ12;
-        }
-
-        return static_cast<std::uint16_t>(
-            interpolated);
+        return kGainUnityQ12;
     }
 
-    constexpr bool hasNonUnityGain() const {
-        if (!sourceUsable || failOpen) {
+    void setSegmentUniform(
+        SegmentId segment,
+        std::uint16_t gainQ12) {
+
+        setSegmentLinear(
+            segment,
+            gainQ12,
+            gainQ12);
+    }
+
+    void setSegmentLinear(
+        SegmentId segment,
+        std::uint16_t startQ12,
+        std::uint16_t endQ12) {
+
+        startQ12 =
+            sanitizeGainQ12(
+                startQ12);
+
+        endQ12 =
+            sanitizeGainQ12(
+                endQ12);
+
+        for (const auto& configSegment :
+             kSegments) {
+
+            if (configSegment.id != segment ||
+                configSegment.logicalLength == 0) {
+                continue;
+            }
+
+            const std::uint32_t denominator =
+                configSegment.logicalLength > 1
+                    ? configSegment.logicalLength - 1
+                    : 1;
+
+            const std::int32_t span =
+                static_cast<std::int32_t>(
+                    endQ12) -
+                static_cast<std::int32_t>(
+                    startQ12);
+
+            for (std::uint16_t offset = 0;
+                 offset <
+                    configSegment.logicalLength;
+                 ++offset) {
+
+                const std::int64_t numerator =
+                    static_cast<std::int64_t>(
+                        span) *
+                    offset;
+
+                const std::int64_t rounded =
+                    numerator >= 0
+                        ? numerator +
+                            static_cast<std::int64_t>(
+                                denominator / 2U)
+                        : numerator -
+                            static_cast<std::int64_t>(
+                                denominator / 2U);
+
+                const std::int32_t value =
+                    static_cast<std::int32_t>(
+                        startQ12) +
+                    static_cast<std::int32_t>(
+                        rounded /
+                        static_cast<std::int64_t>(
+                            denominator));
+
+                logicalGainQ12[
+                    configSegment.logicalStart +
+                    offset] =
+                    sanitizeGainQ12(
+                        value <= 0
+                            ? 0
+                            : static_cast<std::uint16_t>(
+                                  value));
+
+                if (offset + 1 ==
+                    configSegment.logicalLength) {
+                    break;
+                }
+            }
+
+            return;
+        }
+    }
+
+    bool hasNonUnityGain() const {
+        if (!sourceUsable ||
+            failOpen) {
             return false;
         }
 
-        for (const auto& gain : segmentGain) {
-            if (!gain.isUnity()) {
+        for (const auto gain :
+             logicalGainQ12) {
+
+            if (sanitizeGainQ12(gain) !=
+                kGainUnityQ12) {
                 return true;
             }
         }
@@ -140,20 +229,18 @@ struct RenderGainContext {
         return false;
     }
 
-    // Compare only what can change rendered RGB.
-    //
-    // Generation/timestamp/age are diagnostics and do not make a profile
-    // dirty by themselves. Usable vs fail-open state does matter even when
-    // both currently resolve to unity, because reacquisition starts a new
-    // slew from the safe unity state.
-    constexpr bool sameRenderProfileAs(
+    // Compare only data that can change rendered RGB.
+    // Diagnostic metadata does not make a frame dirty.
+    bool sameRenderProfileAs(
         const RenderGainContext& other) const {
 
         const bool usable =
-            sourceUsable && !failOpen;
+            sourceUsable &&
+            !failOpen;
 
         const bool otherUsable =
-            other.sourceUsable && !other.failOpen;
+            other.sourceUsable &&
+            !other.failOpen;
 
         if (usable != otherUsable) {
             return false;
@@ -164,20 +251,15 @@ struct RenderGainContext {
         }
 
         for (std::size_t index = 0;
-             index < segmentGain.size();
+             index <
+                logicalGainQ12.size();
              ++index) {
 
             if (sanitizeGainQ12(
-                    segmentGain[index].startQ12) !=
+                    logicalGainQ12[index]) !=
                 sanitizeGainQ12(
-                    other.segmentGain[index].startQ12)) {
-                return false;
-            }
-
-            if (sanitizeGainQ12(
-                    segmentGain[index].endQ12) !=
-                sanitizeGainQ12(
-                    other.segmentGain[index].endQ12)) {
+                    other.logicalGainQ12[
+                        index])) {
                 return false;
             }
         }
@@ -215,15 +297,16 @@ public:
         std::uint8_t b) {
 
         return a >= b
-            ? static_cast<std::uint8_t>(a - b)
-            : static_cast<std::uint8_t>(b - a);
+            ? static_cast<std::uint8_t>(
+                  a - b)
+            : static_cast<std::uint8_t>(
+                  b - a);
     }
 
-    static constexpr ShadowPixelResult preview(
+    static ShadowPixelResult preview(
         const Rgb8& input,
+        std::uint16_t logicalIndex,
         SegmentId segment,
-        std::uint16_t logicalOffset,
-        std::uint16_t segmentLength,
         const RenderGainContext& context) {
 
         ShadowPixelResult result;
@@ -231,20 +314,28 @@ public:
         result.segment = segment;
 
         result.gainQ12 =
-            context.gainForPosition(
-                segment,
-                logicalOffset,
-                segmentLength);
+            context.gainForLogicalIndex(
+                logicalIndex);
 
         result.wouldOutput =
-            apply(input, result.gainQ12);
+            apply(
+                input,
+                result.gainQ12);
 
         const std::uint8_t dr =
-            absDiff(input.r, result.wouldOutput.r);
+            absDiff(
+                input.r,
+                result.wouldOutput.r);
+
         const std::uint8_t dg =
-            absDiff(input.g, result.wouldOutput.g);
+            absDiff(
+                input.g,
+                result.wouldOutput.g);
+
         const std::uint8_t db =
-            absDiff(input.b, result.wouldOutput.b);
+            absDiff(
+                input.b,
+                result.wouldOutput.b);
 
         result.maxChannelDelta =
             dr > dg
@@ -258,11 +349,8 @@ public:
     }
 };
 
-// Stage 11 safety policy.
-//
-// There is intentionally no runtime flag that can enable gain application.
-// The shadow candidate is observable, but hardware output is compile-time
-// defined as original HyperHDR RGB.
+// Hard Stage 17 safety boundary.
+// Physical LEDs still receive original HyperHDR RGB.
 class ShadowRenderPolicy {
 public:
     static constexpr Rgb8 physicalOutput(
