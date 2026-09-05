@@ -4,7 +4,7 @@ Custom ESP32-C6 Ambilight endpoint for HyperHDR.
 
 ## Current development line
 
-Stage 27 adds persistent runtime LED lane/direction mapping on top of the hardened DDP runtime.
+Stage 28 adds temporary LED commissioning patterns on top of runtime lane/direction mapping.
 
 The firmware stack now includes:
 
@@ -196,3 +196,19 @@ Mapping edits require:
 Each lane 0..3 must be used exactly once.
 
 GPIO pins and logical segment lengths remain compile-time constants.
+
+
+## LED commissioning
+
+Safe test brightness:
+
+    1..64
+
+Commands:
+
+    i<Enter>   status
+    i1         segment colors
+    i2         START/MID/END direction markers
+    i0         stop
+
+Patterns run for 15 seconds, bypass ToF correction for the test frame, and then restore the newest HyperHDR frame or black if no RGB source exists.
