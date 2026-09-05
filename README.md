@@ -4,7 +4,7 @@ Custom ESP32-C6 Ambilight endpoint for HyperHDR.
 
 ## Current stage
 
-Stage 16 keeps full 2D yaw/pitch perimeter shadow correction and adds confidence diagnostics for how far the fitted wall plane is extrapolated beyond the wall area directly observed by VL53L5CX. Physical ToF gain application is still disabled.
+Stage 17 carries the 2D yaw/pitch correction as an exact 780-pixel logical gain field. Every logical LED gets its own wall distance and its own calibration-curve evaluation, so correction remains exact even when one segment crosses multiple calibration knots. Physical ToF gain application is still disabled.
 
 Physical LEDs still receive original HyperHDR RGB.
 
@@ -85,3 +85,12 @@ Active development remains Wi-Fi/DDP.
 The `p` command reports the physical wall half-span covered by accepted ToF points.
 
 The `s` command compares that with the configured LED perimeter and reports X/Y extrapolation ratios. A ratio above 4.0x currently raises a warning only, so close-wall cases can be measured before deciding on a hard rejection threshold.
+
+
+## Exact within-segment correction
+
+Spatial correction is no longer approximated by interpolating two endpoint gains.
+
+The ToF task computes the linear wall distance for each logical LED and evaluates the distance-to-gain calibration curve for that exact distance. Renderer and slew controller then operate on a 780-value Q12 field.
+
+The `s` and `r` diagnostics show start, midpoint, and end gain values so internal segment behavior can be inspected directly.
