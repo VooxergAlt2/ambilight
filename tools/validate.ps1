@@ -5,6 +5,13 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+# PowerShell 7 can optionally convert native non-zero exit codes into
+# terminating errors. Validation needs both gates to run so exit codes are
+# collected explicitly instead.
+if (Test-Path variable:PSNativeCommandUseErrorActionPreference) {
+    $PSNativeCommandUseErrorActionPreference = $false
+}
+
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $Timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $OutputDir = Join-Path $RepoRoot ".artifacts\validation\$Timestamp"
