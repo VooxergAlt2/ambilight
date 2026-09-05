@@ -2,6 +2,8 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
+#include <limits>
 
 #include <Arduino.h>
 #include <Wire.h>
@@ -21,6 +23,8 @@ constexpr std::uint32_t kInitRetryMs = 5000;
 constexpr std::uint32_t kPollDelayMs = 100;
 constexpr std::uint32_t kRangingStaleMs = 30000;
 constexpr std::uint32_t kMeasurementIntervalMs = 12000;
+constexpr std::uint64_t kGainStaleTimeoutUs = 30000000ULL;
+constexpr float kPlaneWallDeadbandMm = 10.0F;
 constexpr std::uint8_t kMaxConsecutiveReadFailures = 5;
 
 constexpr std::uint32_t kI2cClockHz = 1000000;
@@ -51,6 +55,15 @@ TofProcessorConfig makeProcessorConfig() {
     return processorConfig;
 }
 
+TofPlaneChangeGateConfig makePlaneChangeGateConfig() {
+    TofPlaneChangeGateConfig gateConfig;
+    gateConfig.geometry =
+        config::kPerimeterScreenGeometry;
+    gateConfig.wallDeltaDeadbandMm =
+        kPlaneWallDeadbandMm;
+    return gateConfig;
+}
+
 TofGainModelConfig makeGainModelConfig() {
     TofGainModelConfig gainConfig;
 
@@ -78,6 +91,7 @@ TofPerimeterGainModelConfig makePerimeterGainModelConfig() {
 
 TofService::TofService()
     : processor_(makeProcessorConfig()),
+      planeChangeGate_(makePlaneChangeGateConfig()),
       gainModel_(makeGainModelConfig()),
       perimeterGainModel_(
           makePerimeterGainModelConfig()) {}
@@ -210,6 +224,7 @@ bool TofService::initializeSensor() {
     }
 
     processor_.reset();
+    planeChangeGate_.reset();
 
     sensor_ = new Adafruit_VL53L5CX();
     if (sensor_ == nullptr) {
@@ -304,22 +319,96 @@ void TofService::publishResults(
     const TofGeometrySnapshot geometry =
         processor_.process(raw);
 
-    const GainSnapshot gains =
-        gainModel_.evaluate(
-            geometry,
-            timestampUs);
-
-    const PerimeterGainSnapshot perimeterGains =
-        perimeterGainModel_.evaluate(
-            geometry,
-            timestampUs);
-
     TofSnapshot next;
 
     if (mutex_ != nullptr &&
         xSemaphoreTake(mutex_, portMAX_DELAY) == pdTRUE) {
         next = snapshot_;
         xSemaphoreGive(mutex_);
+    }
+
+    TofPlaneChangeDecision planeDecision =
+        planeChangeGate_.observe(
+            geometry.plane);
+
+    // If a previously accepted profile aged out into fail-open, a fresh
+    // near-identical plane must restore it even though the geometry itself
+    // remains inside the deadband.
+    if (planeDecision.action ==
+            TofPlaneChangeAction::RefreshOnly &&
+        next.perimeterGains.failOpen) {
+
+        planeDecision.action =
+            TofPlaneChangeAction::Recalculate;
+    }
+
+    switch (planeDecision.action) {
+    case TofPlaneChangeAction::Recalculate:
+        next.gains =
+            gainModel_.evaluate(
+                geometry,
+                timestampUs);
+
+        next.perimeterGains =
+            perimeterGainModel_.evaluate(
+                geometry,
+                timestampUs);
+
+        ++next.planeRecalculations;
+        break;
+
+    case TofPlaneChangeAction::RefreshOnly:
+        // The fresh sensor frame confirms that the last applied wall plane is
+        // still current. Refresh source age/generation only. Do not rebuild
+        // the 780-value distance/gain field.
+        if (!next.gains.failOpen) {
+            next.gains.generation =
+                geometry.generation;
+            next.gains.timestampUs =
+                geometry.timestampUs;
+        }
+
+        if (!next.perimeterGains.failOpen) {
+            next.perimeterGains.generation =
+                geometry.generation;
+            next.perimeterGains.timestampUs =
+                geometry.timestampUs;
+        }
+
+        ++next.planeDeadbandSkips;
+        break;
+
+    case TofPlaneChangeAction::FailOpen:
+        next.gains =
+            gainModel_.evaluate(
+                TofGeometrySnapshot{},
+                timestampUs);
+
+        next.perimeterGains =
+            perimeterGainModel_.evaluate(
+                TofGeometrySnapshot{},
+                timestampUs);
+
+        ++next.planeFailOpens;
+        break;
+
+    case TofPlaneChangeAction::None:
+        break;
+    }
+
+    if (std::isfinite(
+            planeDecision.maxWallDeltaMm)) {
+
+        const float bounded =
+            std::max(
+                0.0F,
+                std::min(
+                    65535.0F,
+                    planeDecision.maxWallDeltaMm));
+
+        next.lastPlaneWallDeltaMm =
+            static_cast<std::uint16_t>(
+                std::lround(bounded));
     }
 
     next.state = TofState::Ranging;
@@ -335,9 +424,6 @@ void TofService::publishResults(
     next.distanceMm = raw.distanceMm;
     next.targetStatus = raw.targetStatus;
     next.geometry = geometry;
-    next.gains = gains;
-    next.perimeterGains =
-        perimeterGains;
 
     next.medianMm = medianOfValid(
         results,
@@ -353,38 +439,64 @@ void TofService::publishResults(
 void TofService::refreshGainStaleness(
     std::uint64_t nowUs) {
 
-    TofGeometrySnapshot geometry;
-
     if (mutex_ == nullptr) {
         return;
     }
 
+    GainSnapshot gains;
+    PerimeterGainSnapshot perimeterGains;
+
     if (xSemaphoreTake(mutex_, portMAX_DELAY) == pdTRUE) {
-        geometry = snapshot_.geometry;
+        gains = snapshot_.gains;
+        perimeterGains =
+            snapshot_.perimeterGains;
         xSemaphoreGive(mutex_);
     }
 
-    const GainSnapshot gains =
-        gainModel_.evaluate(
-            geometry,
-            nowUs);
+    const auto stale =
+        [nowUs](std::uint64_t timestampUs) {
+            return
+                timestampUs == 0 ||
+                nowUs < timestampUs ||
+                nowUs - timestampUs >
+                    kGainStaleTimeoutUs;
+        };
 
-    const PerimeterGainSnapshot perimeterGains =
-        perimeterGainModel_.evaluate(
-            geometry,
-            nowUs);
+    const bool gainsStale =
+        !gains.failOpen &&
+        stale(gains.timestampUs);
 
-    if (!gains.failOpen &&
-        !perimeterGains.failOpen) {
+    const bool perimeterStale =
+        !perimeterGains.failOpen &&
+        stale(perimeterGains.timestampUs);
+
+    if (!gainsStale &&
+        !perimeterStale) {
         return;
     }
 
+    const TofGeometrySnapshot invalid{};
+
+    if (gainsStale) {
+        gains =
+            gainModel_.evaluate(
+                invalid,
+                nowUs);
+    }
+
+    if (perimeterStale) {
+        perimeterGains =
+            perimeterGainModel_.evaluate(
+                invalid,
+                nowUs);
+    }
+
     if (xSemaphoreTake(mutex_, portMAX_DELAY) == pdTRUE) {
-        if (gains.failOpen) {
+        if (gainsStale) {
             snapshot_.gains = gains;
         }
 
-        if (perimeterGains.failOpen) {
+        if (perimeterStale) {
             snapshot_.perimeterGains =
                 perimeterGains;
         }
