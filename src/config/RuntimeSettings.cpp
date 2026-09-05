@@ -780,6 +780,18 @@ bool RuntimeSettings::resetLedMappingProfile() {
 }
 
 bool RuntimeSettings::factoryReset() {
+    if (!persistenceAvailable_) {
+        ++stats_.writeFailures;
+        return false;
+    }
+
+    // Durable clear happens first. If it fails, leave the live runtime view
+    // untouched so the caller can continue safely without a partial reset.
+    if (!preferences_.clear()) {
+        ++stats_.writeFailures;
+        return false;
+    }
+
     correctionMode_ =
         CorrectionMode::Shadow;
 
@@ -809,16 +821,6 @@ bool RuntimeSettings::factoryReset() {
         false;
     ledMappingProfilePersisted_ =
         false;
-
-    if (!persistenceAvailable_) {
-        ++stats_.writeFailures;
-        return false;
-    }
-
-    if (!preferences_.clear()) {
-        ++stats_.writeFailures;
-        return false;
-    }
 
     ++stats_.writes;
     return true;
