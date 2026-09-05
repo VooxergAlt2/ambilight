@@ -210,6 +210,7 @@ void test_spatial_bridge_preserves_segment_endpoints() {
     gains.generation = 77;
     gains.timestampUs = 1000000;
     gains.planeUsable = true;
+    gains.projectionUsable = true;
     gains.failOpen = false;
 
     gains.segment[
@@ -283,6 +284,7 @@ void test_spatial_bridge_stale_snapshot_fails_open() {
     gains.generation = 1;
     gains.timestampUs = 1000000;
     gains.planeUsable = true;
+    gains.projectionUsable = true;
     gains.failOpen = false;
 
     gains.segment[
