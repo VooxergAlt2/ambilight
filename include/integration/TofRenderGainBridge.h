@@ -12,7 +12,7 @@ namespace ambilight {
 class TofRenderGainBridge {
 public:
     static constexpr std::uint64_t kMaxGainSnapshotAgeUs =
-        1500000;
+        30000000;
 
     static RenderGainContext make(
         const PerimeterGainSnapshot& gains,
