@@ -639,21 +639,13 @@ void dumpSpatialGains() {
 
     Serial.printf(
         "TOF SPATIAL GAINS gen=%lu plane_usable=%s projection_usable=%s fail_open=%s "
-        "range=%u..%umm observed_half=%ux%umm screen_half=%ux%umm "
-        "extrapolation=%.2fx/%.2fy warning=%s\n",
+        "range=%u..%umm\n",
         static_cast<unsigned long>(gains.generation),
         gains.planeUsable ? "yes" : "no",
         gains.projectionUsable ? "yes" : "no",
         gains.failOpen ? "yes" : "no",
         gains.minDistanceMm,
-        gains.maxDistanceMm,
-        gains.observedHalfSpanXmm,
-        gains.observedHalfSpanYmm,
-        gains.screenHalfSpanXmm,
-        gains.screenHalfSpanYmm,
-        static_cast<double>(gains.extrapolationXPermille) / 1000.0,
-        static_cast<double>(gains.extrapolationYPermille) / 1000.0,
-        gains.extrapolationWarning ? "yes" : "no");
+        gains.maxDistanceMm);
 
     printPerimeterSegmentGain(
         "TOP   ",
@@ -746,8 +738,61 @@ void printCalibrationSummary(
     printCalibrationBand("CENTER", summary.center);
     printCalibrationBand("RIGHT ", summary.right);
 
+    if (summary.plane.valid) {
+        Serial.printf(
+            "CAL PLANE frames=%lu yaw=%.2f/%.2f/%.2fdeg pitch=%.2f/%.2f/%.2fdeg "
+            "z0=%u/%u/%umm residual_mad50=%umm accepted=%u..%u\n",
+            static_cast<unsigned long>(summary.plane.validFrames),
+            static_cast<double>(summary.plane.yawCentiDeg.p10) / 100.0,
+            static_cast<double>(summary.plane.yawCentiDeg.median) / 100.0,
+            static_cast<double>(summary.plane.yawCentiDeg.p90) / 100.0,
+            static_cast<double>(summary.plane.pitchCentiDeg.p10) / 100.0,
+            static_cast<double>(summary.plane.pitchCentiDeg.median) / 100.0,
+            static_cast<double>(summary.plane.pitchCentiDeg.p90) / 100.0,
+            summary.plane.interceptMm.p10,
+            summary.plane.interceptMm.median,
+            summary.plane.interceptMm.p90,
+            summary.plane.medianResidualMadMm,
+            static_cast<unsigned>(summary.plane.minAccepted),
+            static_cast<unsigned>(summary.plane.maxAccepted));
+    }
+
+    if (summary.spatial.valid) {
+        Serial.printf(
+            "CAL WALL DIST frames=%lu min=%u/%u/%umm max=%u/%u/%umm\n",
+            static_cast<unsigned long>(summary.spatial.validFrames),
+            summary.spatial.minDistanceMm.p10,
+            summary.spatial.minDistanceMm.median,
+            summary.spatial.minDistanceMm.p90,
+            summary.spatial.maxDistanceMm.p10,
+            summary.spatial.maxDistanceMm.median,
+            summary.spatial.maxDistanceMm.p90);
+
+        static constexpr const char* kNames[] = {
+            "TOP", "RIGHT", "BOTTOM", "LEFT"
+        };
+
+        for (std::size_t index = 0;
+             index < summary.spatial.segment.size();
+             ++index) {
+
+            const auto& segment =
+                summary.spatial.segment[index];
+
+            Serial.printf(
+                "CAL WALL %s start=%u/%u/%umm end=%u/%u/%umm\n",
+                kNames[index],
+                segment.startMm.p10,
+                segment.startMm.median,
+                segment.startMm.p90,
+                segment.endMm.p10,
+                segment.endMm.median,
+                segment.endMm.p90);
+        }
+    }
+
     Serial.println(
-        "CAL note: pair this summary with the physical TV pose; RGB is unchanged.");
+        "CAL note: wall distances are intersections of LED +Z rays with the fitted plane; RGB is unchanged.");
     Serial.println();
 }
 
@@ -759,7 +804,7 @@ void startCalibrationCapture() {
     calibrationCapture.start(nowUs);
 
     Serial.println(
-        "CAL started: collecting 5 seconds of unique ToF geometry. Keep the TV still.");
+        "CAL started: collecting 60 seconds of slow ToF pose samples. Keep the TV still.");
 }
 
 void serviceCalibrationCapture() {
@@ -777,7 +822,8 @@ void serviceCalibrationCapture() {
             snapshot.geometry.generation;
 
         calibrationCapture.ingest(
-            snapshot.geometry);
+            snapshot.geometry,
+            snapshot.perimeterGains);
     }
 
     const std::uint64_t nowUs =
@@ -882,7 +928,7 @@ void printRuntimeStatus() {
         "tof=%s tofgen=%lu rawvalid=%u rawmed=%u tofage=%llums tofread=%luus tofreadmax=%luus "
         "geom=%s l=%u c=%u r=%u delta=%d acc=%u "
         "plane=%s pyaw=%d ppitch=%d pacc=%u pmad=%u "
-        "spfail=%s spmin=%u spmax=%u spex=%u/%u spwarn=%s "
+        "spfail=%s spmin=%u spmax=%u "
         "gainfail=%s gl=%u gt=%u gb=%u gr=%u "
         "shadow_usable=%lu shadow_nonunity=%lu shadow_changed=%u shadow_delta=%u shadowprep=%luus "
         "slew_snap=%lu probe=%s sched_rgb=%lu sched_gain=%lu sched_comb=%lu sched_def=%lu rgbgen=%lu "
@@ -965,15 +1011,6 @@ void printRuntimeStatus() {
         haveTof
             ? tofSnapshot.perimeterGains.maxDistanceMm
             : 0U,
-        haveTof
-            ? tofSnapshot.perimeterGains.extrapolationXPermille
-            : 0U,
-        haveTof
-            ? tofSnapshot.perimeterGains.extrapolationYPermille
-            : 0U,
-        haveTof && tofSnapshot.perimeterGains.extrapolationWarning
-            ? "yes"
-            : "no",
         haveTof && tofSnapshot.gains.failOpen ? "yes" : "no",
         haveTof ? tofSnapshot.gains.leftQ12 : ambilight::kGainUnityQ12,
         haveTof ? tofSnapshot.gains.topQ12 : ambilight::kGainUnityQ12,
@@ -1022,7 +1059,7 @@ void printRuntimeStatus() {
 void printConfiguration() {
     Serial.println();
     Serial.println(
-        "ESP32-C6 Ambilight Stage 17: Wi-Fi/DDP + exact per-pixel shadow gain field");
+        "ESP32-C6 Ambilight Stage 19: slow ToF wall-plane + exact per-pixel shadow gain field");
 
     Serial.printf(
         "Logical LEDs=%u payload=%uB DDP=%u poll_budget=%uus max_datagrams=%u\n",
@@ -1042,7 +1079,7 @@ void printConfiguration() {
         static_cast<unsigned>(ambilight::config::kTestBrightness));
 
     Serial.printf(
-        "VL53L5CX SDA=%u SCL=%u 8x8@10Hz rotation=%u mirror_x=%s; "
+        "VL53L5CX SDA=%u SCL=%u 8x8 internal 1Hz, pose processed about every 12s, rotation=%u mirror_x=%s; "
         "gain model enters renderer in SHADOW mode and does NOT modify physical RGB.\n",
         ambilight::config::kTofSdaGpio,
         ambilight::config::kTofSclGpio,
