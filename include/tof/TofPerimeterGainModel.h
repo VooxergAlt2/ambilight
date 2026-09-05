@@ -30,7 +30,19 @@ struct PerimeterGainSnapshot {
     std::uint16_t minDistanceMm = 0;
     std::uint16_t maxDistanceMm = 0;
 
+    std::uint16_t observedHalfSpanXmm = 0;
+    std::uint16_t observedHalfSpanYmm = 0;
+
+    std::uint16_t screenHalfSpanXmm = 0;
+    std::uint16_t screenHalfSpanYmm = 0;
+
+    // 1000 = 1.0x, 4000 = 4.0x.
+    std::uint16_t extrapolationXPermille = 0;
+    std::uint16_t extrapolationYPermille = 0;
+
     bool planeUsable = false;
+    bool projectionUsable = false;
+    bool extrapolationWarning = false;
     bool failOpen = true;
 };
 
@@ -42,6 +54,9 @@ struct TofPerimeterGainModelConfig {
     std::uint16_t maxDistanceMm = 4000;
 
     std::uint64_t staleTimeoutUs = 1500000;
+
+    // Diagnostic only in Stage 16. Exceeding this does NOT fail open.
+    std::uint16_t maxRecommendedExtrapolationPermille = 4000;
 };
 
 class TofPerimeterGainModel {
