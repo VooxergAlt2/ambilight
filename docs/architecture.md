@@ -2,13 +2,13 @@
 
 ## Current scope
 
-Stage 3 adds Wi-Fi station operation while generated test frames continue to drive the existing frame core and PARLIO renderer.
+Stage 4 adds a pure C++ DDP parser/reassembler on top of the Wi-Fi foundation, but does not yet open UDP port 4048.
 
-There is still no DDP/UDP payload path. This separation exists specifically to detect Wi-Fi scheduling or power-save side effects before the network becomes a frame source.
+This keeps packet correctness independently testable before network callbacks can publish frames.
 
 Still out of scope:
 
-- DDP
+- runtime UDP listener
 - USB/AWA
 - VL53L5CX
 - Web UI
@@ -16,84 +16,95 @@ Still out of scope:
 - source arbitration
 - multi-PC logic
 
-## Logical frame contract
+## HyperHDR DDP subset
 
-Every future input transport must publish one complete logical frame:
+The first implementation intentionally accepts only the exact subset needed by HyperHDR 22 for this 780-RGB-LED controller:
 
-    RgbFrame
-      generation
-      receivedUs
-      pixels[780] as RGB888
+- DDP version 1
+- sequence 1..15
+- RGB data type 0x0B
+- destination 1
+- fixed logical payload of 2340 bytes
 
-The RGB payload is exactly 2340 bytes.
+RGBW, arbitrary destinations, discovery, multiple senders, and arbitrary frame sizes are intentionally rejected or deferred.
 
-Transport code is not allowed to address PARLIO lanes directly.
+HyperHDR 22 currently caps an RGB DDP datagram at 480 LEDs, so the normal 780-LED frame is expected as:
 
-## Wi-Fi policy
+    packet A: offset 0,    1440 RGB bytes, PUSH=0
+    packet B: offset 1440, 900 RGB bytes, PUSH=1
 
-ESP32-C6 Wi-Fi is configured as:
+## Datagram parser
 
-- station mode only
-- persistent credential writes disabled
-- auto reconnect enabled
-- modem power-save disabled
-- explicit ESP-IDF WIFI_PS_NONE
+The parser validates:
 
-Power-save is deliberately disabled because future DDP traffic is realtime and jitter matters more than a small reduction in MCU power.
+- minimum 10-byte DDP header
+- version
+- sequence range
+- RGB type
+- destination
+- non-empty payload
+- exact UDP datagram length vs declared payload length
 
-Credentials are not committed. Copy include/secrets.example.h to include/secrets.h and edit locally.
+It exposes an immutable packet view over the original datagram.
 
-If credentials are absent, firmware still builds and Stage 3 runs with Wi-Fi disabled.
+## Reassembly
 
-## Reconnect behavior
+DdpAssembler owns:
 
-WifiService is non-blocking from the application perspective:
+- 2340-byte staging buffer
+- 293-byte per-byte coverage bitmap
+- active sequence
+- PUSH state
+- 50 ms assembly timeout
+- last completed sequence
+- counters
 
-- WiFi.begin() starts the connection
-- system Wi-Fi tasks handle association
-- application tick observes state
-- a reconnect request is issued at most once per 5 seconds while disconnected
-- status metrics are printed every 10 seconds
+A frame is complete only when:
 
-No loop waits for WL_CONNECTED.
+    PUSH has been observed
+    AND
+    all 2340 byte positions have been covered
 
-This is important because LED rendering must stay available even if the AP is unavailable.
+This allows packet reordering, including the PUSH packet arriving before offset zero.
 
-## Frame path
+## Duplicate and overlap handling
 
-Generated Stage 3 frames use the same future production path:
+Coverage is tracked per byte, not by a naive bytesReceived counter.
 
-    test RgbFrame
-         |
-         v
-    FrameMailbox
-         |
-         v
-    LedRenderer
-         |
-         v
-    SegmentMapper
-         |
-         v
-      LedEngine
-         |
-         v
-    LiteLED PARLIO x4
+Therefore:
 
-WifiService runs beside this path and is never called by LedRenderer.
+- duplicate packets do not fake completion
+- identical overlap is allowed
+- conflicting overlap rejects and resets the active frame
 
-## Stage 3 acceptance
+No partially assembled DDP frame can reach FrameMailbox.
 
-With real Wi-Fi credentials:
+## Sequence handling
 
-- connect without blocking LED startup
-- WIFI_PS_NONE active
-- 60 FPS probe remains stable
-- mappingErrors remains zero
-- no significant regression in max PARLIO show time
-- AP/router restart recovers without rebooting C6
-- LED test patterns continue while disconnected
+HyperHDR uses sequence values 1..15.
+
+The assembler:
+
+- keeps packets from the same sequence together
+- lets a newer sequence supersede an incomplete one
+- rejects stale packets instead of rewinding
+- handles the 15 -> 1 wrap
+
+## Tests
+
+Native tests cover:
+
+- normal HyperHDR two-packet frame
+- PUSH packet arriving first
+- duplicate packet
+- incomplete frame superseded by next sequence
+- stale packet after completion
+- 15 -> 1 sequence wrap
+- assembly timeout
+- unsupported type/destination
+- frame bounds violation
+- conflicting overlap
 
 ## Next stage
 
-Stage 4 adds a pure C++ DDP parser and reassembler with host-side tests. It still does not connect UDP packets directly to PARLIO.
+Stage 5 opens UDP/4048 for one configured PC/source and publishes only DdpAssembler::Complete frames to FrameMailbox.

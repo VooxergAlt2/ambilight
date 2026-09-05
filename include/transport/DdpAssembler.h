@@ -1,0 +1,87 @@
+#pragma once
+
+#include <array>
+#include <cstddef>
+#include <cstdint>
+
+#include "core/RgbFrame.h"
+#include "transport/DdpProtocol.h"
+
+namespace ambilight {
+
+enum class DdpIngestResult : std::uint8_t {
+    Rejected = 0,
+    Stale,
+    Partial,
+    Complete
+};
+
+struct DdpAssemblerStats {
+    std::uint32_t datagrams = 0;
+    std::uint32_t rejected = 0;
+    std::uint32_t stale = 0;
+    std::uint32_t partial = 0;
+    std::uint32_t completed = 0;
+    std::uint32_t superseded = 0;
+    std::uint32_t timedOut = 0;
+    std::uint32_t duplicateBytes = 0;
+    std::uint32_t conflictingDatagrams = 0;
+};
+
+class DdpAssembler {
+public:
+    static constexpr std::size_t kFrameBytes =
+        config::kLogicalLedCount * sizeof(Rgb8);
+    static constexpr std::size_t kCoverageBytes =
+        (kFrameBytes + 7) / 8;
+    static constexpr std::uint64_t kDefaultAssemblyTimeoutUs = 50000;
+
+    explicit DdpAssembler(
+        std::uint64_t assemblyTimeoutUs = kDefaultAssemblyTimeoutUs)
+        : assemblyTimeoutUs_(assemblyTimeoutUs) {}
+
+    DdpIngestResult ingest(
+        const std::uint8_t* datagram,
+        std::size_t datagramLength,
+        std::uint64_t nowUs,
+        RgbFrame& completedFrame);
+
+    bool expire(std::uint64_t nowUs);
+
+    const DdpAssemblerStats& stats() const { return stats_; }
+
+    bool active() const { return active_; }
+    std::uint8_t activeSequence() const { return activeSequence_; }
+    std::uint16_t coveredBytes() const { return coveredBytes_; }
+
+private:
+    void startFrame(std::uint8_t sequence, std::uint64_t nowUs);
+    void resetActive();
+    bool payloadFits(const DdpPacketView& packet) const;
+    bool copyAndMark(const DdpPacketView& packet);
+    bool isCovered(std::size_t index) const;
+    void markCovered(std::size_t index);
+    bool isComplete() const;
+
+    std::array<std::uint8_t, kFrameBytes> staging_{};
+    std::array<std::uint8_t, kCoverageBytes> coverage_{};
+
+    bool active_ = false;
+    bool pushSeen_ = false;
+
+    bool hasLastCompletedSequence_ = false;
+    std::uint8_t activeSequence_ = 0;
+    std::uint8_t lastCompletedSequence_ = 0;
+
+    std::uint16_t coveredBytes_ = 0;
+
+    std::uint64_t lastPacketUs_ = 0;
+    std::uint64_t assemblyTimeoutUs_ = kDefaultAssemblyTimeoutUs;
+
+    DdpAssemblerStats stats_{};
+};
+
+static_assert(DdpAssembler::kFrameBytes == 2340);
+static_assert(DdpAssembler::kCoverageBytes == 293);
+
+} // namespace ambilight

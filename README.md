@@ -4,61 +4,41 @@ Custom ESP32-C6 Ambilight endpoint for HyperHDR.
 
 ## Current development stage
 
-Stage 3 is a stacked branch on top of the transport-independent frame core.
+Stage 4 is a stacked branch that adds a tested DDP frame parser/reassembler without yet opening UDP port 4048.
 
-The firmware now proves three independent layers:
+Implemented layers:
 
-1. four synchronized PARLIO outputs
-2. one fixed logical RGB frame of 780 LEDs
-3. Wi-Fi STA operation with modem power-save disabled
+1. four synchronized ESP32-C6 PARLIO outputs
+2. fixed logical RGB frame of 780 LEDs
+3. task-level FrameMailbox and logical-to-physical mapper
+4. Wi-Fi STA with power-save disabled and non-blocking reconnect
+5. pure DDP v1 RGB reassembly for the HyperHDR 22 packet pattern
 
-Frame data is still generated locally. DDP has not been added yet.
+Current runtime still uses generated RGB frames. DDP packets cannot drive LEDs until Stage 5.
 
-Current path:
+## DDP assumptions
 
-    generated RgbFrame[780]
-             |
-             v
-        FrameMailbox
-             |
-             v
-        LedRenderer
-             |
-             v
-        SegmentMapper
-             |
-             v
-        PARLIO x4
+The first network protocol implementation intentionally targets one controller layout:
 
-Wi-Fi runs beside this path and must not block it.
+- 780 RGB LEDs
+- 2340 RGB payload bytes
+- DDP version 1
+- RGB type 0x0B
+- destination 1
+- sequence 1..15
+
+A normal HyperHDR 22 frame is expected in two datagrams: 1440 bytes then 900 bytes.
+
+The assembler supports packet reordering and duplicates and refuses to publish incomplete or conflicting frames.
 
 ## Wi-Fi credentials
 
-Copy:
-
-    include/secrets.example.h
-
-to:
-
-    include/secrets.h
-
-and set:
+Copy include/secrets.example.h to include/secrets.h and set:
 
     AMBILIGHT_WIFI_SSID
     AMBILIGHT_WIFI_PASSWORD
 
 The real secrets file is ignored by Git.
-
-If no credentials are present, firmware still builds and runs with Wi-Fi disabled.
-
-## Toolchain
-
-Pinned baseline:
-
-- pioarduino platform 55.03.311
-- Arduino-ESP32 3.3.11
-- ESP-IDF 5.5.5 underneath Arduino
-- LiteLED 3.2.0
 
 ## Build
 
@@ -66,20 +46,16 @@ Firmware:
 
     pio run -e esp32-c6-devkitc-1
 
-Native mapper tests:
+Native tests:
 
     pio test -e native
-
-## Stage safety
-
-Test brightness is intentionally limited to 32/255. LED power distribution, fusing, level shifting, and final GPIO selection are hardware validation items and are not implied by a successful firmware build.
 
 ## Development order
 
 1. Four-lane PARLIO.
 2. Transport-independent frame core.
 3. Wi-Fi coexistence and reconnect.
-4. Pure DDP parser/reassembly.
+4. DDP parser/reassembly.
 5. HyperHDR DDP runtime for one PC.
 6. Stress-test working Wi-Fi Ambilight.
 7. USB/AWA independently.
