@@ -17,7 +17,7 @@ void TofProcessor::reset() {
 }
 
 bool TofProcessor::statusUsable(std::uint8_t status) {
-    return status == 5 || status == 9;
+    return status == 5 || status == 6 || status == 9;
 }
 
 bool TofProcessor::sampleUsable(
