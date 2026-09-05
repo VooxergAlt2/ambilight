@@ -4,7 +4,7 @@ Custom ESP32-C6 Ambilight endpoint for HyperHDR.
 
 ## Current development line
 
-Stage 28 adds temporary LED commissioning patterns on top of runtime lane/direction mapping.
+Stage 29 adds guarded full runtime configuration recovery on top of commissioning and persistent profiles.
 
 The firmware stack now includes:
 
@@ -212,3 +212,15 @@ Commands:
     i0         stop
 
 Patterns run for 15 seconds, bypass ToF correction for the test frame, and then restore the newest HyperHDR frame or black if no RGB source exists.
+
+
+## Factory recovery
+
+With LEDs disabled:
+
+    b0
+    freset<Enter>
+
+The command clears the complete `ambilight` NVS namespace and restarts only after a successful durable clear.
+
+If NVS clear fails, runtime settings are left unchanged and the controller does not reboot.
