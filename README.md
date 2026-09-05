@@ -4,7 +4,7 @@ Custom ESP32-C6 Ambilight endpoint for HyperHDR.
 
 ## Current development line
 
-Stage 30 cleans up render scheduling semantics: every non-RGB output change is now explicit render state rather than being mislabeled as gain-only.
+Stage 31 adds a local validation harness that mirrors the manual CI gates and preserves logs for both native tests and ESP32-C6 firmware builds.
 
 The firmware stack now includes:
 
@@ -172,13 +172,27 @@ Software is completed before physical commissioning.
 
 Hardware later provides mounting verification, noise tuning and real photometric coefficients.
 
-## CI
+## Validation
 
 Automatic GitHub Actions are disabled while Actions quota is exhausted.
 
-Only manual:
+The repository workflow remains manual:
 
     workflow_dispatch
+
+Local Windows validation:
+
+    powershell -ExecutionPolicy Bypass -File tools/validate.ps1
+
+Local Linux/macOS validation:
+
+    bash tools/validate.sh
+
+Each run writes native-test, firmware-build and summary logs under:
+
+    .artifacts/validation/<timestamp>/
+
+The Stage 31 harness has been statically reviewed but has not been executed in this development session.
 
 
 ## Runtime LED mapping
