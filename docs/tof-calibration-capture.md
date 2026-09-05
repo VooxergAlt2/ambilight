@@ -1,10 +1,10 @@
-# Stage 10: calibration capture
+# Slow pose calibration capture
 
 ## Purpose
 
-Stage 10 adds a repeatable, fixed-memory way to capture one stable physical TV pose before choosing real brightness calibration points.
+Capture several independent stable TV-pose measurements using the normal slow ToF cadence.
 
-The renderer is still unchanged.
+Physical RGB remains unchanged.
 
 ## Runtime command
 
@@ -12,85 +12,50 @@ Send:
 
     c
 
-over debug serial.
+The controller records unique ToF geometry frames for 60 seconds.
 
-The controller then records approximately 5 seconds of new ToF geometry generations.
+Normal wall-pose processing is about once every 12 seconds, so a capture should contain several independent measurements without continuous sensor processing.
 
-At 10 Hz this should produce roughly 50 samples.
+## Stored plane data
 
-## What is stored
+For each valid plane:
 
-For each valid geometry frame:
+- yaw
+- pitch
+- wall-plane intercept
+- residual MAD
+- accepted-zone count
+- observed wall half-span as estimator diagnostics
 
-- LEFT robust median
-- CENTER robust median
-- RIGHT robust median
-- MAD for each band
-- accepted-zone count for each band
-- robust RIGHT minus LEFT distance
+## Stored wall-distance data
 
-The collector stores at most 64 samples in fixed arrays.
+For every usable spatial snapshot:
 
-No malloc/free occurs during capture.
+- minimum LED-wall distance
+- maximum LED-wall distance
+- start/end distance of TOP
+- start/end distance of RIGHT
+- start/end distance of BOTTOM
+- start/end distance of LEFT
 
-## Why robust median, not filtered distance
+These distances are derived from LED +Z intersections with the fitted plane.
 
-Calibration should reflect the physical pose itself, not the temporal history of the previous pose.
-
-Therefore the capture stores each band robustMedianMm, before the 600 ms temporal filter.
-
-The normal live geometry still keeps its filtered values for runtime diagnostics.
+No extrapolation ratio or warning is stored.
 
 ## Summary
 
-At the end of 5 seconds the controller prints:
+The command prints p10 / median / p90 for:
 
-- total unique geometry frames
-- valid frames
-- overflow count
-- LEFT/CENTER/RIGHT p10
-- LEFT/CENTER/RIGHT median
-- LEFT/CENTER/RIGHT p90
-- median MAD per band
-- minimum/maximum accepted zones per band
-- median RIGHT minus LEFT
+- yaw
+- pitch
+- intercept
+- min/max perimeter distance
+- start/end distance of each segment
 
-This gives both the representative distance and the stability/quality of that pose.
+It also prints residual quality and accepted-zone range.
 
-## Recommended capture sequence
+## Safety
 
-For every capture, note the physical pose in the terminal log manually.
+Calibration capture is observational only.
 
-Suggested sequence:
-
-1. PARALLEL_CLOSE
-2. PARALLEL_MID
-3. PARALLEL_EXTENDED
-4. LEFT_CLOSE_RIGHT_FAR
-5. LEFT_MID_RIGHT_FAR
-6. RIGHT_CLOSE_LEFT_FAR
-7. RIGHT_MID_LEFT_FAR
-
-If useful, also capture temporary obstruction separately.
-
-## Interpretation
-
-Healthy pose capture should generally show:
-
-- high valid-frame ratio
-- narrow p10..p90 span
-- modest MAD
-- accepted-zone counts well above minimum
-- monotonic LEFT/RIGHT movement as the TV yaws
-
-These captures are for deriving real distance-to-gain points later.
-
-## Safety boundary
-
-Capture code cannot alter RGB.
-
-The pipeline remains:
-
-    HyperHDR -> Wi-Fi/DDP -> FrameMailbox -> LedRenderer -> PARLIO
-
-ToF capture only observes the independent geometry snapshot.
+It cannot enable physical gain application.
