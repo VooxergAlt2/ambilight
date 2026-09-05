@@ -60,6 +60,13 @@ public:
         TofPerimeterGainModelConfig config = {})
         : config_(config) {}
 
+    bool setGeometry(
+        const PerimeterScreenGeometry& geometry) {
+
+        config_.geometry = geometry;
+        return true;
+    }
+
     bool setCurve(
         const DistanceGainCurve& curve) {
 
