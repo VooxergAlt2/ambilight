@@ -2,85 +2,98 @@
 
 Custom ESP32-C6 Ambilight endpoint for HyperHDR.
 
-## Active development path
+## Active path
 
-The active firmware path is currently **Wi-Fi/DDP only**.
+Development is currently Wi-Fi/DDP only.
 
-Stage 7 keeps the proven one-PC DDP renderer and adds raw VL53L5CX acquisition in the background.
+Stage 8 adds robust VL53L5CX geometry processing while leaving the RGB frame path untouched.
 
     HyperHDR
         |
-        | Wi-Fi / DDP / UDP 4048
+        v
+    Wi-Fi / DDP
+        |
         v
     ESP32-C6
         |
         v
-    DdpAssembler
-        |
-        v
-    FrameMailbox
-        |
-        v
-    LedRenderer
-        |
-        v
-    PARLIO x4
+    FrameMailbox -> LedRenderer -> PARLIO x4
 
 In parallel:
 
     VL53L5CX 8x8 @ 10 Hz
         |
-        | I2C
         v
-    low-priority ToF task
+    raw ToF frame
         |
         v
-    immutable TofSnapshot
+    TofProcessor
+        |
+        v
+    LEFT / CENTER / RIGHT diagnostic geometry
 
-The ToF snapshot does **not** modify LED brightness yet.
+No ToF value modifies brightness yet.
 
-## Why ToF initialization is backgrounded
+## ToF processing
 
-VL53L5CX uploads firmware to the sensor during initialization and can take several seconds.
+Normalized bands:
 
-The sensor therefore runs in a low-priority FreeRTOS task started only after the DDP/LED runtime is initialized.
+- LEFT: columns 0..2
+- CENTER: columns 3..4
+- RIGHT: columns 5..7
 
-Ambilight remains available while the sensor starts or while the sensor is absent.
+Filtering:
 
-## ToF development settings
+- statuses 5/9 only
+- 50..4000 mm range gate
+- median
+- MAD-based outlier rejection
+- minimum accepted-zone threshold
+- 600 ms temporal smoothing
+- 10 mm deadband
 
-Provisional pins:
+Orientation supports four rotations and optional horizontal mirroring.
 
-- SDA GPIO6
-- SCL GPIO7
-- INT unused
+Current provisional config is in `include/config/BoardConfig.h`.
 
-Initial mode:
+## Debug commands
 
-- 8x8 / 64 zones
-- 10 Hz
-- 1 MHz I2C
-- target status 5 or 9 counted as valid for diagnostics
-
-If the actual breakout/wiring is unstable at 1 MHz, hardware acceptance should repeat at 400 kHz.
-
-## Raw map inspection
-
-Normal logging stays compact to avoid injecting UART stalls into realtime DDP operation.
-
-Send:
+On debug serial:
 
     t
 
-to the debug serial terminal to print one raw 8x8 distance/status map.
+prints one raw 8x8 distance/status map.
+
+    g
+
+prints processed geometry:
+
+- candidates / accepted zones
+- raw median
+- MAD
+- robust median
+- filtered LEFT/CENTER/RIGHT
+- right-minus-left delta
+
+Continuous full-grid logging is intentionally avoided because it would perturb realtime DDP timing.
+
+## Sensor fault handling
+
+VL53L5CX is isolated from Ambilight.
+
+- init happens in a low-priority task
+- failed init retries
+- five consecutive read failures restart only ToF
+- 3 seconds without a successful ToF frame restarts only ToF
+- DDP and PARLIO continue running
 
 ## USB/AWA
 
-USB/AWA work is preserved separately in branch:
+Preserved separately in:
 
     stage/07-usb-awa
 
-It is intentionally not part of the active Wi-Fi firmware line yet.
+It is not part of the active firmware line yet.
 
 ## Build
 
@@ -92,16 +105,8 @@ Native tests:
 
     pio test -e native
 
-## Stage 7 acceptance
+## Before adaptive brightness
 
-- DDP 60 FPS behavior remains unchanged with ToF task enabled
-- DDP starts before VL53L5CX initialization finishes
-- missing VL53L5CX does not break Ambilight
-- sensor reaches 8x8 @ 10 Hz when connected
-- raw maps react plausibly to TV/wall position
-- ToF read time and max read time are visible
-- DDP p95/p99 internal frame age does not regress materially
-- no progressive heap loss
-- no watchdog/reset
+Capture real `t` + `g` data for parallel/extended/left-yaw/right-yaw TV positions and review whether the three bands behave monotonically and robustly.
 
-Adaptive brightness comes only after real raw maps are captured and reviewed.
+Only after that should ToF-derived gains enter LedRenderer.

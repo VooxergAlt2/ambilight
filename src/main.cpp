@@ -133,12 +133,13 @@ void dumpTofMap() {
     ambilight::TofSnapshot snapshot;
 
     if (!tof.copySnapshot(snapshot)) {
-        Serial.println("TOF dump unavailable: snapshot mutex busy/not initialized.");
+        Serial.println(
+            "TOF dump unavailable: snapshot mutex busy/not initialized.");
         return;
     }
 
     Serial.printf(
-        "TOF MAP state=%s gen=%lu age_ms=%llu valid=%u median=%umm "
+        "TOF RAW state=%s gen=%lu age_ms=%llu valid=%u median=%umm "
         "frames=%lu read=%luus max_read=%luus\n",
         tofStateName(snapshot.state),
         static_cast<unsigned long>(snapshot.generation),
@@ -172,12 +173,61 @@ void dumpTofMap() {
     Serial.println();
 }
 
+void printBand(
+    const char* name,
+    const ambilight::TofBandEstimate& band) {
+
+    Serial.printf(
+        "%s valid=%s candidates=%u accepted=%u raw=%umm mad=%umm robust=%umm filtered=%umm\n",
+        name,
+        band.valid ? "yes" : "no",
+        static_cast<unsigned>(band.candidates),
+        static_cast<unsigned>(band.accepted),
+        band.rawMedianMm,
+        band.madMm,
+        band.robustMedianMm,
+        band.filteredMm);
+}
+
+void dumpTofGeometry() {
+    ambilight::TofSnapshot snapshot;
+
+    if (!tof.copySnapshot(snapshot)) {
+        Serial.println(
+            "TOF geometry unavailable: snapshot mutex busy/not initialized.");
+        return;
+    }
+
+    const auto& geometry = snapshot.geometry;
+
+    Serial.printf(
+        "TOF GEOMETRY state=%s raw_gen=%lu geom_gen=%lu valid=%s accepted=%u "
+        "right_minus_left=%dmm rotation=%u mirror_x=%s\n",
+        tofStateName(snapshot.state),
+        static_cast<unsigned long>(snapshot.generation),
+        static_cast<unsigned long>(geometry.generation),
+        geometry.valid ? "yes" : "no",
+        static_cast<unsigned>(geometry.acceptedZones),
+        static_cast<int>(geometry.rightMinusLeftMm),
+        static_cast<unsigned>(
+            ambilight::config::kTofRotationQuarterTurns % 4U),
+        ambilight::config::kTofMirrorX ? "yes" : "no");
+
+    printBand("LEFT  ", geometry.left);
+    printBand("CENTER", geometry.center);
+    printBand("RIGHT ", geometry.right);
+
+    Serial.println();
+}
+
 void serviceDebugCommands() {
     while (Serial.available() > 0) {
         const int input = Serial.read();
 
         if (input == 't' || input == 'T') {
             dumpTofMap();
+        } else if (input == 'g' || input == 'G') {
+            dumpTofGeometry();
         }
     }
 }
@@ -208,12 +258,15 @@ void printRuntimeStatus() {
             ? (nowUs - tofSnapshot.timestampUs) / 1000ULL
             : 0;
 
+    const auto& geometry = tofSnapshot.geometry;
+
     Serial.printf(
         "STAT wifi=%s rssi=%d pkt=%lu asm=%lu pub=%lu collapse=%lu rej=%lu stale=%lu timeout=%lu "
         "budget=%lu lim=%lu pollmax=%luus sender=%s:%u render=%lu skip=%lu "
         "p50<=%luus p95<=%luus p99<=%luus ovf=%llu agemax=%lluus showmax=%luus "
-        "tof=%s tofgen=%lu tofvalid=%u tofmed=%u tofage=%llums tofread=%luus tofreadmax=%luus "
-        "tofinit=%lu toffail=%lu tofreadfail=%lu black=%lu heap=%u minheap=%u\n",
+        "tof=%s tofgen=%lu rawvalid=%u rawmed=%u tofage=%llums tofread=%luus tofreadmax=%luus "
+        "geom=%s l=%u c=%u r=%u delta=%d acc=%u tofinit=%lu toffail=%lu tofreadfail=%lu "
+        "tofrestart=%lu black=%lu heap=%u minheap=%u\n",
         wifi.connected() ? "up" : "down",
         wifi.connected() ? WiFi.RSSI() : 0,
         static_cast<unsigned long>(udp.datagramsReceived),
@@ -256,6 +309,22 @@ void printRuntimeStatus() {
         haveTof
             ? static_cast<unsigned long>(tofSnapshot.maxReadUs)
             : 0UL,
+        haveTof && geometry.valid ? "ok" : "bad",
+        haveTof && geometry.left.valid
+            ? geometry.left.filteredMm
+            : 0U,
+        haveTof && geometry.center.valid
+            ? geometry.center.filteredMm
+            : 0U,
+        haveTof && geometry.right.valid
+            ? geometry.right.filteredMm
+            : 0U,
+        haveTof
+            ? static_cast<int>(geometry.rightMinusLeftMm)
+            : 0,
+        haveTof
+            ? static_cast<unsigned>(geometry.acceptedZones)
+            : 0U,
         haveTof
             ? static_cast<unsigned long>(tofSnapshot.initAttempts)
             : 0UL,
@@ -263,7 +332,11 @@ void printRuntimeStatus() {
             ? static_cast<unsigned long>(tofSnapshot.initFailures)
             : 0UL,
         haveTof
-            ? static_cast<unsigned long>(tofSnapshot.rangingReadFailures)
+            ? static_cast<unsigned long>(
+                  tofSnapshot.rangingReadFailures)
+            : 0UL,
+        haveTof
+            ? static_cast<unsigned long>(tofSnapshot.staleRestarts)
             : 0UL,
         static_cast<unsigned long>(idleBlackouts),
         ESP.getFreeHeap(),
@@ -272,7 +345,9 @@ void printRuntimeStatus() {
 
 void printConfiguration() {
     Serial.println();
-    Serial.println("ESP32-C6 Ambilight Stage 7: Wi-Fi/DDP + raw VL53L5CX");
+    Serial.println(
+        "ESP32-C6 Ambilight Stage 8: Wi-Fi/DDP + processed VL53L5CX");
+
     Serial.printf(
         "Logical LEDs=%u payload=%uB DDP=%u poll_budget=%uus max_datagrams=%u\n",
         static_cast<unsigned>(ambilight::config::kLogicalLedCount),
@@ -291,13 +366,16 @@ void printConfiguration() {
         static_cast<unsigned>(ambilight::config::kTestBrightness));
 
     Serial.printf(
-        "VL53L5CX raw bring-up: SDA=%u SCL=%u 8x8 @ 10Hz; "
-        "sensor does NOT modify LED frames in this stage.\n",
+        "VL53L5CX SDA=%u SCL=%u 8x8@10Hz rotation=%u mirror_x=%s; "
+        "geometry is diagnostic only and does NOT modify RGB.\n",
         ambilight::config::kTofSdaGpio,
-        ambilight::config::kTofSclGpio);
+        ambilight::config::kTofSclGpio,
+        static_cast<unsigned>(
+            ambilight::config::kTofRotationQuarterTurns % 4U),
+        ambilight::config::kTofMirrorX ? "yes" : "no");
 
     Serial.println(
-        "Type 't' in the debug serial terminal for a one-shot 8x8 raw ToF dump.");
+        "Debug: 't' = raw 8x8 map, 'g' = processed LEFT/CENTER/RIGHT geometry.");
     Serial.println(
         "Active frame transport remains Wi-Fi/DDP only. "
         "USB/AWA is preserved separately as WIP.");

@@ -8,6 +8,9 @@
 #include <freertos/semphr.h>
 #include <freertos/task.h>
 
+#include "tof/TofProcessor.h"
+#include "tof/TofTypes.h"
+
 namespace ambilight {
 
 enum class TofState : std::uint8_t {
@@ -23,15 +26,18 @@ struct TofSnapshot {
     std::uint32_t generation = 0;
     std::uint64_t timestampUs = 0;
 
-    std::array<std::int16_t, 64> distanceMm{};
-    std::array<std::uint8_t, 64> targetStatus{};
+    std::array<std::int16_t, kTofZoneCount> distanceMm{};
+    std::array<std::uint8_t, kTofZoneCount> targetStatus{};
 
     std::uint8_t validZones = 0;
     std::uint16_t medianMm = 0;
 
+    TofGeometrySnapshot geometry{};
+
     std::uint32_t initAttempts = 0;
     std::uint32_t initFailures = 0;
     std::uint32_t rangingReadFailures = 0;
+    std::uint32_t staleRestarts = 0;
     std::uint32_t frames = 0;
 
     std::uint32_t lastReadUs = 0;
@@ -40,7 +46,7 @@ struct TofSnapshot {
 
 class TofService {
 public:
-    TofService() = default;
+    TofService();
     ~TofService();
 
     TofService(const TofService&) = delete;
@@ -72,6 +78,7 @@ private:
     Adafruit_VL53L5CX* sensor_ = nullptr;
     VL53L5CX_ResultsData results_{};
 
+    TofProcessor processor_;
     TofSnapshot snapshot_{};
 };
 

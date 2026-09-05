@@ -17,17 +17,41 @@ constexpr std::uint8_t kRangingFrequencyHz = 10;
 
 constexpr std::uint32_t kInitRetryMs = 5000;
 constexpr std::uint32_t kPollDelayMs = 10;
+constexpr std::uint32_t kRangingStaleMs = 3000;
+constexpr std::uint8_t kMaxConsecutiveReadFailures = 5;
 
-// VL53L5CX supports Fast-mode Plus. With short local wiring this greatly
-// reduces both firmware upload time and 8x8 result-read occupancy.
-// If the actual breakout/wiring proves marginal, this is the first value to
-// lower to 400000 during hardware acceptance.
 constexpr std::uint32_t kI2cClockHz = 1000000;
 
 constexpr std::uint32_t kTaskStackBytes = 12288;
 constexpr UBaseType_t kTaskPriority = 0;
 
+TofProcessorConfig makeProcessorConfig() {
+    TofProcessorConfig processorConfig;
+
+    switch (config::kTofRotationQuarterTurns % 4U) {
+    case 1:
+        processorConfig.transform.rotation = TofRotation::Deg90;
+        break;
+    case 2:
+        processorConfig.transform.rotation = TofRotation::Deg180;
+        break;
+    case 3:
+        processorConfig.transform.rotation = TofRotation::Deg270;
+        break;
+    default:
+        processorConfig.transform.rotation = TofRotation::Deg0;
+        break;
+    }
+
+    processorConfig.transform.mirrorX = config::kTofMirrorX;
+
+    return processorConfig;
+}
+
 } // namespace
+
+TofService::TofService()
+    : processor_(makeProcessorConfig()) {}
 
 TofService::~TofService() {
     if (task_ != nullptr) {
@@ -121,6 +145,8 @@ bool TofService::initializeSensor() {
         sensor_ = nullptr;
     }
 
+    processor_.reset();
+
     sensor_ = new Adafruit_VL53L5CX();
     if (sensor_ == nullptr) {
         return false;
@@ -159,7 +185,6 @@ bool TofService::initializeSensor() {
 }
 
 bool TofService::isUsableStatus(std::uint8_t status) {
-    // ST ULD documentation marks 5 and 9 as valid ranging results.
     return status == 5 || status == 9;
 }
 
@@ -167,10 +192,10 @@ std::uint16_t TofService::medianOfValid(
     const VL53L5CX_ResultsData& results,
     std::uint8_t& validCount) {
 
-    std::array<std::uint16_t, 64> valid{};
+    std::array<std::uint16_t, kTofZoneCount> valid{};
     std::size_t count = 0;
 
-    for (std::size_t index = 0; index < 64; ++index) {
+    for (std::size_t index = 0; index < kTofZoneCount; ++index) {
         const std::int16_t distance = results.distance_mm[index];
         const std::uint8_t status = results.target_status[index];
 
@@ -204,6 +229,17 @@ void TofService::publishResults(
     std::uint32_t readUs,
     std::uint64_t timestampUs) {
 
+    TofRawFrame raw;
+    raw.timestampUs = timestampUs;
+
+    for (std::size_t index = 0; index < kTofZoneCount; ++index) {
+        raw.distanceMm[index] = results.distance_mm[index];
+        raw.targetStatus[index] = results.target_status[index];
+    }
+
+    const TofGeometrySnapshot geometry =
+        processor_.process(raw);
+
     TofSnapshot next;
 
     if (mutex_ != nullptr &&
@@ -222,10 +258,9 @@ void TofService::publishResults(
         next.maxReadUs = readUs;
     }
 
-    for (std::size_t index = 0; index < 64; ++index) {
-        next.distanceMm[index] = results.distance_mm[index];
-        next.targetStatus[index] = results.target_status[index];
-    }
+    next.distanceMm = raw.distanceMm;
+    next.targetStatus = raw.targetStatus;
+    next.geometry = geometry;
 
     next.medianMm = medianOfValid(
         results,
@@ -252,8 +287,32 @@ void TofService::taskLoop() {
             continue;
         }
 
+        std::uint64_t lastSuccessfulFrameUs =
+            static_cast<std::uint64_t>(esp_timer_get_time());
+
+        std::uint8_t consecutiveReadFailures = 0;
+
         for (;;) {
+            const std::uint64_t nowUs =
+                static_cast<std::uint64_t>(esp_timer_get_time());
+
             if (!sensor_->isDataReady()) {
+                if (nowUs - lastSuccessfulFrameUs >
+                    static_cast<std::uint64_t>(
+                        kRangingStaleMs) * 1000ULL) {
+
+                    if (mutex_ != nullptr &&
+                        xSemaphoreTake(
+                            mutex_,
+                            portMAX_DELAY) == pdTRUE) {
+                        ++snapshot_.staleRestarts;
+                        snapshot_.state = TofState::Error;
+                        xSemaphoreGive(mutex_);
+                    }
+
+                    break;
+                }
+
                 vTaskDelay(pdMS_TO_TICKS(kPollDelayMs));
                 continue;
             }
@@ -263,9 +322,19 @@ void TofService::taskLoop() {
 
             if (!sensor_->getRangingData(&results_)) {
                 if (mutex_ != nullptr &&
-                    xSemaphoreTake(mutex_, portMAX_DELAY) == pdTRUE) {
+                    xSemaphoreTake(
+                        mutex_,
+                        portMAX_DELAY) == pdTRUE) {
                     ++snapshot_.rangingReadFailures;
                     xSemaphoreGive(mutex_);
+                }
+
+                ++consecutiveReadFailures;
+                if (consecutiveReadFailures >=
+                    kMaxConsecutiveReadFailures) {
+
+                    publishState(TofState::Error);
+                    break;
                 }
 
                 vTaskDelay(pdMS_TO_TICKS(kPollDelayMs));
@@ -275,6 +344,9 @@ void TofService::taskLoop() {
             const std::uint64_t readFinishedUs =
                 static_cast<std::uint64_t>(esp_timer_get_time());
 
+            lastSuccessfulFrameUs = readFinishedUs;
+            consecutiveReadFailures = 0;
+
             publishResults(
                 results_,
                 static_cast<std::uint32_t>(
@@ -283,6 +355,8 @@ void TofService::taskLoop() {
 
             vTaskDelay(pdMS_TO_TICKS(kPollDelayMs));
         }
+
+        vTaskDelay(pdMS_TO_TICKS(kInitRetryMs));
     }
 }
 

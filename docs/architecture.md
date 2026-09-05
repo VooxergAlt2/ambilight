@@ -1,93 +1,162 @@
-# Stage 7 architecture
+# Architecture
 
-## Scope
+## Current stage
 
-Stage 7 keeps the existing one-PC Wi-Fi/DDP renderer unchanged and adds raw VL53L5CX acquisition only.
+Stage 8 keeps the one-PC Wi-Fi/DDP renderer as the only active frame transport and adds a pure C++ VL53L5CX geometry processor.
 
-No ToF-derived brightness correction exists yet.
+Active RGB path:
 
-USB/AWA is preserved on a separate WIP branch and is not part of this active line.
-
-## Scheduling
-
-ESP32-C6 is single-core, so the VL53L5CX must not become a blocking dependency of the renderer.
-
-The application therefore has two independent paths.
-
-Realtime frame path:
-
-    Wi-Fi/lwIP
+    HyperHDR
+      -> Wi-Fi / DDP
       -> DdpUdpService
       -> DdpAssembler
       -> FrameMailbox
       -> LedRenderer
+      -> SegmentMapper
       -> PARLIO x4
 
-Sensor path:
+Independent ToF path:
 
-    low-priority FreeRTOS task
-      -> I2C
-      -> Adafruit VL53L5CX / ST ULD
-      -> 8x8 results
-      -> TofSnapshot
+    VL53L5CX 8x8 @ 10 Hz
+      -> TofService
+      -> TofRawFrame
+      -> TofProcessor
+      -> TofGeometrySnapshot
 
-Renderer never calls I2C and never waits for the sensor.
+The two paths are intentionally not connected yet.
 
-## Initialization
+## RGB transport invariant
 
-VL53L5CX initialization uploads sensor firmware and can take seconds.
+ToF cannot:
 
-Order:
+- modify RgbFrame
+- call LedRenderer
+- call LedEngine
+- block DDP receive
+- restart Wi-Fi
+- restart the MCU
 
-1. FrameMailbox
-2. PARLIO LED engine
-3. Wi-Fi
-4. DDP socket
-5. ToF background task
+This keeps the proven DDP renderer isolated while ToF math is validated.
 
-Therefore sensor startup cannot delay DDP availability.
+## ToF processing contract
 
-If sensor init fails, the task waits 5 seconds and retries while Ambilight continues normally.
+TofProcessor is Arduino-free pure C++.
 
-## I2C
+Input:
 
-Development mapping:
+    TofRawFrame
+      timestampUs
+      distanceMm[64]
+      targetStatus[64]
 
-- GPIO6 SDA
-- GPIO7 SCL
-- INT unused
+Output:
 
-Initial I2C frequency is 1 MHz to reduce firmware-upload and result-read occupancy.
+    TofGeometrySnapshot
+      LEFT estimate
+      CENTER estimate
+      RIGHT estimate
+      accepted zone count
+      rightMinusLeftMm
 
-This is explicitly subject to hardware acceptance. If the actual module/cable/pull-ups are marginal, repeat at 400 kHz.
+Each band contains:
 
-## Snapshot contract
+- candidate count
+- accepted count
+- raw median
+- MAD
+- robust median
+- temporally filtered distance
+- validity
 
-TofSnapshot contains:
+## Spatial filtering
 
-- state
-- generation/timestamp
-- 64 raw distance values
-- 64 raw target statuses
-- valid-zone count
-- diagnostic median
-- init/read failure counters
-- last/max sensor read duration
+Normalized 8x8 grid:
 
-Only the ToF task touches the Adafruit/ST driver.
+- LEFT = columns 0..2
+- CENTER = columns 3..4
+- RIGHT = columns 5..7
 
-Main receives a copied snapshot through a short task mutex.
+Sample gate:
 
-## Logging policy
+- status 5 or 9
+- distance 50..4000 mm
 
-A full 8x8 map is intentionally not streamed periodically because serial logging can distort DDP timing.
+Outlier rejection:
 
-Periodic status includes only compact ToF metrics.
+    threshold = max(100 mm, 4 * MAD)
 
-A one-shot raw map is printed only after the operator sends `t` over debug serial.
+Minimum accepted samples:
 
-## Stage boundary
+- LEFT/RIGHT: 6
+- CENTER: 4
 
-Stage 7 must not change RGB values.
+## Orientation
 
-The next ToF stage is allowed to analyze captured maps and build filtering/geometry logic, but brightness correction remains a later integration step.
+Raw ST zone order is normalized before band extraction.
+
+Compile-time transform supports:
+
+- 0 degrees
+- 90 degrees
+- 180 degrees
+- 270 degrees
+- optional horizontal mirror
+
+Current values are provisional until actual mounted-sensor captures are reviewed.
+
+## Temporal filtering
+
+Each band has independent state.
+
+- time constant: 600 ms
+- deadband: 10 mm
+- alpha derived from actual timestamp delta
+- Q16 integer arithmetic
+- first valid sample initializes immediately
+
+## ToF recovery
+
+Sensor work stays in a low-priority FreeRTOS task.
+
+Recovery conditions:
+
+- init failure -> retry after 5 s
+- five consecutive ranging read failures -> sensor-only restart
+- 3 s with no successful ranging frame -> sensor-only restart
+
+DDP and PARLIO remain operational throughout.
+
+## Debug
+
+Serial command:
+
+    t
+
+prints one raw 8x8 map.
+
+Serial command:
+
+    g
+
+prints processed LEFT/CENTER/RIGHT diagnostics.
+
+Full maps are manual only so logging does not become a hidden source of DDP jitter.
+
+## Native test boundary
+
+Pure C++ tests cover:
+
+- logical LED mapping
+- DDP assembler
+- latency histogram
+- ToF processor
+
+The ToF processor tests include rotation mapping, flat wall, asymmetric wall, invalid samples, outliers, low confidence, temporal smoothing, deadband, and status handling.
+
+## Next architectural step
+
+Do not connect ToF to LedRenderer yet.
+
+First collect real measurements at several TV poses and define a calibration/model layer that maps stable geometry to desired side brightness gains.
+
+Only after that layer has independent tests should a GainSnapshot be consumed by LedRenderer.
