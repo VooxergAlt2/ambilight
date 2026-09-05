@@ -27,6 +27,13 @@ struct PerimeterGainSnapshot {
         static_cast<std::size_t>(SegmentId::Count)>
         segment{};
 
+    // Exact target Q12 for every logical LED, calculated from that LED's
+    // wall distance and the calibrated distance curve.
+    std::array<
+        std::uint16_t,
+        config::kLogicalLedCount>
+        logicalGainQ12{};
+
     std::uint16_t minDistanceMm = 0;
     std::uint16_t maxDistanceMm = 0;
 
