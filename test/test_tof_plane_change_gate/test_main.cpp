@@ -172,6 +172,42 @@ void test_small_slope_can_be_material_at_screen_edge() {
         decision.maxWallDeltaMm);
 }
 
+
+void test_runtime_gate_config_resets_accepted_plane_reference() {
+    auto gate = makeGate(
+        10.0F);
+
+    gate.observe(
+        plane(600.0F));
+
+    TofPlaneChangeGateConfig config;
+    config.geometry =
+        makeRectangle(
+            2000.0F,
+            1000.0F);
+
+    config.wallDeltaDeadbandMm =
+        20.0F;
+
+    gate.setConfig(
+        config);
+
+    TEST_ASSERT_FALSE(
+        gate.hasAcceptedPlane());
+
+    // Even a numerically identical plane is a new reference after geometry
+    // changes and must force the next full projection rebuild.
+    const auto decision =
+        gate.observe(
+            plane(600.0F));
+
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(
+            TofPlaneChangeAction::Recalculate),
+        static_cast<int>(
+            decision.action));
+}
+
 void test_invalid_plane_fails_open_once_and_resets_reference() {
     auto gate = makeGate();
 
@@ -219,6 +255,7 @@ int main(int, char**) {
     RUN_TEST(test_small_plane_change_refreshes_only);
     RUN_TEST(test_deadband_is_cumulative_from_last_applied_plane);
     RUN_TEST(test_small_slope_can_be_material_at_screen_edge);
+    RUN_TEST(test_runtime_gate_config_resets_accepted_plane_reference);
     RUN_TEST(test_invalid_plane_fails_open_once_and_resets_reference);
 
     return UNITY_END();
