@@ -2,84 +2,129 @@
 
 ## Current stage
 
-Stage 10 keeps Wi-Fi/DDP as the only active RGB transport and adds fixed-memory calibration capture tooling around the already isolated ToF pipeline.
+Stage 11 introduces the first connection between ToF-derived gains and rendering, but the connection is shadow-only.
 
-RGB:
+RGB source remains Wi-Fi/DDP only.
+
+## Data paths
+
+### RGB
 
     HyperHDR
       -> Wi-Fi/DDP
-      -> DdpUdpService
       -> DdpAssembler
       -> FrameMailbox
-      -> LedRenderer
-      -> PARLIO x4
+      -> RgbFrame
 
-ToF:
+### ToF
 
     VL53L5CX
       -> TofProcessor
       -> TofGeometrySnapshot
       -> TofGainModel
       -> GainSnapshot
-      -> TofCalibrationCapture
 
-There is still no connection from GainSnapshot or calibration data to LedRenderer.
+### Integration
 
-## Calibration collector
+At one RGB frame boundary:
 
-TofCalibrationCapture is pure C++.
+    GainSnapshot
+      -> TofRenderGainBridge
+      -> RenderGainContext
 
-It stores at most 64 unique valid geometry samples.
+Then:
 
-Each sample contains only compact diagnostic values, not the full 8x8 raw grid.
+    RgbFrame + RenderGainContext
+      -> LedRenderer
+      -> shadow candidate RGB
+      -> ShadowRenderPolicy
+      -> original RGB
+      -> LedEngine
+      -> PARLIO x4
 
-Stored per band:
+## Dependency rule
 
-- robust median distance
-- MAD
-- accepted-zone count
+LedRenderer knows only:
 
-Stored global:
+- RgbFrame
+- RenderGainContext
+- SegmentMapper
+- LedEngine
 
-- robust RIGHT minus LEFT delta
+It does not know:
 
-## Duplicate control
+- VL53L5CX
+- TofService
+- TofProcessor
+- TofGainModel
 
-The main loop may run hundreds of times faster than the 10 Hz ToF sensor.
+The only ToF/render coupling is TofRenderGainBridge at the application integration layer.
 
-Runtime therefore forwards only a new geometry generation into the capture collector.
+## Context semantics
 
-The collector itself also protects against duplicate generations.
+RenderGainContext is immutable for one render call.
 
-## Summary statistics
+It contains:
 
-At capture completion:
+- source generation
+- source timestamp/age
+- source present
+- source usable
+- fail-open
+- start/end Q12 gain for each SegmentId
 
-- p10 / median / p90 distance
-- median MAD
-- min/max accepted zones
-- median right-minus-left
+## Segment endpoint model
 
-These are deliberately simple, robust metrics that can be reasoned about from terminal logs.
+Each segment has logical start/end gain.
 
-## Memory
+This supports:
 
-Three bands x 64 samples plus metadata remain small fixed arrays.
+- uniform side gain now
+- future linear top/bottom gradients
+- wiring reversal without profile reversal
 
-No heap allocation occurs during capture.
+Physical lane reversal remains SegmentMapper responsibility.
 
-## Safety
+## Hardware safety invariant
 
-Calibration capture can never:
+Stage 11 physical RGB is defined by:
+
+    ShadowRenderPolicy::physicalOutput(original, candidate)
+
+which returns:
+
+    original
+
+There is no runtime flag to change this.
+
+## Failure policy
+
+Absent, stale or invalid gain data creates a unity RenderGainContext.
+
+ToF failure cannot:
 
 - change RGB
-- invoke LedRenderer
-- change DDP source state
+- stop DDP
 - restart Wi-Fi
-- restart MCU
+- restart PARLIO
+- hold stale attenuation indefinitely
 
-## Next gate
+## Runtime observability
 
-Use real captures to choose actual gain curve points.
+Command set:
 
-Only then should the renderer begin consuming GainSnapshot.
+- t: raw ToF grid
+- g: processed ToF geometry
+- k: ToF GainSnapshot
+- c: 5-second calibration capture
+- r: renderer shadow diagnostics
+
+## Current activation gate
+
+Physical gain application remains prohibited until:
+
+- real calibration curve exists
+- logical segment screen orientation is verified
+- shadow mode demonstrates correct per-segment behavior
+- render preparation cost is acceptable
+- DDP latency does not regress materially

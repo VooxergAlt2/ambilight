@@ -1,0 +1,322 @@
+#include <cstdint>
+
+#include <unity.h>
+
+#include "integration/TofRenderGainBridge.h"
+#include "led/SegmentMapper.h"
+#include "render/RenderGainContext.h"
+
+using ambilight::GainSnapshot;
+using ambilight::RenderGainContext;
+using ambilight::RenderGainMath;
+using ambilight::Rgb8;
+using ambilight::SegmentId;
+using ambilight::SegmentMapper;
+using ambilight::TofRenderGainBridge;
+using ambilight::applyGainQ12;
+using ambilight::kGainUnityQ12;
+
+void test_q12_channel_scaling_rounds_and_clamps() {
+    TEST_ASSERT_EQUAL_UINT8(
+        255,
+        applyGainQ12(255, 5000));
+
+    TEST_ASSERT_EQUAL_UINT8(
+        128,
+        applyGainQ12(255, 2048));
+
+    TEST_ASSERT_EQUAL_UINT8(
+        1,
+        applyGainQ12(1, 2048));
+
+    TEST_ASSERT_EQUAL_UINT8(
+        0,
+        applyGainQ12(255, 0));
+}
+
+void test_fail_open_context_is_always_unity() {
+    RenderGainContext context;
+    context.sourcePresent = true;
+    context.sourceUsable = false;
+    context.failOpen = true;
+
+    context.segmentGain[
+        static_cast<std::size_t>(SegmentId::Top)] = {
+            1000,
+            2000
+        };
+
+    TEST_ASSERT_EQUAL_UINT16(
+        kGainUnityQ12,
+        context.gainForPosition(
+            SegmentId::Top,
+            0,
+            230));
+
+    TEST_ASSERT_FALSE(
+        context.hasNonUnityGain());
+}
+
+void test_segment_gradient_interpolates_in_logical_order() {
+    RenderGainContext context;
+    context.sourcePresent = true;
+    context.sourceUsable = true;
+    context.failOpen = false;
+
+    context.segmentGain[
+        static_cast<std::size_t>(SegmentId::Top)] = {
+            4096,
+            2048
+        };
+
+    TEST_ASSERT_EQUAL_UINT16(
+        4096,
+        context.gainForPosition(
+            SegmentId::Top,
+            0,
+            5));
+
+    TEST_ASSERT_EQUAL_UINT16(
+        3584,
+        context.gainForPosition(
+            SegmentId::Top,
+            1,
+            5));
+
+    TEST_ASSERT_EQUAL_UINT16(
+        3072,
+        context.gainForPosition(
+            SegmentId::Top,
+            2,
+            5));
+
+    TEST_ASSERT_EQUAL_UINT16(
+        2560,
+        context.gainForPosition(
+            SegmentId::Top,
+            3,
+            5));
+
+    TEST_ASSERT_EQUAL_UINT16(
+        2048,
+        context.gainForPosition(
+            SegmentId::Top,
+            4,
+            5));
+}
+
+void test_shadow_preview_changes_rgb_but_not_original_value() {
+    RenderGainContext context;
+    context.sourcePresent = true;
+    context.sourceUsable = true;
+    context.failOpen = false;
+
+    context.segmentGain[
+        static_cast<std::size_t>(SegmentId::Left)] = {
+            2048,
+            2048
+        };
+
+    constexpr Rgb8 input{200, 100, 50};
+
+    const auto preview =
+        RenderGainMath::preview(
+            input,
+            SegmentId::Left,
+            0,
+            160,
+            context);
+
+    TEST_ASSERT_TRUE(preview.wouldChange);
+
+    TEST_ASSERT_EQUAL_UINT8(
+        200,
+        preview.original.r);
+
+    TEST_ASSERT_EQUAL_UINT8(
+        100,
+        preview.wouldOutput.r);
+
+    TEST_ASSERT_EQUAL_UINT8(
+        50,
+        preview.wouldOutput.g);
+
+    TEST_ASSERT_EQUAL_UINT8(
+        25,
+        preview.wouldOutput.b);
+
+    TEST_ASSERT_EQUAL_UINT8(
+        100,
+        preview.maxChannelDelta);
+}
+
+void test_shadow_policy_never_applies_candidate() {
+    constexpr Rgb8 original{200, 100, 50};
+
+    ambilight::ShadowPixelResult shadow;
+    shadow.original = original;
+    shadow.wouldOutput = Rgb8{10, 20, 30};
+    shadow.wouldChange = true;
+
+    const Rgb8 physical =
+        ambilight::ShadowRenderPolicy::physicalOutput(
+            original,
+            shadow);
+
+    TEST_ASSERT_EQUAL_UINT8(200, physical.r);
+    TEST_ASSERT_EQUAL_UINT8(100, physical.g);
+    TEST_ASSERT_EQUAL_UINT8(50, physical.b);
+}
+
+void test_tof_bridge_maps_four_uniform_side_gains() {
+    GainSnapshot gains;
+    gains.generation = 42;
+    gains.timestampUs = 1000000;
+    gains.geometryUsable = true;
+    gains.failOpen = false;
+
+    gains.topQ12 = 3900;
+    gains.rightQ12 = 3800;
+    gains.bottomQ12 = 3700;
+    gains.leftQ12 = 3600;
+
+    const RenderGainContext context =
+        TofRenderGainBridge::make(
+            gains,
+            true,
+            1100000);
+
+    TEST_ASSERT_TRUE(context.sourcePresent);
+    TEST_ASSERT_TRUE(context.sourceUsable);
+    TEST_ASSERT_FALSE(context.failOpen);
+
+    TEST_ASSERT_EQUAL_UINT32(
+        42,
+        context.sourceGeneration);
+
+    TEST_ASSERT_EQUAL_UINT64(
+        100000,
+        context.sourceAgeUs);
+
+    const auto top =
+        context.endpointsForSegment(
+            SegmentId::Top);
+    const auto right =
+        context.endpointsForSegment(
+            SegmentId::Right);
+    const auto bottom =
+        context.endpointsForSegment(
+            SegmentId::Bottom);
+    const auto left =
+        context.endpointsForSegment(
+            SegmentId::Left);
+
+    TEST_ASSERT_EQUAL_UINT16(3900, top.startQ12);
+    TEST_ASSERT_EQUAL_UINT16(3900, top.endQ12);
+
+    TEST_ASSERT_EQUAL_UINT16(3800, right.startQ12);
+    TEST_ASSERT_EQUAL_UINT16(3700, bottom.startQ12);
+    TEST_ASSERT_EQUAL_UINT16(3600, left.startQ12);
+}
+
+void test_tof_bridge_stale_or_future_snapshot_fails_open() {
+    GainSnapshot gains;
+    gains.generation = 1;
+    gains.timestampUs = 1000000;
+    gains.geometryUsable = true;
+    gains.failOpen = false;
+    gains.leftQ12 = 2000;
+
+    auto stale =
+        TofRenderGainBridge::make(
+            gains,
+            true,
+            1000000 +
+                TofRenderGainBridge::
+                    kMaxGainSnapshotAgeUs +
+                1);
+
+    TEST_ASSERT_FALSE(stale.sourceUsable);
+    TEST_ASSERT_TRUE(stale.failOpen);
+
+    auto future =
+        TofRenderGainBridge::make(
+            gains,
+            true,
+            999999);
+
+    TEST_ASSERT_FALSE(future.sourceUsable);
+    TEST_ASSERT_TRUE(future.failOpen);
+}
+
+void test_bridge_clamps_gain_above_unity() {
+    GainSnapshot gains;
+    gains.generation = 1;
+    gains.timestampUs = 1000;
+    gains.geometryUsable = true;
+    gains.failOpen = false;
+    gains.leftQ12 = 6000;
+
+    const auto context =
+        TofRenderGainBridge::make(
+            gains,
+            true,
+            1100);
+
+    const auto left =
+        context.endpointsForSegment(
+            SegmentId::Left);
+
+    TEST_ASSERT_EQUAL_UINT16(
+        kGainUnityQ12,
+        left.startQ12);
+}
+
+void test_reversed_physical_mapping_keeps_logical_offset() {
+    constexpr ambilight::SegmentConfig reversed{
+        SegmentId::Bottom,
+        100,
+        10,
+        2,
+        true
+    };
+
+    const auto first =
+        SegmentMapper::mapInSegment(
+            reversed,
+            100);
+
+    TEST_ASSERT_TRUE(first.valid);
+    TEST_ASSERT_EQUAL_UINT16(9, first.index);
+    TEST_ASSERT_EQUAL_UINT16(0, first.segmentOffset);
+    TEST_ASSERT_EQUAL_UINT16(10, first.segmentLength);
+    TEST_ASSERT_EQUAL_UINT8(
+        static_cast<std::uint8_t>(
+            SegmentId::Bottom),
+        static_cast<std::uint8_t>(
+            first.segment));
+
+    const auto last =
+        SegmentMapper::mapInSegment(
+            reversed,
+            109);
+
+    TEST_ASSERT_EQUAL_UINT16(0, last.index);
+    TEST_ASSERT_EQUAL_UINT16(9, last.segmentOffset);
+}
+
+int main(int, char**) {
+    UNITY_BEGIN();
+
+    RUN_TEST(test_q12_channel_scaling_rounds_and_clamps);
+    RUN_TEST(test_fail_open_context_is_always_unity);
+    RUN_TEST(test_segment_gradient_interpolates_in_logical_order);
+    RUN_TEST(test_shadow_preview_changes_rgb_but_not_original_value);
+    RUN_TEST(test_shadow_policy_never_applies_candidate);
+    RUN_TEST(test_tof_bridge_maps_four_uniform_side_gains);
+    RUN_TEST(test_tof_bridge_stale_or_future_snapshot_fails_open);
+    RUN_TEST(test_bridge_clamps_gain_above_unity);
+    RUN_TEST(test_reversed_physical_mapping_keeps_logical_offset);
+
+    return UNITY_END();
+}

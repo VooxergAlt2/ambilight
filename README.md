@@ -2,71 +2,94 @@
 
 Custom ESP32-C6 Ambilight endpoint for HyperHDR.
 
-## Active firmware
+## Current stage
 
-Current development remains one PC over Wi-Fi/DDP.
+Stage 11 runs one PC over Wi-Fi/DDP and feeds ToF gains into the renderer in **shadow mode only**.
 
-RGB path:
+Physical LEDs still receive the original HyperHDR RGB.
 
     HyperHDR
-      -> DDP / UDP 4048
-      -> ESP32-C6
-      -> FrameMailbox
+      -> Wi-Fi/DDP
+      -> RgbFrame
       -> LedRenderer
+      -> ORIGINAL RGB
       -> PARLIO x4
 
-ToF path:
+In parallel:
 
     VL53L5CX
-      -> robust LEFT/CENTER/RIGHT geometry
-      -> diagnostic fail-open gain model
-      -> calibration capture tooling
+      -> geometry
+      -> gain model
+      -> RenderGainContext
+      -> shadow RGB calculation only
 
-No ToF-derived value modifies RGB yet.
+## Render gain mechanics
+
+Gain format:
+
+    4096 = 100%
+
+Each logical segment has start/end gain endpoints.
+
+Current gain model supplies uniform endpoints, but the renderer already supports a logical gradient along a segment for future yaw/plane compensation.
+
+Gain math:
+
+    channel_out = round(channel_in * gain / 4096)
+
+R, G and B use the same gain.
+
+## Hard shadow safety
+
+There is no runtime switch that enables correction.
+
+`ShadowRenderPolicy` always returns the original RGB for physical output.
+
+Native tests assert this contract.
+
+## Frame synchronization
+
+For every new RGB frame the controller copies one small GainSnapshot, releases the ToF mutex, creates an immutable RenderGainContext and uses it for all 780 LEDs.
+
+ToF cannot change coefficients halfway through one frame.
 
 ## Debug commands
 
     t
 
-One raw 8x8 distance/status map.
+Raw 8x8 ToF map.
 
     g
 
-Processed geometry with candidate/accepted counts, median, MAD, robust median and filtered L/C/R.
+Processed LEFT/CENTER/RIGHT geometry.
 
     k
 
-Future Q12 side gains and fail-open state.
+ToF gain snapshot.
 
     c
 
-Collect about 5 seconds of stable-pose geometry and print a calibration summary.
+Five-second calibration capture.
 
-The calibration summary contains p10/median/p90, median MAD and accepted-zone range for L/C/R.
+    r
+
+Renderer shadow diagnostics, including:
+
+- source age/usability
+- segment start/end gains
+- pixels that would change
+- maximum channel delta
+- shadow/original RGB ratio
+- renderer preparation time
 
 ## Current calibration
 
-Production gain curve is intentionally pass-through:
+Still pass-through:
 
     50 mm   -> 100%
     4000 mm -> 100%
 
-Real attenuation values are blocked on physical calibration captures.
-
-## Capture procedure
-
-Keep the TV still and run `c` once for each meaningful bracket pose.
-
-Recommended minimum:
-
-- parallel close
-- parallel mid
-- parallel fully extended
-- left close / right far
-- right close / left far
-- intermediate yaw in both directions
-
-Keep a note beside each serial summary describing the pose.
+So expected Stage 11 shadow result is 0 changed pixels while all future math is exercised.
 
 ## USB/AWA
 
@@ -74,20 +97,8 @@ Preserved separately in:
 
     stage/07-usb-awa
 
-It is not part of the active firmware line.
+Active development remains Wi-Fi/DDP.
 
-## Build
+## Next gate
 
-Firmware:
-
-    pio run -e esp32-c6-devkitc-1
-
-Native tests:
-
-    pio test -e native
-
-## Current gate
-
-The next step is not renderer integration.
-
-First collect real `c` summaries plus representative `t`/`g` dumps. Those measurements are needed to derive an evidence-based distance-to-brightness curve.
+Collect real ToF calibration data, install a real attenuation curve while staying in shadow mode, verify segment orientation and render timing, then consider a separate physical-application stage.

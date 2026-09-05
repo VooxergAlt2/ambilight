@@ -9,6 +9,11 @@ namespace ambilight {
 struct PhysicalPixel {
     std::uint8_t lane = 0;
     std::uint16_t index = 0;
+
+    SegmentId segment = SegmentId::Top;
+    std::uint16_t segmentOffset = 0;
+    std::uint16_t segmentLength = 0;
+
     bool valid = false;
 };
 
@@ -36,6 +41,9 @@ public:
         return PhysicalPixel{
             segment.lane,
             physicalIndex,
+            segment.id,
+            offset,
+            segment.logicalLength,
             true
         };
     }
@@ -46,7 +54,10 @@ public:
         }
 
         for (const auto& segment : kSegments) {
-            const PhysicalPixel mapped = mapInSegment(segment, logicalIndex);
+            const PhysicalPixel mapped = mapInSegment(
+                segment,
+                logicalIndex);
+
             if (mapped.valid) {
                 return mapped;
             }

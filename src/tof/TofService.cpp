@@ -125,6 +125,23 @@ bool TofService::copySnapshot(TofSnapshot& destination) const {
     return true;
 }
 
+bool TofService::copyGainSnapshot(
+    GainSnapshot& destination) const {
+
+    if (mutex_ == nullptr) {
+        return false;
+    }
+
+    if (xSemaphoreTake(mutex_, pdMS_TO_TICKS(2)) != pdTRUE) {
+        return false;
+    }
+
+    destination = snapshot_.gains;
+
+    xSemaphoreGive(mutex_);
+    return true;
+}
+
 void TofService::taskEntry(void* context) {
     auto* self = static_cast<TofService*>(context);
     self->taskLoop();

@@ -4,11 +4,10 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "core/GainQ12.h"
 #include "tof/TofTypes.h"
 
 namespace ambilight {
-
-constexpr std::uint16_t kGainUnityQ12 = 4096;
 
 struct GainPoint {
     std::uint16_t distanceMm = 0;
@@ -43,7 +42,6 @@ private:
 struct TofGainModelConfig {
     DistanceGainCurve curve{};
 
-    // Geometry older than this is treated as unavailable.
     std::uint64_t staleTimeoutUs = 1500000;
 };
 

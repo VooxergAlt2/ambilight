@@ -10,6 +10,7 @@
 #include "core/RgbFrame.h"
 #include "led/LedEngine.h"
 #include "led/LedRenderer.h"
+#include "integration/TofRenderGainBridge.h"
 #include "network/DdpUdpService.h"
 #include "network/WifiService.h"
 #include "tof/TofCalibrationCapture.h"
@@ -92,7 +93,20 @@ bool renderLatestFrame() {
         frameAgeHistogram.observe(lastFrameAgeUs);
     }
 
-    const esp_err_t result = renderer.render(renderSnapshot);
+    ambilight::GainSnapshot gainSnapshot{};
+    const bool haveGainSnapshot =
+        tof.copyGainSnapshot(gainSnapshot);
+
+    const ambilight::RenderGainContext gainContext =
+        ambilight::TofRenderGainBridge::make(
+            gainSnapshot,
+            haveGainSnapshot,
+            nowUs);
+
+    const esp_err_t result =
+        renderer.render(
+            renderSnapshot,
+            gainContext);
     if (result != ESP_OK) {
         fatal("LedRenderer::render failed", result);
     }
@@ -230,6 +244,118 @@ std::uint32_t gainPercentX10(std::uint16_t gainQ12) {
         ambilight::kGainUnityQ12);
 }
 
+void printRenderSegmentGain(
+    const char* name,
+    ambilight::SegmentId segment,
+    const ambilight::RenderGainContext& context) {
+
+    const auto endpoints =
+        context.endpointsForSegment(segment);
+
+    Serial.printf(
+        "RENDER %s start=%u(%lu.%lu%%) end=%u(%lu.%lu%%)\n",
+        name,
+        endpoints.startQ12,
+        static_cast<unsigned long>(
+            gainPercentX10(endpoints.startQ12) / 10U),
+        static_cast<unsigned long>(
+            gainPercentX10(endpoints.startQ12) % 10U),
+        endpoints.endQ12,
+        static_cast<unsigned long>(
+            gainPercentX10(endpoints.endQ12) / 10U),
+        static_cast<unsigned long>(
+            gainPercentX10(endpoints.endQ12) % 10U));
+}
+
+void dumpRenderShadow() {
+    const auto& stats =
+        renderer.shadowStats();
+
+    const auto& context =
+        renderer.lastGainContext();
+
+    const std::uint32_t shadowPermille =
+        stats.lastInputChannelSum == 0
+            ? 1000U
+            : static_cast<std::uint32_t>(
+                  (static_cast<std::uint64_t>(
+                       stats.lastShadowChannelSum) *
+                       1000ULL +
+                   stats.lastInputChannelSum / 2U) /
+                  stats.lastInputChannelSum);
+
+    Serial.printf(
+        "RENDER SHADOW frames=%lu present=%lu usable=%lu failopen=%lu nonunity=%lu "
+        "last_changed=%u max_delta=%u shadow_rgb=%lu.%lu%% source_gen=%lu source_age=%lluus "
+        "prepare=%luus prepare_max=%luus\n",
+        static_cast<unsigned long>(stats.frames),
+        static_cast<unsigned long>(stats.sourcePresentFrames),
+        static_cast<unsigned long>(stats.sourceUsableFrames),
+        static_cast<unsigned long>(stats.failOpenFrames),
+        static_cast<unsigned long>(stats.nonUnityContextFrames),
+        stats.lastWouldChangePixels,
+        static_cast<unsigned>(stats.lastMaxChannelDelta),
+        static_cast<unsigned long>(shadowPermille / 10U),
+        static_cast<unsigned long>(shadowPermille % 10U),
+        static_cast<unsigned long>(stats.lastSourceGeneration),
+        static_cast<unsigned long long>(stats.lastSourceAgeUs),
+        static_cast<unsigned long>(stats.lastPrepareUs),
+        static_cast<unsigned long>(stats.maxPrepareUs));
+
+    Serial.printf(
+        "RENDER SHADOW cumulative_changed=%llu max_delta_ever=%u by_segment T=%llu R=%llu B=%llu L=%llu\n",
+        static_cast<unsigned long long>(
+            stats.wouldChangePixels),
+        static_cast<unsigned>(stats.maxChannelDelta),
+        static_cast<unsigned long long>(
+            stats.wouldChangeBySegment[
+                static_cast<std::size_t>(
+                    ambilight::SegmentId::Top)]),
+        static_cast<unsigned long long>(
+            stats.wouldChangeBySegment[
+                static_cast<std::size_t>(
+                    ambilight::SegmentId::Right)]),
+        static_cast<unsigned long long>(
+            stats.wouldChangeBySegment[
+                static_cast<std::size_t>(
+                    ambilight::SegmentId::Bottom)]),
+        static_cast<unsigned long long>(
+            stats.wouldChangeBySegment[
+                static_cast<std::size_t>(
+                    ambilight::SegmentId::Left)]));
+
+    Serial.printf(
+        "RENDER CONTEXT present=%s usable=%s failopen=%s nonunity=%s\n",
+        context.sourcePresent ? "yes" : "no",
+        context.sourceUsable ? "yes" : "no",
+        context.failOpen ? "yes" : "no",
+        context.hasNonUnityGain() ? "yes" : "no");
+
+    printRenderSegmentGain(
+        "TOP   ",
+        ambilight::SegmentId::Top,
+        context);
+
+    printRenderSegmentGain(
+        "RIGHT ",
+        ambilight::SegmentId::Right,
+        context);
+
+    printRenderSegmentGain(
+        "BOTTOM",
+        ambilight::SegmentId::Bottom,
+        context);
+
+    printRenderSegmentGain(
+        "LEFT  ",
+        ambilight::SegmentId::Left,
+        context);
+
+    Serial.println(
+        "RENDER SHADOW SAFETY: wouldOutput is calculated but original HyperHDR RGB is what reaches LedEngine.");
+    Serial.println();
+}
+
 void dumpTofGains() {
     ambilight::TofSnapshot snapshot;
 
@@ -261,7 +387,7 @@ void dumpTofGains() {
         static_cast<unsigned long>(gainPercentX10(gains.bottomQ12) % 10U));
 
     Serial.println(
-        "Stage 9 note: GainSnapshot is diagnostic only; LedRenderer does not consume it.");
+        "Stage 11 note: GainSnapshot reaches LedRenderer only through shadow context; ShadowRenderPolicy still outputs original RGB.");
     Serial.println();
 }
 
@@ -355,6 +481,8 @@ void serviceDebugCommands() {
             dumpTofGains();
         } else if (input == 'c' || input == 'C') {
             startCalibrationCapture();
+        } else if (input == 'r' || input == 'R') {
+            dumpRenderShadow();
         }
     }
 }
@@ -393,6 +521,7 @@ void printRuntimeStatus() {
         "p50<=%luus p95<=%luus p99<=%luus ovf=%llu agemax=%lluus showmax=%luus "
         "tof=%s tofgen=%lu rawvalid=%u rawmed=%u tofage=%llums tofread=%luus tofreadmax=%luus "
         "geom=%s l=%u c=%u r=%u delta=%d acc=%u gainfail=%s gl=%u gt=%u gb=%u gr=%u "
+        "shadow_usable=%lu shadow_nonunity=%lu shadow_changed=%u shadow_delta=%u shadowprep=%luus "
         "tofinit=%lu toffail=%lu tofreadfail=%lu tofrestart=%lu black=%lu heap=%u minheap=%u\n",
         wifi.connected() ? "up" : "down",
         wifi.connected() ? WiFi.RSSI() : 0,
@@ -457,6 +586,15 @@ void printRuntimeStatus() {
         haveTof ? tofSnapshot.gains.topQ12 : ambilight::kGainUnityQ12,
         haveTof ? tofSnapshot.gains.bottomQ12 : ambilight::kGainUnityQ12,
         haveTof ? tofSnapshot.gains.rightQ12 : ambilight::kGainUnityQ12,
+        static_cast<unsigned long>(
+            renderer.shadowStats().sourceUsableFrames),
+        static_cast<unsigned long>(
+            renderer.shadowStats().nonUnityContextFrames),
+        renderer.shadowStats().lastWouldChangePixels,
+        static_cast<unsigned>(
+            renderer.shadowStats().lastMaxChannelDelta),
+        static_cast<unsigned long>(
+            renderer.shadowStats().lastPrepareUs),
         haveTof
             ? static_cast<unsigned long>(tofSnapshot.initAttempts)
             : 0UL,
@@ -478,7 +616,7 @@ void printRuntimeStatus() {
 void printConfiguration() {
     Serial.println();
     Serial.println(
-        "ESP32-C6 Ambilight Stage 10: Wi-Fi/DDP + ToF calibration capture");
+        "ESP32-C6 Ambilight Stage 11: Wi-Fi/DDP + ToF render shadow");
 
     Serial.printf(
         "Logical LEDs=%u payload=%uB DDP=%u poll_budget=%uus max_datagrams=%u\n",
@@ -499,7 +637,7 @@ void printConfiguration() {
 
     Serial.printf(
         "VL53L5CX SDA=%u SCL=%u 8x8@10Hz rotation=%u mirror_x=%s; "
-        "gain model is diagnostic only and does NOT modify RGB.\n",
+        "gain model enters renderer in SHADOW mode and does NOT modify physical RGB.\n",
         ambilight::config::kTofSdaGpio,
         ambilight::config::kTofSclGpio,
         static_cast<unsigned>(
@@ -507,7 +645,7 @@ void printConfiguration() {
         ambilight::config::kTofMirrorX ? "yes" : "no");
 
     Serial.println(
-        "Debug: 't'=raw, 'g'=geometry, 'k'=gains, 'c'=5s calibration capture.");
+        "Debug: 't'=raw, 'g'=geometry, 'k'=gains, 'c'=capture, 'r'=render shadow.");
     Serial.println(
         "Active frame transport remains Wi-Fi/DDP only. "
         "USB/AWA is preserved separately as WIP.");

@@ -13,6 +13,11 @@ void test_default_geometry_boundaries() {
     TEST_ASSERT_TRUE(p0.valid);
     TEST_ASSERT_EQUAL_UINT8(0, p0.lane);
     TEST_ASSERT_EQUAL_UINT16(0, p0.index);
+    TEST_ASSERT_EQUAL_UINT8(
+        static_cast<std::uint8_t>(SegmentId::Top),
+        static_cast<std::uint8_t>(p0.segment));
+    TEST_ASSERT_EQUAL_UINT16(0, p0.segmentOffset);
+    TEST_ASSERT_EQUAL_UINT16(230, p0.segmentLength);
 
     const PhysicalPixel p229 = SegmentMapper::map(229);
     TEST_ASSERT_TRUE(p229.valid);
@@ -23,6 +28,11 @@ void test_default_geometry_boundaries() {
     TEST_ASSERT_TRUE(p230.valid);
     TEST_ASSERT_EQUAL_UINT8(1, p230.lane);
     TEST_ASSERT_EQUAL_UINT16(0, p230.index);
+    TEST_ASSERT_EQUAL_UINT8(
+        static_cast<std::uint8_t>(SegmentId::Right),
+        static_cast<std::uint8_t>(p230.segment));
+    TEST_ASSERT_EQUAL_UINT16(0, p230.segmentOffset);
+    TEST_ASSERT_EQUAL_UINT16(160, p230.segmentLength);
 
     const PhysicalPixel p389 = SegmentMapper::map(389);
     TEST_ASSERT_TRUE(p389.valid);
@@ -68,11 +78,14 @@ void test_reversed_segment_mapping() {
     TEST_ASSERT_TRUE(first.valid);
     TEST_ASSERT_EQUAL_UINT8(2, first.lane);
     TEST_ASSERT_EQUAL_UINT16(9, first.index);
+    TEST_ASSERT_EQUAL_UINT16(0, first.segmentOffset);
+    TEST_ASSERT_EQUAL_UINT16(10, first.segmentLength);
 
     const PhysicalPixel last = SegmentMapper::mapInSegment(reversed, 109);
     TEST_ASSERT_TRUE(last.valid);
     TEST_ASSERT_EQUAL_UINT8(2, last.lane);
     TEST_ASSERT_EQUAL_UINT16(0, last.index);
+    TEST_ASSERT_EQUAL_UINT16(9, last.segmentOffset);
 
     const PhysicalPixel before = SegmentMapper::mapInSegment(reversed, 99);
     TEST_ASSERT_FALSE(before.valid);

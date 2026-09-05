@@ -57,6 +57,7 @@ public:
     bool begin();
 
     bool copySnapshot(TofSnapshot& destination) const;
+    bool copyGainSnapshot(GainSnapshot& destination) const;
 
 private:
     static void taskEntry(void* context);
