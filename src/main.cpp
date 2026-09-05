@@ -926,11 +926,11 @@ void serviceCalibrationCapture() {
 }
 
 void startShadowGainProbe() {
-    if (correctionMode ==
-        ambilight::CorrectionMode::Active) {
+    if (correctionMode !=
+        ambilight::CorrectionMode::Shadow) {
 
         Serial.println(
-            "SHADOW PROBE refused in ACTIVE mode. Switch correction to SHADOW or DISABLED first.");
+            "SHADOW PROBE is available only in SHADOW mode.");
         return;
     }
 
