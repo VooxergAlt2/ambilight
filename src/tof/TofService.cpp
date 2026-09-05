@@ -112,6 +112,58 @@ TofService::~TofService() {
     }
 }
 
+bool TofService::setSpatialProfile(
+    const TofSpatialProfile& profile) {
+
+    if (!profile.valid()) {
+        return false;
+    }
+
+    if (task_ == nullptr) {
+        spatialProfile_ = profile;
+
+        processor_.setTransform(
+            profile.transform());
+
+        planeChangeGate_.setConfig(
+            profile.planeGateConfig());
+
+        perimeterGainModel_.setGeometry(
+            profile.perimeterGeometry());
+
+        return true;
+    }
+
+    if (mutex_ == nullptr) {
+        return false;
+    }
+
+    if (xSemaphoreTake(
+            mutex_,
+            pdMS_TO_TICKS(20)) != pdTRUE) {
+
+        return false;
+    }
+
+    pendingSpatialProfile_ =
+        profile;
+
+    pendingSpatialProfileDirty_ =
+        true;
+
+    // Geometry/orientation changes invalidate every old projected distance.
+    // Fail open immediately until a fresh pose is processed with the new
+    // profile.
+    snapshot_.geometry = {};
+    snapshot_.gains = {};
+    snapshot_.perimeterGains = {};
+
+    xSemaphoreGive(
+        mutex_);
+
+    return true;
+}
+
 bool TofService::setGainCurve(
     const DistanceGainCurve& curve) {
 
@@ -483,6 +535,60 @@ void TofService::publishResults(
     }
 }
 
+void TofService::applyPendingSpatialProfile() {
+    TofSpatialProfile profile;
+    bool shouldApply = false;
+
+    if (mutex_ == nullptr) {
+        return;
+    }
+
+    if (xSemaphoreTake(
+            mutex_,
+            portMAX_DELAY) == pdTRUE) {
+
+        if (pendingSpatialProfileDirty_) {
+            profile =
+                pendingSpatialProfile_;
+
+            pendingSpatialProfileDirty_ =
+                false;
+
+            shouldApply = true;
+        }
+
+        xSemaphoreGive(
+            mutex_);
+    }
+
+    if (!shouldApply ||
+        !profile.valid()) {
+        return;
+    }
+
+    spatialProfile_ =
+        profile;
+
+    processor_.setTransform(
+        profile.transform());
+
+    planeChangeGate_.setConfig(
+        profile.planeGateConfig());
+
+    perimeterGainModel_.setGeometry(
+        profile.perimeterGeometry());
+
+    if (xSemaphoreTake(
+            mutex_,
+            portMAX_DELAY) == pdTRUE) {
+
+        ++snapshot_.spatialProfileUpdates;
+
+        xSemaphoreGive(
+            mutex_);
+    }
+}
+
 void TofService::applyPendingGainCurve() {
     DistanceGainCurve curve;
     bool shouldApply = false;
@@ -645,6 +751,7 @@ void TofService::taskLoop() {
         std::uint8_t consecutiveReadFailures = 0;
 
         for (;;) {
+            applyPendingSpatialProfile();
             applyPendingGainCurve();
 
             const std::uint64_t nowUs =
