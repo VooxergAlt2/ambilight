@@ -1,0 +1,6 @@
+.pio/
+.vscode/
+.idea/
+.DS_Store
+*.log
+include/secrets.h
