@@ -4,34 +4,52 @@ Custom ESP32-C6 Ambilight endpoint for HyperHDR.
 
 ## Current development stage
 
-Stage 2 is a stacked branch on top of the Stage 1 four-lane PARLIO engine.
+Stage 3 is a stacked branch on top of the transport-independent frame core.
 
-The code now uses the same transport-independent path that future HyperHDR input will use:
+The firmware now proves three independent layers:
 
-    RgbFrame[780]
-         |
-         v
-    FrameMailbox
-         |
-         v
-    LedRenderer
-         |
-         v
-    SegmentMapper
-         |
-         v
-    PARLIO x4
+1. four synchronized PARLIO outputs
+2. one fixed logical RGB frame of 780 LEDs
+3. Wi-Fi STA operation with modem power-save disabled
 
-No Wi-Fi, DDP, USB/AWA, VL53L5CX, Web UI, OTA, source arbitration, or multi-PC logic is present yet.
+Frame data is still generated locally. DDP has not been added yet.
 
-Target physical layout:
+Current path:
 
-- TOP: 230 LEDs
-- RIGHT: 160 LEDs
-- BOTTOM: 230 LEDs
-- LEFT: 160 LEDs
-- total logical LEDs: 780
-- RGB payload per logical frame: 2340 bytes
+    generated RgbFrame[780]
+             |
+             v
+        FrameMailbox
+             |
+             v
+        LedRenderer
+             |
+             v
+        SegmentMapper
+             |
+             v
+        PARLIO x4
+
+Wi-Fi runs beside this path and must not block it.
+
+## Wi-Fi credentials
+
+Copy:
+
+    include/secrets.example.h
+
+to:
+
+    include/secrets.h
+
+and set:
+
+    AMBILIGHT_WIFI_SSID
+    AMBILIGHT_WIFI_PASSWORD
+
+The real secrets file is ignored by Git.
+
+If no credentials are present, firmware still builds and runs with Wi-Fi disabled.
 
 ## Toolchain
 
@@ -41,8 +59,6 @@ Pinned baseline:
 - Arduino-ESP32 3.3.11
 - ESP-IDF 5.5.5 underneath Arduino
 - LiteLED 3.2.0
-
-The official PlatformIO espressif32 platform still ships an older Arduino core, so this project intentionally uses the pinned pioarduino platform release.
 
 ## Build
 
@@ -54,21 +70,18 @@ Native mapper tests:
 
     pio test -e native
 
-Upload and monitor with PlatformIO after confirming the exact ESP32-C6 board and the provisional GPIO mapping in include/config/BoardConfig.h.
-
 ## Stage safety
 
 Test brightness is intentionally limited to 32/255. LED power distribution, fusing, level shifting, and final GPIO selection are hardware validation items and are not implied by a successful firmware build.
 
 ## Development order
 
-1. Validate four-lane PARLIO on hardware.
-2. Validate the frame core and segment mapper.
-3. Add Wi-Fi while keeping generated test frames as the source.
-4. Add HyperHDR DDP receive/reassembly for one PC.
-5. Stress-test the working Wi-Fi Ambilight.
-6. Add USB/AWA independently.
-7. Add VL53L5CX and adaptive per-side brightness.
-8. Add USB-primary / Wi-Fi-fallback only after both transports are proven separately.
-
-See docs/architecture.md for current design boundaries.
+1. Four-lane PARLIO.
+2. Transport-independent frame core.
+3. Wi-Fi coexistence and reconnect.
+4. Pure DDP parser/reassembly.
+5. HyperHDR DDP runtime for one PC.
+6. Stress-test working Wi-Fi Ambilight.
+7. USB/AWA independently.
+8. VL53L5CX and adaptive per-side brightness.
+9. USB-primary / Wi-Fi-fallback after both transports are independently proven.

@@ -2,9 +2,19 @@
 
 ## Current scope
 
-Stage 2 introduces the transport-independent RGB frame core on top of the Stage 1 four-lane PARLIO engine.
+Stage 3 adds Wi-Fi station operation while generated test frames continue to drive the existing frame core and PARLIO renderer.
 
-The firmware still contains no Wi-Fi, DDP, USB/AWA, VL53L5CX, Web UI, OTA, source arbitration, or multi-PC logic.
+There is still no DDP/UDP payload path. This separation exists specifically to detect Wi-Fi scheduling or power-save side effects before the network becomes a frame source.
+
+Still out of scope:
+
+- DDP
+- USB/AWA
+- VL53L5CX
+- Web UI
+- OTA
+- source arbitration
+- multi-PC logic
 
 ## Logical frame contract
 
@@ -19,62 +29,39 @@ The RGB payload is exactly 2340 bytes.
 
 Transport code is not allowed to address PARLIO lanes directly.
 
-## Frame mailbox
+## Wi-Fi policy
 
-FrameMailbox owns one published frame and protects task-level copies with a FreeRTOS mutex.
+ESP32-C6 Wi-Fi is configured as:
 
-This intentionally chooses simple ownership over zero-copy complexity:
+- station mode only
+- persistent credential writes disabled
+- auto reconnect enabled
+- modem power-save disabled
+- explicit ESP-IDF WIFI_PS_NONE
 
-- producer copies one complete frame into the mailbox
-- mailbox assigns a monotonically increasing generation
-- renderer copies only when the generation changed
-- no RGB FIFO is created
-- future realtime transport policy remains "latest frame wins"
+Power-save is deliberately disabled because future DDP traffic is realtime and jitter matters more than a small reduction in MCU power.
 
-A 2340-byte copy is cheap enough that this can be benchmarked before considering a more complex ownership scheme.
+Credentials are not committed. Copy include/secrets.example.h to include/secrets.h and edit locally.
 
-## Fixed logical geometry
+If credentials are absent, firmware still builds and Stage 3 runs with Wi-Fi disabled.
 
-| Segment | Logical range | LEDs | PARLIO lane |
-| --- | ---: | ---: | ---: |
-| TOP | 0..229 | 230 | 0 |
-| RIGHT | 230..389 | 160 | 1 |
-| BOTTOM | 390..619 | 230 | 2 |
-| LEFT | 620..779 | 160 | 3 |
+## Reconnect behavior
 
-Geometry is compile-time validated to ensure:
+WifiService is non-blocking from the application perspective:
 
-- no gaps between logical segments
-- the final logical index is exactly 779
-- no physical segment exceeds the 230-slot PARLIO lane
-- every lane index is valid
+- WiFi.begin() starts the connection
+- system Wi-Fi tasks handle association
+- application tick observes state
+- a reconnect request is issued at most once per 5 seconds while disconnected
+- status metrics are printed every 10 seconds
 
-## Segment mapping
+No loop waits for WL_CONNECTED.
 
-SegmentMapper is pure C++ and converts a logical LED index into:
+This is important because LED rendering must stay available even if the AP is unavailable.
 
-    { lane, physical index, valid }
+## Frame path
 
-Reversal is handled here, not in HyperHDR and not in the PARLIO hardware layer.
-
-The mapper has native unit tests for every segment boundary, out-of-range access, and reversed segments.
-
-## PARLIO hardware
-
-LiteLEDpioGroup requires equal lane length. The group uses 230 physical positions per lane:
-
-- lane 0: TOP, 230 real LEDs
-- lane 1: RIGHT, 160 real LEDs + 70 untouched virtual positions
-- lane 2: BOTTOM, 230 real LEDs
-- lane 3: LEFT, 160 real LEDs + 70 untouched virtual positions
-
-The virtual tail positions are cleared at hardware initialization and never addressed by LedRenderer.
-
-## Renderer
-
-LedRenderer is the only logical-frame consumer allowed to write LED pixels.
-
-Data flow now used even by built-in test patterns:
+Generated Stage 3 frames use the same future production path:
 
     test RgbFrame
          |
@@ -93,8 +80,20 @@ Data flow now used even by built-in test patterns:
          v
     LiteLED PARLIO x4
 
-Future DDP and USB/AWA receivers must stop at FrameMailbox.
+WifiService runs beside this path and is never called by LedRenderer.
+
+## Stage 3 acceptance
+
+With real Wi-Fi credentials:
+
+- connect without blocking LED startup
+- WIFI_PS_NONE active
+- 60 FPS probe remains stable
+- mappingErrors remains zero
+- no significant regression in max PARLIO show time
+- AP/router restart recovers without rebooting C6
+- LED test patterns continue while disconnected
 
 ## Next stage
 
-Stage 3 adds Wi-Fi only. Test-pattern frames remain the source so that any Wi-Fi side effects on PARLIO timing can be isolated before DDP is introduced.
+Stage 4 adds a pure C++ DDP parser and reassembler with host-side tests. It still does not connect UDP packets directly to PARLIO.

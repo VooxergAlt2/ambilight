@@ -8,6 +8,7 @@
 #include "core/RgbFrame.h"
 #include "led/LedEngine.h"
 #include "led/LedRenderer.h"
+#include "network/WifiService.h"
 
 namespace {
 
@@ -26,6 +27,7 @@ constexpr Rgb8 kCyan    {0x00, 0x18, 0x18};
 ambilight::LedEngine ledEngine;
 ambilight::LedRenderer renderer(ledEngine);
 ambilight::FrameMailbox mailbox;
+ambilight::WifiService wifi;
 
 std::uint32_t lastRenderedGeneration = 0;
 
@@ -33,6 +35,19 @@ std::uint32_t lastRenderedGeneration = 0;
     Serial.printf("FATAL: %s: %s\n", message, esp_err_to_name(error));
     while (true) {
         delay(1000);
+    }
+}
+
+void serviceBackground() {
+    wifi.tick(millis());
+}
+
+void delayWithBackground(std::uint32_t durationMs) {
+    const std::uint32_t started = millis();
+
+    while (static_cast<std::uint32_t>(millis() - started) < durationMs) {
+        serviceBackground();
+        delay(10);
     }
 }
 
@@ -93,7 +108,7 @@ void runIdentificationPattern() {
     fillSegment(frame, SegmentId::Left, kYellow);
 
     publishAndRender(frame);
-    delay(2500);
+    delayWithBackground(2500);
 }
 
 void runBoundaryPattern() {
@@ -113,7 +128,7 @@ void runBoundaryPattern() {
     }
 
     publishAndRender(frame);
-    delay(2500);
+    delayWithBackground(2500);
 }
 
 void runLogicalWalk() {
@@ -130,6 +145,7 @@ void runLogicalWalk() {
 
         frame.pixels[logical] = kMagenta;
         publishAndRender(frame);
+        serviceBackground();
         delay(6);
     }
 
@@ -168,6 +184,8 @@ void runFpsProbe(
         publishAndRender(frame);
         ++frames;
 
+        serviceBackground();
+
         const std::int64_t elapsedUs = esp_timer_get_time() - frameStartedUs;
         if (elapsedUs < periodUs) {
             delayMicroseconds(
@@ -185,7 +203,7 @@ void runFpsProbe(
             : 0.0;
 
     Serial.printf(
-        "Frame-core probe target=%u actual=%.2f frames=%lu rendered=%lu map_errors=%lu max_show=%luus\n",
+        "Wi-Fi coexistence probe target=%u actual=%.2f frames=%lu rendered=%lu map_errors=%lu max_show=%luus\n",
         targetFps,
         actualFps,
         static_cast<unsigned long>(frames),
@@ -193,13 +211,15 @@ void runFpsProbe(
         static_cast<unsigned long>(renderer.mappingErrors()),
         static_cast<unsigned long>(ledEngine.maxShowTimeUs()));
 
+    wifi.printStatus();
+
     frame.clear();
     publishAndRender(frame);
 }
 
 void printConfiguration() {
     Serial.println();
-    Serial.println("ESP32-C6 Ambilight Stage 2: frame core + PARLIO renderer");
+    Serial.println("ESP32-C6 Ambilight Stage 3: Wi-Fi coexistence + PARLIO");
     Serial.printf("Logical LEDs: %u, RGB payload: %u bytes\n",
                   static_cast<unsigned>(ambilight::config::kLogicalLedCount),
                   static_cast<unsigned>(
@@ -236,9 +256,13 @@ void setup() {
         fatal("FrameMailbox::begin failed", ESP_ERR_NO_MEM);
     }
 
-    const esp_err_t result = ledEngine.begin();
-    if (result != ESP_OK) {
-        fatal("LedEngine::begin failed", result);
+    const esp_err_t ledResult = ledEngine.begin();
+    if (ledResult != ESP_OK) {
+        fatal("LedEngine::begin failed", ledResult);
+    }
+
+    if (!wifi.begin()) {
+        fatal("WifiService::begin failed", ESP_FAIL);
     }
 
     Serial.printf("Initial PARLIO show completed in %lu us\n",
@@ -246,18 +270,20 @@ void setup() {
 }
 
 void loop() {
-    Serial.println("Pattern: frame-core segment identification");
+    serviceBackground();
+
+    Serial.println("Pattern: Wi-Fi coexistence segment identification");
     runIdentificationPattern();
 
-    Serial.println("Pattern: frame-core segment boundaries");
+    Serial.println("Pattern: Wi-Fi coexistence segment boundaries");
     runBoundaryPattern();
 
-    Serial.println("Pattern: frame-core logical walk across 780 LEDs");
+    Serial.println("Pattern: Wi-Fi coexistence logical walk");
     runLogicalWalk();
 
-    Serial.println("Probe: frame mailbox + renderer at 60 FPS for 5 seconds");
-    runFpsProbe(60, 5000);
+    Serial.println("Probe: Wi-Fi enabled + renderer at 60 FPS for 10 seconds");
+    runFpsProbe(60, 10000);
 
-    Serial.println("Stage 2 cycle complete. Repeating in 3 seconds.\n");
-    delay(3000);
+    Serial.println("Stage 3 cycle complete. Repeating in 3 seconds.\n");
+    delayWithBackground(3000);
 }
