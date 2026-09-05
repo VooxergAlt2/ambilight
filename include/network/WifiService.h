@@ -25,7 +25,6 @@ private:
     bool wasConnected_ = false;
 
     std::uint32_t nextReconnectMs_ = 0;
-    std::uint32_t lastStatusPrintMs_ = 0;
     std::uint32_t reconnectAttempts_ = 0;
     std::uint32_t connectEvents_ = 0;
     std::uint32_t disconnectEvents_ = 0;

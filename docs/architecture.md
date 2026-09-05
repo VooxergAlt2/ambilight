@@ -1,110 +1,124 @@
 # Architecture
 
-## Current scope
+## Stage 5 scope
 
-Stage 4 adds a pure C++ DDP parser/reassembler on top of the Wi-Fi foundation, but does not yet open UDP port 4048.
+Stage 5 is the first end-to-end HyperHDR runtime for one PC:
 
-This keeps packet correctness independently testable before network callbacks can publish frames.
+    HyperHDR
+      |
+      | DDP / UDP 4048
+      v
+    DdpUdpService
+      |
+      v
+    DdpAssembler
+      |
+      | complete RgbFrame only
+      v
+    FrameMailbox
+      |
+      v
+    LedRenderer
+      |
+      v
+    SegmentMapper
+      |
+      v
+    LedEngine
+      |
+      v
+    PARLIO x4
 
-Still out of scope:
+USB/AWA, ToF, source arbitration, Web UI, OTA, and multi-PC behavior remain explicitly out of scope.
 
-- runtime UDP listener
-- USB/AWA
-- VL53L5CX
-- Web UI
-- OTA
-- source arbitration
-- multi-PC logic
+## UDP implementation
 
-## HyperHDR DDP subset
+The runtime intentionally does not use Arduino NetworkUDP/WiFiUDP.
 
-The first implementation intentionally accepts only the exact subset needed by HyperHDR 22 for this 780-RGB-LED controller:
+Arduino-ESP32 3.3.11 NetworkUDP::parsePacket() allocates a 1460-byte temporary heap buffer for every UDP datagram. HyperHDR emits roughly two datagrams per RGB frame, so at 60 FPS this becomes about 120 temporary allocations per second.
 
-- DDP version 1
-- sequence 1..15
-- RGB data type 0x0B
-- destination 1
-- fixed logical payload of 2340 bytes
+DdpUdpService therefore uses an ESP-IDF/lwIP BSD UDP socket:
 
-RGBW, arbitrary destinations, discovery, multiple senders, and arbitrary frame sizes are intentionally rejected or deferred.
+- AF_INET / SOCK_DGRAM
+- bound to INADDR_ANY:4048
+- static 1536-byte receive buffer
+- non-blocking MSG_DONTWAIT receive
+- requested 32 KiB socket RX queue
+- at most 32 datagrams drained per application poll
 
-HyperHDR 22 currently caps an RGB DDP datagram at 480 LEDs, so the normal 780-LED frame is expected as:
+No allocation is performed per DDP datagram by application code.
 
-    packet A: offset 0,    1440 RGB bytes, PUSH=0
-    packet B: offset 1440, 900 RGB bytes, PUSH=1
+## Backlog policy
 
-## Datagram parser
+DdpUdpService may publish more than one complete frame during a single poll.
 
-The parser validates:
+FrameMailbox stores only the latest publication generation from the point of view of the renderer. The main loop renders once after the socket drain.
 
-- minimum 10-byte DDP header
-- version
-- sequence range
-- RGB type
-- destination
-- non-empty payload
-- exact UDP datagram length vs declared payload length
+Therefore, if several complete frames accumulated while PARLIO was busy, intermediate completed frames are intentionally skipped.
 
-It exposes an immutable packet view over the original datagram.
+This preserves the core realtime policy:
 
-## Reassembly
+    drop intermediate frames before accumulating visible latency
 
-DdpAssembler owns:
+The socket drain is bounded to 32 datagrams so a large backlog cannot monopolize the single ESP32-C6 core forever.
 
-- 2340-byte staging buffer
-- 293-byte per-byte coverage bitmap
-- active sequence
-- PUSH state
-- 50 ms assembly timeout
-- last completed sequence
-- counters
+## Single sender assumption
 
-A frame is complete only when:
+Stage 5 intentionally has no sender lease or multi-host arbitration.
 
-    PUSH has been observed
-    AND
-    all 2340 byte positions have been covered
+The most recent sender address is recorded for diagnostics only.
 
-This allows packet reordering, including the PUSH packet arriving before offset zero.
+Only one HyperHDR instance/PC is allowed to transmit to the controller during this stage.
 
-## Duplicate and overlap handling
+## Idle behavior
 
-Coverage is tracked per byte, not by a naive bytesReceived counter.
+The LED engine starts black.
 
-Therefore:
+Once at least one valid DDP frame has been seen, a one-second absence of complete DDP frames causes one synthetic black frame to be published.
 
-- duplicate packets do not fake completion
-- identical overlap is allowed
-- conflicting overlap rejects and resets the active frame
+The black frame goes through the normal FrameMailbox and LedRenderer path.
 
-No partially assembled DDP frame can reach FrameMailbox.
+A later complete DDP frame clears the idle state immediately.
 
-## Sequence handling
+## Observability
 
-HyperHDR uses sequence values 1..15.
+Runtime diagnostics expose both transport and rendering state.
 
-The assembler:
+Transport:
+- UDP datagrams/bytes
+- completed frames
+- socket errors
+- publication failures
+- current sender
+- DDP reject/stale/timeout/supersede counters
 
-- keeps packets from the same sequence together
-- lets a newer sequence supersede an incomplete one
-- rejects stale packets instead of rewinding
-- handles the 15 -> 1 wrap
+Renderer:
+- rendered frame count
+- mapping errors
+- latest internal frame age
+- maximum internal frame age
+- maximum PARLIO show time
 
-## Tests
+System:
+- Wi-Fi/RSSI
+- free heap
+- minimum free heap
 
-Native tests cover:
+## Stage 5 acceptance
 
-- normal HyperHDR two-packet frame
-- PUSH packet arriving first
-- duplicate packet
-- incomplete frame superseded by next sequence
-- stale packet after completion
-- 15 -> 1 sequence wrap
-- assembly timeout
-- unsupported type/destination
-- frame bounds violation
-- conflicting overlap
+With one HyperHDR sender:
+
+- controller receives DDP on UDP/4048
+- 780 logical LEDs map to all four physical lanes
+- 60 FPS video runs continuously
+- no malformed or partial frame is rendered
+- mappingErrors remains zero
+- frame age remains bounded rather than growing over time
+- stopping HyperHDR blanks the LEDs within about one second
+- restarting HyperHDR resumes without C6 reboot
+- AP/router reconnect recovers without restarting the LED engine
+- no progressive heap loss during a multi-hour run
 
 ## Next stage
 
-Stage 5 opens UDP/4048 for one configured PC/source and publishes only DdpAssembler::Complete frames to FrameMailbox.
+Stage 6 hardens this path under sustained load and faults before any second transport is introduced.

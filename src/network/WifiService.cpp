@@ -11,7 +11,6 @@ namespace ambilight {
 namespace {
 
 constexpr std::uint32_t kReconnectIntervalMs = 5000;
-constexpr std::uint32_t kStatusIntervalMs = 10000;
 
 bool deadlineReached(std::uint32_t nowMs, std::uint32_t deadlineMs) {
     return static_cast<std::int32_t>(nowMs - deadlineMs) >= 0;
@@ -33,7 +32,6 @@ bool WifiService::begin() {
     WiFi.setAutoReconnect(true);
 
     // Realtime DDP cares about latency/jitter more than power consumption.
-    // Keep modem power-save off from the start.
     WiFi.setSleep(false);
 
     WiFi.begin(config::kWifiSsid, config::kWifiPassword);
@@ -47,8 +45,9 @@ bool WifiService::begin() {
 
     nextReconnectMs_ = millis() + kReconnectIntervalMs;
 
-    Serial.printf("Wi-Fi connecting to SSID '%s' with power-save disabled.\n",
-                  config::kWifiSsid);
+    Serial.printf(
+        "Wi-Fi connecting to SSID '%s' with power-save disabled.\n",
+        config::kWifiSsid);
 
     return true;
 }
@@ -100,11 +99,6 @@ void WifiService::tick(std::uint32_t nowMs) {
     }
 
     updateConnectionState(nowMs);
-
-    if (deadlineReached(nowMs, lastStatusPrintMs_ + kStatusIntervalMs)) {
-        printStatus();
-        lastStatusPrintMs_ = nowMs;
-    }
 }
 
 void WifiService::printStatus() const {
