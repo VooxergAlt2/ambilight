@@ -39,6 +39,13 @@ public:
     TofPlaneChangeDecision observe(
         const TofPlaneEstimate& candidate);
 
+    void setConfig(
+        const TofPlaneChangeGateConfig& config) {
+
+        config_ = config;
+        reset();
+    }
+
     void reset();
 
     bool hasAcceptedPlane() const {
