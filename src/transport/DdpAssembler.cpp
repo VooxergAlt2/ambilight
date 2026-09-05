@@ -40,6 +40,14 @@ bool DdpAssembler::expire(std::uint64_t nowUs) {
     return true;
 }
 
+void DdpAssembler::resetStream() {
+    resetActive();
+
+    hasLastCompletedSequence_ = false;
+    lastCompletedSequence_ = 0;
+    lastCompletedUs_ = 0;
+}
+
 bool DdpAssembler::payloadFits(const DdpPacketView& packet) const {
     if (packet.offset >= kFrameBytes) {
         return false;
