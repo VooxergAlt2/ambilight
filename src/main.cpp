@@ -346,7 +346,7 @@ void dumpTofPlane() {
     Serial.printf(
         "TOF PLANE valid=%s candidates=%u accepted=%u z0=%.1fmm "
         "slope_x=%.5f slope_y=%.5f yaw=%.2fdeg pitch=%.2fdeg "
-        "residual_med=%umm residual_mad=%umm\n",
+        "residual_med=%umm residual_mad=%umm observed_half=%ux%umm\n",
         plane.valid ? "yes" : "no",
         static_cast<unsigned>(plane.candidates),
         static_cast<unsigned>(plane.accepted),
@@ -356,7 +356,9 @@ void dumpTofPlane() {
         static_cast<double>(plane.yawCentiDeg) / 100.0,
         static_cast<double>(plane.pitchCentiDeg) / 100.0,
         plane.residualMedianMm,
-        plane.residualMadMm);
+        plane.residualMadMm,
+        plane.observedHalfSpanXmm,
+        plane.observedHalfSpanYmm);
 
     Serial.println(
         "Plane coordinates: +X right, +Y up, +Z toward wall. "
@@ -584,12 +586,22 @@ void dumpSpatialGains() {
         snapshot.perimeterGains;
 
     Serial.printf(
-        "TOF SPATIAL GAINS gen=%lu plane_usable=%s fail_open=%s range=%u..%umm\n",
+        "TOF SPATIAL GAINS gen=%lu plane_usable=%s projection_usable=%s fail_open=%s "
+        "range=%u..%umm observed_half=%ux%umm screen_half=%ux%umm "
+        "extrapolation=%.2fx/%.2fy warning=%s\n",
         static_cast<unsigned long>(gains.generation),
         gains.planeUsable ? "yes" : "no",
+        gains.projectionUsable ? "yes" : "no",
         gains.failOpen ? "yes" : "no",
         gains.minDistanceMm,
-        gains.maxDistanceMm);
+        gains.maxDistanceMm,
+        gains.observedHalfSpanXmm,
+        gains.observedHalfSpanYmm,
+        gains.screenHalfSpanXmm,
+        gains.screenHalfSpanYmm,
+        static_cast<double>(gains.extrapolationXPermille) / 1000.0,
+        static_cast<double>(gains.extrapolationYPermille) / 1000.0,
+        gains.extrapolationWarning ? "yes" : "no");
 
     printPerimeterSegmentGain(
         "TOP   ",
@@ -818,7 +830,7 @@ void printRuntimeStatus() {
         "tof=%s tofgen=%lu rawvalid=%u rawmed=%u tofage=%llums tofread=%luus tofreadmax=%luus "
         "geom=%s l=%u c=%u r=%u delta=%d acc=%u "
         "plane=%s pyaw=%d ppitch=%d pacc=%u pmad=%u "
-        "spfail=%s spmin=%u spmax=%u "
+        "spfail=%s spmin=%u spmax=%u spex=%u/%u spwarn=%s "
         "gainfail=%s gl=%u gt=%u gb=%u gr=%u "
         "shadow_usable=%lu shadow_nonunity=%lu shadow_changed=%u shadow_delta=%u shadowprep=%luus "
         "slew_snap=%lu probe=%s sched_rgb=%lu sched_gain=%lu sched_comb=%lu sched_def=%lu rgbgen=%lu "
@@ -901,6 +913,15 @@ void printRuntimeStatus() {
         haveTof
             ? tofSnapshot.perimeterGains.maxDistanceMm
             : 0U,
+        haveTof
+            ? tofSnapshot.perimeterGains.extrapolationXPermille
+            : 0U,
+        haveTof
+            ? tofSnapshot.perimeterGains.extrapolationYPermille
+            : 0U,
+        haveTof && tofSnapshot.perimeterGains.extrapolationWarning
+            ? "yes"
+            : "no",
         haveTof && tofSnapshot.gains.failOpen ? "yes" : "no",
         haveTof ? tofSnapshot.gains.leftQ12 : ambilight::kGainUnityQ12,
         haveTof ? tofSnapshot.gains.topQ12 : ambilight::kGainUnityQ12,
@@ -949,7 +970,7 @@ void printRuntimeStatus() {
 void printConfiguration() {
     Serial.println();
     Serial.println(
-        "ESP32-C6 Ambilight Stage 15: Wi-Fi/DDP + 2D perimeter shadow gains");
+        "ESP32-C6 Ambilight Stage 16: Wi-Fi/DDP + spatial confidence diagnostics");
 
     Serial.printf(
         "Logical LEDs=%u payload=%uB DDP=%u poll_budget=%uus max_datagrams=%u\n",
