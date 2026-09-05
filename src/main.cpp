@@ -1674,7 +1674,7 @@ bool serviceRender(std::uint64_t nowUs) {
         }
 
         // Only a genuinely new DDP frame belongs in the transport latency
-        // histogram. Gain-only rerenders intentionally reuse an old RGB frame
+        // histogram. State-only rerenders intentionally reuse an old RGB frame
         // and must not look like network queue latency.
         if (renderSnapshot.receivedUs != 0 &&
             renderSnapshot.receivedUs ==
