@@ -5,6 +5,44 @@
 #include <limits>
 
 namespace ambilight {
+namespace {
+
+std::uint16_t clampUnsignedMm(double value) {
+    if (value <= 0.0) {
+        return 0;
+    }
+
+    if (value >= 65535.0) {
+        return 65535;
+    }
+
+    return static_cast<std::uint16_t>(
+        std::lround(value));
+}
+
+std::uint16_t ratioPermille(
+    double requestedHalfSpanMm,
+    std::uint16_t observedHalfSpanMm) {
+
+    if (observedHalfSpanMm == 0) {
+        return 65535;
+    }
+
+    const double ratio =
+        std::abs(requestedHalfSpanMm) /
+        static_cast<double>(
+            observedHalfSpanMm) *
+        1000.0;
+
+    if (ratio >= 65535.0) {
+        return 65535;
+    }
+
+    return static_cast<std::uint16_t>(
+        std::lround(ratio));
+}
+
+} // namespace
 
 PerimeterGainSnapshot TofPerimeterGainModel::unitySnapshot(
     std::uint32_t generation,
@@ -98,7 +136,67 @@ PerimeterGainSnapshot TofPerimeterGainModel::evaluate(
     next.generation = generation;
     next.timestampUs = nowUs;
     next.planeUsable = true;
+    next.projectionUsable = true;
     next.failOpen = false;
+
+    next.observedHalfSpanXmm =
+        geometry.plane.observedHalfSpanXmm;
+
+    next.observedHalfSpanYmm =
+        geometry.plane.observedHalfSpanYmm;
+
+    double maxAbsScreenX = 0.0;
+    double maxAbsScreenY = 0.0;
+
+    for (const auto& segmentGeometry :
+         config_.geometry) {
+
+        maxAbsScreenX =
+            std::max(
+                maxAbsScreenX,
+                std::max(
+                    std::abs(
+                        static_cast<double>(
+                            segmentGeometry.logicalStart.xMm)),
+                    std::abs(
+                        static_cast<double>(
+                            segmentGeometry.logicalEnd.xMm))));
+
+        maxAbsScreenY =
+            std::max(
+                maxAbsScreenY,
+                std::max(
+                    std::abs(
+                        static_cast<double>(
+                            segmentGeometry.logicalStart.yMm)),
+                    std::abs(
+                        static_cast<double>(
+                            segmentGeometry.logicalEnd.yMm))));
+    }
+
+    next.screenHalfSpanXmm =
+        clampUnsignedMm(
+            maxAbsScreenX);
+
+    next.screenHalfSpanYmm =
+        clampUnsignedMm(
+            maxAbsScreenY);
+
+    next.extrapolationXPermille =
+        ratioPermille(
+            maxAbsScreenX,
+            next.observedHalfSpanXmm);
+
+    next.extrapolationYPermille =
+        ratioPermille(
+            maxAbsScreenY,
+            next.observedHalfSpanYmm);
+
+    next.extrapolationWarning =
+        next.extrapolationXPermille >
+            config_.maxRecommendedExtrapolationPermille ||
+        next.extrapolationYPermille >
+            config_.maxRecommendedExtrapolationPermille;
 
     std::uint16_t minDistance =
         std::numeric_limits<std::uint16_t>::max();
