@@ -58,9 +58,8 @@ esp_err_t LedRenderer::render(
         const ShadowPixelResult shadow =
             RenderGainMath::preview(
                 original,
+                logical,
                 mapped.segment,
-                mapped.segmentOffset,
-                mapped.segmentLength,
                 gainContext);
 
         frameInputChannelSum +=
