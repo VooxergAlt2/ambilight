@@ -18,6 +18,14 @@ bool DdpUdpService::begin() {
         return true;
     }
 
+    // Per-socket state must not leak across stop/reconfigure cycles.
+    stats_.requestedRxBufferBytes =
+        kRequestedSocketRxBufferBytes;
+    stats_.actualRxBufferBytes = 0;
+    stats_.rxBufferSetOk = false;
+    stats_.rxBufferQueryOk = false;
+    stats_.lastSocketOptionErrno = 0;
+
     socket_ = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
     if (socket_ < 0) {
         stats_.lastSocketErrno = errno;
@@ -40,9 +48,6 @@ bool DdpUdpService::begin() {
         stats_.lastSocketOptionErrno = errno;
     }
 #endif
-
-    stats_.requestedRxBufferBytes =
-        kRequestedSocketRxBufferBytes;
 
 #ifdef SO_RCVBUF
     const int rxBufferBytes =
