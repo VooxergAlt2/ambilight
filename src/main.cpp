@@ -14,6 +14,7 @@
 #include "core/FrameMailbox.h"
 #include "core/LatencyHistogram.h"
 #include "core/RgbFrame.h"
+#include "led/LedCommissioningPattern.h"
 #include "led/LedEngine.h"
 #include "led/LedRenderer.h"
 #include "integration/TofRenderGainBridge.h"
@@ -32,6 +33,8 @@ constexpr std::uint64_t kIdleBlackoutUs = 1000000;
 constexpr std::uint32_t kStatusIntervalMs = 30000;
 constexpr std::uint8_t kMaxConsecutiveBacklogRenderSkips = 4;
 constexpr std::uint64_t kGainTargetPollIntervalUs = 1000000;
+constexpr std::uint64_t kCommissioningDurationUs = 15000000ULL;
+constexpr std::uint8_t kCommissioningMaxBrightness = 64;
 
 constexpr std::size_t kWifiCommandBufferSize =
     ambilight::RuntimeSettings::kMaxWifiSsidLength +
@@ -74,6 +77,7 @@ bool wifiCommandPending = false;
 bool gainCurveCommandPending = false;
 bool spatialCommandPending = false;
 bool ledMapCommandPending = false;
+bool commissioningCommandPending = false;
 
 std::uint16_t brightnessCommandValue = 0;
 std::uint8_t brightnessCommandDigits = 0;
@@ -103,6 +107,15 @@ enum class WifiCredentialSource : std::uint8_t {
 
 WifiCredentialSource wifiCredentialSource =
     WifiCredentialSource::None;
+
+ambilight::LedCommissioningPattern commissioningPattern =
+    ambilight::LedCommissioningPattern::None;
+ambilight::RgbFrame commissioningFrame;
+std::uint64_t commissioningUntilUs = 0;
+bool commissioningDirty = false;
+std::uint32_t commissioningRuns = 0;
+std::uint32_t commissioningRenders = 0;
+std::uint32_t commissioningCancels = 0;
 
 bool haveCachedPerimeterGainSnapshot = false;
 
