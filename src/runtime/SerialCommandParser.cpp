@@ -342,6 +342,12 @@ SerialCommandParser::feed(
             SerialCommandKind::
                 CorrectionStatus);
 
+    case 'v':
+    case 'V':
+        return emitImmediate(
+            SerialCommandKind::
+                FirmwareStatus);
+
     default:
         return {};
     }
