@@ -405,7 +405,9 @@ void test_invalid_or_stale_plane_fails_open() {
     auto stale =
         model.evaluate(
             geometry,
-            3000000);
+            1000000 +
+                30000000ULL +
+                1);
 
     TEST_ASSERT_TRUE(stale.failOpen);
 
@@ -420,16 +422,8 @@ void test_invalid_or_stale_plane_fails_open() {
     }
 }
 
-void test_large_extrapolation_warns_but_does_not_fail_open() {
-    TofPerimeterGainModelConfig config;
-    config.curve = makeCurve();
-    config.geometry =
-        makeRectangle(
-            1000.0F,
-            500.0F);
-    config.maxRecommendedExtrapolationPermille = 4000;
-
-    TofPerimeterGainModel model(config);
+void test_observed_fov_span_does_not_gate_plane_projection() {
+    auto model = makeModel();
 
     auto geometry =
         makePlane(
@@ -438,8 +432,11 @@ void test_large_extrapolation_warns_but_does_not_fail_open() {
             0.03F,
             1000000);
 
-    geometry.plane.observedHalfSpanXmm = 100;
-    geometry.plane.observedHalfSpanYmm = 100;
+    // Deliberately tiny directly observed wall patch. Once the plane is valid,
+    // perimeter distances are defined by intersection with that plane. The
+    // observed FoV span must not modify or reject those distances.
+    geometry.plane.observedHalfSpanXmm = 1;
+    geometry.plane.observedHalfSpanYmm = 1;
 
     const auto result =
         model.evaluate(
@@ -449,15 +446,17 @@ void test_large_extrapolation_warns_but_does_not_fail_open() {
     TEST_ASSERT_FALSE(result.failOpen);
     TEST_ASSERT_TRUE(result.planeUsable);
     TEST_ASSERT_TRUE(result.projectionUsable);
-    TEST_ASSERT_TRUE(result.extrapolationWarning);
+
+    const auto& top =
+        segment(result, SegmentId::Top);
 
     TEST_ASSERT_EQUAL_UINT16(
-        5000,
-        result.extrapolationXPermille);
+        583,
+        top.startDistanceMm);
 
     TEST_ASSERT_EQUAL_UINT16(
-        2500,
-        result.extrapolationYPermille);
+        633,
+        top.endDistanceMm);
 }
 
 void test_predicted_endpoint_outside_range_fails_open() {
@@ -485,7 +484,7 @@ int main(int, char**) {
     RUN_TEST(test_per_pixel_curve_evaluation_is_exact_across_calibration_knot);
     RUN_TEST(test_led_plane_z_offset_is_subtracted);
     RUN_TEST(test_invalid_or_stale_plane_fails_open);
-    RUN_TEST(test_large_extrapolation_warns_but_does_not_fail_open);
+    RUN_TEST(test_observed_fov_span_does_not_gate_plane_projection);
     RUN_TEST(test_predicted_endpoint_outside_range_fails_open);
 
     return UNITY_END();
