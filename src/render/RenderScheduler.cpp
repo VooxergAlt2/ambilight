@@ -11,7 +11,7 @@ void RenderScheduler::reset() {
 RenderDecision RenderScheduler::decide(
     bool hasRgbFrame,
     bool rgbDirty,
-    bool gainDirty,
+    bool stateDirty,
     std::uint64_t nowUs) {
 
     ++stats_.decisions;
@@ -26,9 +26,9 @@ RenderDecision RenderScheduler::decide(
     if (rgbDirty) {
         decision.render = true;
         decision.dueToRgb = true;
-        decision.dueToGain = gainDirty;
+        decision.dueToState = stateDirty;
 
-        if (gainDirty) {
+        if (stateDirty) {
             ++stats_.combinedRenders;
         } else {
             ++stats_.rgbRenders;
@@ -37,15 +37,15 @@ RenderDecision RenderScheduler::decide(
         return decision;
     }
 
-    if (!gainDirty) {
+    if (!stateDirty) {
         ++stats_.cleanSkips;
         return decision;
     }
 
     if (!hasRendered_) {
         decision.render = true;
-        decision.dueToGain = true;
-        ++stats_.gainOnlyRenders;
+        decision.dueToState = true;
+        ++stats_.stateOnlyRenders;
         return decision;
     }
 
@@ -53,8 +53,8 @@ RenderDecision RenderScheduler::decide(
         ++stats_.timeRollbacks;
 
         decision.render = true;
-        decision.dueToGain = true;
-        ++stats_.gainOnlyRenders;
+        decision.dueToState = true;
+        ++stats_.stateOnlyRenders;
         return decision;
     }
 
@@ -62,16 +62,16 @@ RenderDecision RenderScheduler::decide(
         nowUs - lastRenderStartedUs_;
 
     if (elapsedUs <
-        config_.gainOnlyMinIntervalUs) {
+        config_.stateOnlyMinIntervalUs) {
 
-        decision.gainDeferred = true;
-        ++stats_.gainDeferrals;
+        decision.stateDeferred = true;
+        ++stats_.stateDeferrals;
         return decision;
     }
 
     decision.render = true;
-    decision.dueToGain = true;
-    ++stats_.gainOnlyRenders;
+    decision.dueToState = true;
+    ++stats_.stateOnlyRenders;
 
     return decision;
 }
