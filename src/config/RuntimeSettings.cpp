@@ -60,6 +60,12 @@ bool RuntimeSettings::begin() {
     tofGainCurvePersisted_ =
         false;
 
+    tofSpatialProfile_ = {};
+    tofSpatialProfileCustomized_ =
+        false;
+    tofSpatialProfilePersisted_ =
+        false;
+
     persistenceAvailable_ =
         preferences_.begin(
             kNamespace,
@@ -137,6 +143,57 @@ bool RuntimeSettings::begin() {
         copyText(
             wifiPassword_,
             storedPassword.c_str());
+    }
+
+    const std::uint16_t spatialVersion =
+        preferences_.getUShort(
+            kTofSpatialVersionKey,
+            0);
+
+    if (spatialVersion != 0) {
+        TofSpatialProfile storedProfile;
+
+        const std::size_t storedBytes =
+            preferences_.getBytesLength(
+                kTofSpatialProfileKey);
+
+        bool spatialValid =
+            spatialVersion ==
+                TofSpatialProfile::kSchemaVersion &&
+            storedBytes ==
+                sizeof(TofSpatialProfile);
+
+        if (spatialValid) {
+            const std::size_t loaded =
+                preferences_.getBytes(
+                    kTofSpatialProfileKey,
+                    &storedProfile,
+                    sizeof(storedProfile));
+
+            spatialValid =
+                loaded ==
+                    sizeof(storedProfile) &&
+                storedProfile.valid();
+        }
+
+        if (spatialValid) {
+            tofSpatialProfile_ =
+                storedProfile;
+
+            tofSpatialProfileCustomized_ =
+                true;
+
+            tofSpatialProfilePersisted_ =
+                true;
+        } else {
+            ++stats_.invalidStoredValues;
+
+            preferences_.remove(
+                kTofSpatialProfileKey);
+
+            preferences_.remove(
+                kTofSpatialVersionKey);
+        }
     }
 
     const std::uint8_t storedCurveCount =
@@ -495,6 +552,107 @@ bool RuntimeSettings::resetTofGainCurve() {
 
     if (hadCurve ||
         hadCount) {
+        ++stats_.writes;
+    }
+
+    return true;
+}
+
+
+bool RuntimeSettings::setTofSpatialProfile(
+    const TofSpatialProfile& profile) {
+
+    if (!profile.valid()) {
+        return false;
+    }
+
+    tofSpatialProfile_ =
+        profile;
+
+    tofSpatialProfileCustomized_ =
+        true;
+
+    tofSpatialProfilePersisted_ =
+        false;
+
+    if (!persistenceAvailable_) {
+        ++stats_.writeFailures;
+        return false;
+    }
+
+    const std::size_t profileBytes =
+        preferences_.putBytes(
+            kTofSpatialProfileKey,
+            &profile,
+            sizeof(profile));
+
+    const std::size_t versionBytes =
+        preferences_.putUShort(
+            kTofSpatialVersionKey,
+            TofSpatialProfile::kSchemaVersion);
+
+    if (profileBytes != sizeof(profile) ||
+        versionBytes != sizeof(std::uint16_t)) {
+
+        ++stats_.writeFailures;
+
+        preferences_.remove(
+            kTofSpatialProfileKey);
+
+        preferences_.remove(
+            kTofSpatialVersionKey);
+
+        return false;
+    }
+
+    tofSpatialProfilePersisted_ =
+        true;
+
+    ++stats_.writes;
+    return true;
+}
+
+bool RuntimeSettings::resetTofSpatialProfile() {
+    tofSpatialProfile_ = {};
+
+    tofSpatialProfileCustomized_ =
+        false;
+
+    tofSpatialProfilePersisted_ =
+        false;
+
+    if (!persistenceAvailable_) {
+        ++stats_.writeFailures;
+        return false;
+    }
+
+    const bool hadProfile =
+        preferences_.isKey(
+            kTofSpatialProfileKey);
+
+    const bool hadVersion =
+        preferences_.isKey(
+            kTofSpatialVersionKey);
+
+    const bool profileOk =
+        !hadProfile ||
+        preferences_.remove(
+            kTofSpatialProfileKey);
+
+    const bool versionOk =
+        !hadVersion ||
+        preferences_.remove(
+            kTofSpatialVersionKey);
+
+    if (!profileOk ||
+        !versionOk) {
+
+        ++stats_.writeFailures;
+        return false;
+    }
+
+    if (hadProfile ||
+        hadVersion) {
         ++stats_.writes;
     }
 
