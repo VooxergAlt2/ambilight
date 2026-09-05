@@ -24,7 +24,7 @@ namespace {
 constexpr std::uint64_t kIdleBlackoutUs = 1000000;
 constexpr std::uint32_t kStatusIntervalMs = 30000;
 constexpr std::uint8_t kMaxConsecutiveBacklogRenderSkips = 4;
-constexpr std::uint64_t kGainTargetPollIntervalUs = 10000;
+constexpr std::uint64_t kGainTargetPollIntervalUs = 50000;
 
 ambilight::LedEngine ledEngine;
 ambilight::LedRenderer renderer(ledEngine);
@@ -545,7 +545,7 @@ void dumpRenderShadow() {
         static_cast<unsigned long>(controllerStats.targetGenerationChanges),
         static_cast<unsigned long>(controllerStats.failOpenUnitySnaps),
         static_cast<unsigned long>(controllerStats.timeRollbacks),
-        static_cast<unsigned>(controllerStats.maxEndpointStepQ12));
+        static_cast<unsigned>(controllerStats.maxPixelStepQ12));
 
     printRenderSegmentGain(
         "TOP   ",
