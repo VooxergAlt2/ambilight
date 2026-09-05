@@ -77,6 +77,8 @@ TofGeometrySnapshot makePlane(
     geometry.plane.interceptMm = interceptMm;
     geometry.plane.slopeX = slopeX;
     geometry.plane.slopeY = slopeY;
+    geometry.plane.observedHalfSpanXmm = 500;
+    geometry.plane.observedHalfSpanYmm = 250;
 
     return geometry;
 }
@@ -360,6 +362,46 @@ void test_invalid_or_stale_plane_fails_open() {
     }
 }
 
+void test_large_extrapolation_warns_but_does_not_fail_open() {
+    TofPerimeterGainModelConfig config;
+    config.curve = makeCurve();
+    config.geometry =
+        makeRectangle(
+            1000.0F,
+            500.0F);
+    config.maxRecommendedExtrapolationPermille = 4000;
+
+    TofPerimeterGainModel model(config);
+
+    auto geometry =
+        makePlane(
+            600.0F,
+            0.05F,
+            0.03F,
+            1000000);
+
+    geometry.plane.observedHalfSpanXmm = 100;
+    geometry.plane.observedHalfSpanYmm = 100;
+
+    const auto result =
+        model.evaluate(
+            geometry,
+            1100000);
+
+    TEST_ASSERT_FALSE(result.failOpen);
+    TEST_ASSERT_TRUE(result.planeUsable);
+    TEST_ASSERT_TRUE(result.projectionUsable);
+    TEST_ASSERT_TRUE(result.extrapolationWarning);
+
+    TEST_ASSERT_EQUAL_UINT16(
+        5000,
+        result.extrapolationXPermille);
+
+    TEST_ASSERT_EQUAL_UINT16(
+        2500,
+        result.extrapolationYPermille);
+}
+
 void test_predicted_endpoint_outside_range_fails_open() {
     auto model = makeModel();
 
@@ -384,6 +426,7 @@ int main(int, char**) {
     RUN_TEST(test_combined_yaw_pitch_changes_all_four_segments);
     RUN_TEST(test_led_plane_z_offset_is_subtracted);
     RUN_TEST(test_invalid_or_stale_plane_fails_open);
+    RUN_TEST(test_large_extrapolation_warns_but_does_not_fail_open);
     RUN_TEST(test_predicted_endpoint_outside_range_fails_open);
 
     return UNITY_END();
