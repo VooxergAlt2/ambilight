@@ -4,9 +4,9 @@ Custom ESP32-C6 Ambilight endpoint for HyperHDR.
 
 ## Current development line
 
-Stage 21 adds persistent runtime output brightness on top of Stage 20 correction modes and Stage 19 slow wall-plane geometry.
+Stage 22 adds runtime Wi-Fi provisioning on top of persistent correction modes, runtime output brightness and slow ToF wall-plane geometry.
 
-Active frame transport remains Wi-Fi/DDP from one PC.
+Active transport remains Wi-Fi/DDP from one PC.
 
 USB/AWA work remains preserved separately in:
 
@@ -21,7 +21,7 @@ USB/AWA work remains preserved separately in:
       -> correction/output policy
       -> 4 synchronized PARLIO lanes
 
-Logical LED count:
+LED layout:
 
 - TOP: 230
 - RIGHT: 160
@@ -29,38 +29,62 @@ Logical LED count:
 - LEFT: 160
 - total: 780
 
+## Wi-Fi configuration
+
+Credential priority at boot:
+
+    NVS
+      ↓
+    compile-time secrets.h fallback
+      ↓
+    disabled
+
+Runtime commands:
+
+    w<Enter>                 status
+    wSSID|PASSWORD<Enter>    save + reconnect immediately
+    wclear<Enter>            clear NVS credentials
+
+DDP UDP/4048 is started dynamically if Wi-Fi is provisioned after boot.
+
+Passwords are never printed by firmware diagnostics.
+
 ## ToF geometry
 
-VL53L5CX is a slow TV-pose sensor.
+VL53L5CX operates as a slow TV-pose sensor:
 
-Normal operation:
-
-- 8x8
 - internal ranging: 1 Hz
-- one transferred/processed pose frame: about every 12 s
+- transferred/processed pose: about every 12 s
+- robust 8x8 wall-plane fit
 
-Wall plane:
+Plane:
 
     z_wall = intercept + slope_x*x + slope_y*y
 
-Per logical LED:
+Per LED:
 
     distance_i = z_wall(x_i, y_i) - z_led_i
     gain_i = curve(distance_i)
 
 ## Plane deadband
 
-A fresh plane is compared with the last applied plane at the LED rectangle corners.
+The candidate plane is compared with the last applied plane at screen corners.
 
 Current threshold:
 
-    10 mm maximum predicted wall-position change
+    10 mm maximum wall-position change
 
-Below threshold, only freshness is updated.
+Below threshold:
 
-At/above threshold, all 780 wall distances/gains are rebuilt.
+- refresh freshness only
+- keep existing 780-value field
 
-The comparison is cumulative against the last applied plane.
+At/above threshold:
+
+- accept plane
+- rebuild 780 distances/gains
+
+The deadband is cumulative against the last applied plane.
 
 ## Correction modes
 
@@ -69,7 +93,7 @@ Persistent NVS mode:
     !0 = DISABLED
     !1 = SHADOW
     !2 = ACTIVE
-    m  = mode status
+    m  = status
 
 Default:
 
@@ -79,11 +103,11 @@ Entering ACTIVE starts from unity and slews toward the target.
 
 The synthetic `x` probe is allowed only in SHADOW.
 
-Fail-open always resolves physical correction to original RGB.
+Fail-open always resolves correction to original RGB.
 
 ## Global output brightness
 
-Persistent range:
+Persistent:
 
     0..255
 
@@ -91,17 +115,12 @@ Default:
 
     32
 
-Set:
+Commands:
 
-    b128<Enter>
+    b128<Enter>   set
+    b<Enter>      status
 
-Read:
-
-    b<Enter>
-
-Brightness is a separate final LiteLED group multiplier and is not part of the ToF calibration curve.
-
-Changing it does not reinitialize PARLIO. The latest RGB frame is rerendered once.
+Brightness is a final global LiteLED multiplier, independent from ToF correction.
 
 ## Gain dynamics
 
@@ -113,16 +132,14 @@ Effective gains slew at:
 
 Gain-only rerenders are capped around 60 Hz.
 
-Main polls the ToF target at 1 Hz.
-
 ## Current ToF calibration
 
-Default distance curve remains neutral:
+The default curve remains neutral:
 
     50 mm   -> 100%
     4000 mm -> 100%
 
-Real coefficients will be supplied during later physical calibration.
+Real coefficients will be inserted during later physical calibration.
 
 ## Debug
 
@@ -135,15 +152,16 @@ Real coefficients will be supplied during later physical calibration.
     r  render/candidate/physical diagnostics
     x  10 s synthetic probe, SHADOW only
     m  correction mode / persistence
-    bN output brightness 0..255
+    bN output brightness
+    w... Wi-Fi provisioning/status
 
 ## Development strategy
 
 The software project is completed before physical validation.
 
-Synthetic/contract tests define geometry, projection, deadband, correction-mode and fail-open behavior.
+Synthetic/contract tests define geometry, projection, deadband, correction mode and fail-open behavior.
 
-Hardware work later supplies real mounting, noise and photometric calibration data.
+Hardware later supplies real sensor orientation/offsets, noise tuning and photometric calibration.
 
 ## CI
 
