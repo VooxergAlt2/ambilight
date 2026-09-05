@@ -13,6 +13,7 @@
 #include "integration/TofRenderGainBridge.h"
 #include "render/RenderGainController.h"
 #include "render/ShadowGainProbe.h"
+#include "render/RenderScheduler.h"
 #include "network/DdpUdpService.h"
 #include "network/WifiService.h"
 #include "tof/TofCalibrationCapture.h"
@@ -23,6 +24,7 @@ namespace {
 constexpr std::uint64_t kIdleBlackoutUs = 1000000;
 constexpr std::uint32_t kStatusIntervalMs = 30000;
 constexpr std::uint8_t kMaxConsecutiveBacklogRenderSkips = 4;
+constexpr std::uint64_t kGainTargetPollIntervalUs = 10000;
 
 ambilight::LedEngine ledEngine;
 ambilight::LedRenderer renderer(ledEngine);
@@ -33,10 +35,18 @@ ambilight::LatencyHistogram frameAgeHistogram;
 ambilight::TofService tof;
 ambilight::TofCalibrationCapture calibrationCapture;
 ambilight::RenderGainController renderGainController;
+ambilight::RenderScheduler renderScheduler;
 
 ambilight::RgbFrame renderSnapshot;
+ambilight::GainSnapshot cachedGainSnapshot{};
+ambilight::RenderGainContext cachedTargetGainContext{};
 
-std::uint32_t lastRenderedGeneration = 0;
+bool rgbFrameValid = false;
+bool rgbDirty = false;
+bool haveCachedGainSnapshot = false;
+
+std::uint32_t lastMailboxGeneration = 0;
+std::uint32_t lastRenderedRgbGeneration = 0;
 std::uint32_t lastObservedPublications = 0;
 std::uint32_t idleBlackouts = 0;
 std::uint32_t lastStatusMs = 0;
@@ -44,6 +54,7 @@ std::uint32_t backlogRenderSkips = 0;
 std::uint32_t calibrationLastGeometryGeneration = 0;
 std::uint32_t shadowProbeGeneration = 0;
 std::uint64_t shadowProbeUntilUs = 0;
+std::uint64_t nextGainTargetPollUs = 0;
 
 std::uint8_t consecutiveBacklogRenderSkips = 0;
 
@@ -76,63 +87,125 @@ const char* tofStateName(ambilight::TofState state) {
     return "unknown";
 }
 
-bool renderLatestFrame() {
+void refreshRgbCache() {
     if (!mailbox.copyLatest(
             renderSnapshot,
-            lastRenderedGeneration)) {
-        return false;
+            lastMailboxGeneration)) {
+        return;
     }
 
-    const std::uint64_t nowUs =
-        static_cast<std::uint64_t>(esp_timer_get_time());
+    lastMailboxGeneration =
+        renderSnapshot.generation;
 
-    lastFrameAgeUs =
-        nowUs >= renderSnapshot.receivedUs
-            ? nowUs - renderSnapshot.receivedUs
-            : 0;
+    rgbFrameValid = true;
+    rgbDirty = true;
+}
 
-    if (lastFrameAgeUs > maxFrameAgeUs) {
-        maxFrameAgeUs = lastFrameAgeUs;
+void refreshTargetGainContext(
+    std::uint64_t nowUs) {
+
+    if (nextGainTargetPollUs != 0 &&
+        nowUs < nextGainTargetPollUs) {
+        return;
     }
 
-    if (renderSnapshot.receivedUs != 0 &&
-        renderSnapshot.receivedUs == ddp.lastCompleteFrameUs()) {
-        frameAgeHistogram.observe(lastFrameAgeUs);
+    ambilight::GainSnapshot latest{};
+
+    if (tof.copyGainSnapshot(latest)) {
+        cachedGainSnapshot = latest;
+        haveCachedGainSnapshot = true;
     }
 
-    ambilight::GainSnapshot gainSnapshot{};
-    const bool haveGainSnapshot =
-        tof.copyGainSnapshot(gainSnapshot);
-
-    ambilight::RenderGainContext targetGainContext =
+    cachedTargetGainContext =
         ambilight::TofRenderGainBridge::make(
-            gainSnapshot,
-            haveGainSnapshot,
+            cachedGainSnapshot,
+            haveCachedGainSnapshot,
             nowUs);
 
     if (shadowProbeUntilUs != 0 &&
         nowUs < shadowProbeUntilUs) {
 
-        targetGainContext =
+        cachedTargetGainContext =
             ambilight::ShadowGainProbe::make(
                 shadowProbeGeneration,
                 nowUs);
     }
 
+    nextGainTargetPollUs =
+        nowUs + kGainTargetPollIntervalUs;
+}
+
+bool serviceRender(std::uint64_t nowUs) {
+    refreshRgbCache();
+    refreshTargetGainContext(nowUs);
+
+    const bool targetProfileChanged =
+        !cachedTargetGainContext.sameRenderProfileAs(
+            renderGainController.target());
+
+    const bool gainDirty =
+        targetProfileChanged ||
+        !renderGainController.settled();
+
+    const ambilight::RenderDecision decision =
+        renderScheduler.decide(
+            rgbFrameValid,
+            rgbDirty,
+            gainDirty,
+            nowUs);
+
+    if (!decision.render) {
+        return false;
+    }
+
+    if (decision.dueToRgb) {
+        lastFrameAgeUs =
+            nowUs >= renderSnapshot.receivedUs
+                ? nowUs - renderSnapshot.receivedUs
+                : 0;
+
+        if (lastFrameAgeUs >
+            maxFrameAgeUs) {
+            maxFrameAgeUs =
+                lastFrameAgeUs;
+        }
+
+        // Only a genuinely new DDP frame belongs in the transport latency
+        // histogram. Gain-only rerenders intentionally reuse an old RGB frame
+        // and must not look like network queue latency.
+        if (renderSnapshot.receivedUs != 0 &&
+            renderSnapshot.receivedUs ==
+                ddp.lastCompleteFrameUs()) {
+
+            frameAgeHistogram.observe(
+                lastFrameAgeUs);
+        }
+    }
+
     const ambilight::RenderGainContext effectiveGainContext =
         renderGainController.update(
-            targetGainContext,
+            cachedTargetGainContext,
             nowUs);
 
     const esp_err_t result =
         renderer.render(
             renderSnapshot,
             effectiveGainContext);
+
     if (result != ESP_OK) {
-        fatal("LedRenderer::render failed", result);
+        fatal(
+            "LedRenderer::render failed",
+            result);
     }
 
-    lastRenderedGeneration = renderSnapshot.generation;
+    renderScheduler.markRendered(nowUs);
+
+    if (decision.dueToRgb) {
+        rgbDirty = false;
+        lastRenderedRgbGeneration =
+            renderSnapshot.generation;
+    }
+
     return true;
 }
 
@@ -298,6 +371,9 @@ void dumpRenderShadow() {
     const auto& controllerStats =
         renderGainController.stats();
 
+    const auto& schedulerStats =
+        renderScheduler.stats();
+
     const auto& targetContext =
         renderGainController.target();
 
@@ -384,6 +460,18 @@ void dumpRenderShadow() {
         "TGT LEFT  ",
         ambilight::SegmentId::Left,
         targetContext);
+
+    Serial.printf(
+        "RENDER SCHED rgb=%lu gain_only=%lu combined=%lu gain_deferred=%lu no_frame=%lu clean=%lu "
+        "last_rgb_gen=%lu mailbox_gen=%lu\n",
+        static_cast<unsigned long>(schedulerStats.rgbRenders),
+        static_cast<unsigned long>(schedulerStats.gainOnlyRenders),
+        static_cast<unsigned long>(schedulerStats.combinedRenders),
+        static_cast<unsigned long>(schedulerStats.gainDeferrals),
+        static_cast<unsigned long>(schedulerStats.noFrameSkips),
+        static_cast<unsigned long>(schedulerStats.cleanSkips),
+        static_cast<unsigned long>(lastRenderedRgbGeneration),
+        static_cast<unsigned long>(lastMailboxGeneration));
 
     Serial.printf(
         "RENDER SLEW updates=%lu usable_targets=%lu failopen_targets=%lu gen_changes=%lu "
@@ -546,6 +634,9 @@ void startShadowGainProbe() {
     shadowProbeUntilUs =
         nowUs + 10000000ULL;
 
+    // Force target refresh on the very next render service tick.
+    nextGainTargetPollUs = 0;
+
     Serial.println(
         "SHADOW PROBE started for 10 seconds: aggressive per-segment gains and gradients are simulated only. Physical RGB remains original.");
 }
@@ -616,7 +707,7 @@ void printRuntimeStatus() {
         "tof=%s tofgen=%lu rawvalid=%u rawmed=%u tofage=%llums tofread=%luus tofreadmax=%luus "
         "geom=%s l=%u c=%u r=%u delta=%d acc=%u gainfail=%s gl=%u gt=%u gb=%u gr=%u "
         "shadow_usable=%lu shadow_nonunity=%lu shadow_changed=%u shadow_delta=%u shadowprep=%luus "
-        "slew_snap=%lu probe=%s "
+        "slew_snap=%lu probe=%s sched_rgb=%lu sched_gain=%lu sched_comb=%lu sched_def=%lu rgbgen=%lu "
         "tofinit=%lu toffail=%lu tofreadfail=%lu tofrestart=%lu black=%lu heap=%u minheap=%u\n",
         wifi.connected() ? "up" : "down",
         wifi.connected() ? WiFi.RSSI() : 0,
@@ -693,6 +784,16 @@ void printRuntimeStatus() {
         static_cast<unsigned long>(
             renderGainController.stats().failOpenUnitySnaps),
         shadowGainProbeActive() ? "yes" : "no",
+        static_cast<unsigned long>(
+            renderScheduler.stats().rgbRenders),
+        static_cast<unsigned long>(
+            renderScheduler.stats().gainOnlyRenders),
+        static_cast<unsigned long>(
+            renderScheduler.stats().combinedRenders),
+        static_cast<unsigned long>(
+            renderScheduler.stats().gainDeferrals),
+        static_cast<unsigned long>(
+            lastRenderedRgbGeneration),
         haveTof
             ? static_cast<unsigned long>(tofSnapshot.initAttempts)
             : 0UL,
@@ -714,7 +815,7 @@ void printRuntimeStatus() {
 void printConfiguration() {
     Serial.println();
     Serial.println(
-        "ESP32-C6 Ambilight Stage 12: Wi-Fi/DDP + shadow gain dynamics");
+        "ESP32-C6 Ambilight Stage 13: Wi-Fi/DDP + render dirty scheduler");
 
     Serial.printf(
         "Logical LEDs=%u payload=%uB DDP=%u poll_budget=%uus max_datagrams=%u\n",
@@ -743,7 +844,7 @@ void printConfiguration() {
         ambilight::config::kTofMirrorX ? "yes" : "no");
 
     Serial.println(
-        "Debug: 't'=raw, 'g'=geometry, 'k'=gains, 'c'=capture, 'r'=shadow, 'x'=10s shadow probe.");
+        "Debug: 't'=raw, 'g'=geometry, 'k'=gains, 'c'=capture, 'r'=shadow/scheduler, 'x'=10s shadow probe.");
     Serial.println(
         "Active frame transport remains Wi-Fi/DDP only. "
         "USB/AWA is preserved separately as WIP.");
@@ -817,13 +918,11 @@ void loop() {
 
     consecutiveBacklogRenderSkips = 0;
 
-    renderLatestFrame();
-
     const std::uint64_t nowUs =
         static_cast<std::uint64_t>(esp_timer_get_time());
 
     serviceIdleBlackout(nowUs);
-    renderLatestFrame();
+    serviceRender(nowUs);
 
     const std::uint32_t nowMs = millis();
     if (static_cast<std::int32_t>(

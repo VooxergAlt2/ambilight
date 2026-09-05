@@ -2,114 +2,97 @@
 
 ## Current stage
 
-Stage 12 adds a render-rate gain controller to the shadow-only ToF integration.
+Stage 13 adds independent render dirtiness for RGB and gain state.
 
-Physical RGB remains original HyperHDR RGB.
+Physical gain application remains disabled.
 
-## RGB path
-
-    HyperHDR
-      -> Wi-Fi/DDP
-      -> RgbFrame
-      -> FrameMailbox
-
-At each new RGB frame:
-
-    GainSnapshot
-      -> TofRenderGainBridge
-      -> target RenderGainContext
-      -> optional debug ShadowGainProbe target
-      -> RenderGainController
-      -> effective RenderGainContext
-
-Then:
-
-    RgbFrame + effective RenderGainContext
-      -> LedRenderer shadow math
-      -> ShadowRenderPolicy
-      -> ORIGINAL RGB
-      -> LedEngine
-      -> PARLIO x4
-
-## Rate domains
-
-ToF:
-
-    ~10 Hz
+## Sources
 
 RGB:
 
-    ~60 Hz
+    HyperHDR -> Wi-Fi/DDP -> FrameMailbox -> cached RgbFrame
 
-The controller is the boundary between those rate domains.
+ToF:
 
-It prevents future active brightness from inheriting 10 Hz stair-step behavior.
+    VL53L5CX
+      -> TofProcessor
+      -> TofGainModel
+      -> cached GainSnapshot
+      -> TofRenderGainBridge
+      -> target RenderGainContext
 
-## State ownership
+## Render state
 
-TofService owns:
+The application now owns:
 
-- sensor
-- geometry
-- GainSnapshot
-
-Main/integration owns:
-
-- target context selection
-- debug shadow probe
+- cached RGB frame
+- RGB dirty flag
+- cached target gain context
 - RenderGainController
+- RenderScheduler
 
-LedRenderer owns:
+## Decision model
 
-- per-pixel shadow evaluation
-- render diagnostics
+Every loop:
 
-LedEngine owns:
+1. drain DDP
+2. update cached RGB if mailbox generation changed
+3. refresh cached gain target at <=100 Hz
+4. compute:
+   - target profile changed?
+   - gain controller unsettled?
+5. scheduler decides render/no-render
+6. if rendering:
+   - new RGB updates DDP latency metrics
+   - gain-only does not
+   - controller advances effective gains
+   - LedRenderer evaluates shadow
+   - ShadowRenderPolicy outputs original RGB
 
-- physical lanes
-- PARLIO output
+## Rate limits
 
-## Fail-open
+RGB frames:
+- immediate
 
-Renderer-side bridge validates GainSnapshot freshness.
+Gain-only:
+- <= about 60 Hz
 
-RenderGainController treats unusable/fail-open targets as an immediate unity command.
+ToF target polling:
+- <=100 Hz
 
-Therefore stale attenuation cannot survive either:
+Sensor ranging:
+- about 10 Hz
 
-- ToF model failure
-- sensor-task stall
-- integration-layer stale snapshot
+## Snapshot failure behavior
 
-## Gradient readiness
+A transient failed GainSnapshot mutex copy keeps the previous cached snapshot.
 
-RenderGainContext carries logical start/end gains per SegmentId.
+Staleness is determined from the snapshot timestamp by TofRenderGainBridge.
 
-RenderGainController slews both endpoints independently.
+This distinguishes:
 
-LedRenderer interpolates them per logical pixel.
+- temporary synchronization miss
+- genuine stale sensor data
 
-Current real ToF bridge still produces uniform endpoints.
+## Dirty-profile semantics
 
-ShadowGainProbe exercises non-uniform endpoints before a physical wall-plane model exists.
+Render profile equality ignores diagnostic metadata.
 
-## Safety invariant
+It compares:
 
-Physical output remains compile-time shadow-only.
+- usable/fail-open state
+- effective segment gain endpoints
 
-No Stage 12 code path can select shadow candidate RGB for LedEngine.
+This minimizes unnecessary rerenders.
 
-## Debug commands
+## Static image behavior
 
-- t: raw ToF map
-- g: processed geometry
-- k: gain snapshot
-- c: calibration capture
-- r: target/effective render shadow state
-- x: 10-second aggressive shadow probe
+A cached RGB frame may be rendered multiple times with evolving shadow gains even if no new DDP frame arrives.
 
-## Next gate
+This is required for environmental correction to work independently from source-frame cadence.
 
-Use x + r on hardware to validate the renderer mechanics independently from ToF calibration.
+## Safety
 
-Then derive real calibration values and keep them in shadow mode before considering physical application.
+Stage 13 still cannot apply gains physically.
+
+The final hardware color remains original HyperHDR RGB.

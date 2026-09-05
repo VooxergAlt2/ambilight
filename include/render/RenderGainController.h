@@ -51,6 +51,10 @@ public:
         return stats_;
     }
 
+    bool settled() const {
+        return current_.sameRenderProfileAs(target_);
+    }
+
 private:
     static std::uint16_t moveTowards(
         std::uint16_t current,

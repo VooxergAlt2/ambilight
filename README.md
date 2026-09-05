@@ -4,108 +4,69 @@ Custom ESP32-C6 Ambilight endpoint for HyperHDR.
 
 ## Current stage
 
-Stage 12 keeps the active transport at one PC over Wi-Fi/DDP and models the complete future ToF-to-render timing path in shadow mode.
+Stage 13 keeps one-PC Wi-Fi/DDP transport and adds an independent render dirty scheduler for ToF gain changes.
 
 Physical LEDs still receive original HyperHDR RGB.
 
-## Current shadow pipeline
+## Why this matters
 
-    VL53L5CX ~10 Hz
-      -> geometry
-      -> gain model
-      -> target RenderGainContext
-      -> RenderGainController ~60 Hz
-      -> effective RenderGainContext
-      -> LedRenderer shadow RGB
-      -> ShadowRenderPolicy
-      -> ORIGINAL RGB
-      -> PARLIO x4
+ToF is environmental state, not video state.
 
-## Why the controller exists
+Even if the RGB image is static, moving the TV should eventually be able to update brightness compensation.
 
-ToF updates much slower than video.
+The firmware now caches the latest RGB frame and can shadow-rerender it when gain state changes.
 
-Future gains therefore need render-rate interpolation instead of 10 Hz brightness steps.
+## Render triggers
 
-Current shadow slew:
+- new RGB frame
+- changing gain profile
+- both together
 
-    8192 Q12 / second
+Gain-only rerenders are limited to about 60 Hz.
 
-with unity:
+## Gain target polling
 
-    4096 = 100%
+The main loop polls the small GainSnapshot at up to 100 Hz.
 
-Valid changes are smoothed.
+If one mutex copy fails, the last successful snapshot is retained.
 
-Fail-open immediately returns to 100%.
+Renderer freshness rules decide when it is truly stale.
+
+## DDP latency metrics stay clean
+
+Only genuinely new DDP RGB frames update the frame-age histogram.
+
+Gain-only rerenders of an old cached frame do not contaminate network p50/p95/p99.
 
 ## Debug commands
 
     t
-
-Raw 8x8 ToF.
+raw ToF map
 
     g
-
-Processed LEFT/CENTER/RIGHT geometry.
+processed geometry
 
     k
-
-ToF gain snapshot.
+ToF gain snapshot
 
     c
-
-Five-second calibration capture.
-
-    r
-
-Renderer target/effective shadow state and timing.
-
-    x
-
-Ten-second aggressive shadow self-test:
-
-- TOP 100% -> 75%
-- RIGHT 75%
-- BOTTOM 50% -> 100%
-- LEFT 25%
-
-Even during x, physical LEDs remain original RGB.
-
-## Current calibration
-
-Still identity:
-
-    50 mm   -> 100%
-    4000 mm -> 100%
-
-So x is the easiest way to exercise non-unity shadow behavior before real calibration exists.
-
-## Hardware checks for this stage
-
-Run normal HyperHDR at 60 FPS and compare:
-
-- DDP p50/p95/p99
-- render prepare time
-- PARLIO show time
-- backlog skips
-
-Then run:
-
-    x
-
-and inspect:
+5-second calibration capture
 
     r
+renderer shadow + target/effective + scheduler stats
 
-Expected:
+    x
+10-second aggressive shadow probe
 
-- target becomes strongly non-unity
-- effective gains move gradually
-- would-change pixels rise on non-black content
-- changed-by-segment counters rise
-- physical LEDs do not visibly change
-- after probe, effective shadow returns toward real ToF target
+## Expected scheduler behavior during x
+
+With an RGB frame already cached:
+
+- gain-only renders rise while endpoints slew
+- deferrals may rise between 60 Hz opportunities
+- once effective profile reaches target, gain-only activity stops
+- when x expires, gain-only renders resume while returning to real target
+- physical LEDs remain visually unchanged
 
 ## USB/AWA
 

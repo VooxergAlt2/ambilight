@@ -168,6 +168,42 @@ void test_shadow_policy_never_applies_candidate() {
     TEST_ASSERT_EQUAL_UINT8(50, physical.b);
 }
 
+void test_render_profile_comparison_ignores_metadata_but_not_usability() {
+    RenderGainContext a;
+    a.sourcePresent = true;
+    a.sourceUsable = true;
+    a.failOpen = false;
+    a.sourceGeneration = 1;
+    a.sourceTimestampUs = 1000;
+
+    RenderGainContext b = a;
+    b.sourceGeneration = 999;
+    b.sourceTimestampUs = 999999;
+    b.sourceAgeUs = 12345;
+
+    TEST_ASSERT_TRUE(
+        a.sameRenderProfileAs(b));
+
+    b.sourceUsable = false;
+    b.failOpen = true;
+
+    TEST_ASSERT_FALSE(
+        a.sameRenderProfileAs(b));
+
+    RenderGainContext failA;
+    RenderGainContext failB;
+
+    failA.segmentGain[
+        static_cast<std::size_t>(SegmentId::Left)] = {
+            1000,
+            2000
+        };
+
+    // Both are fail-open, so hidden endpoint contents cannot make RGB dirty.
+    TEST_ASSERT_TRUE(
+        failA.sameRenderProfileAs(failB));
+}
+
 void test_tof_bridge_maps_four_uniform_side_gains() {
     GainSnapshot gains;
     gains.generation = 42;
@@ -313,6 +349,7 @@ int main(int, char**) {
     RUN_TEST(test_segment_gradient_interpolates_in_logical_order);
     RUN_TEST(test_shadow_preview_changes_rgb_but_not_original_value);
     RUN_TEST(test_shadow_policy_never_applies_candidate);
+    RUN_TEST(test_render_profile_comparison_ignores_metadata_but_not_usability);
     RUN_TEST(test_tof_bridge_maps_four_uniform_side_gains);
     RUN_TEST(test_tof_bridge_stale_or_future_snapshot_fails_open);
     RUN_TEST(test_bridge_clamps_gain_above_unity);

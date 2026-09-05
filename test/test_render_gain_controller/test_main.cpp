@@ -252,6 +252,36 @@ void test_gradient_endpoints_slew_independently() {
         bottom.endQ12);
 }
 
+void test_settled_tracks_effective_profile_not_generation_only() {
+    RenderGainControllerConfig config;
+    config.slewQ12PerSecond = 65535;
+
+    RenderGainController controller(config);
+
+    const auto target =
+        makeUniformTarget(
+            10,
+            2048,
+            1000000);
+
+    controller.update(target, 1000000);
+    TEST_ASSERT_FALSE(controller.settled());
+
+    controller.update(target, 1100000);
+    TEST_ASSERT_TRUE(controller.settled());
+
+    auto sameProfileNewGeneration =
+        makeUniformTarget(
+            11,
+            2048,
+            1200000);
+
+    // Metadata-only generation change does not make rendered RGB dirty.
+    TEST_ASSERT_TRUE(
+        controller.target().sameRenderProfileAs(
+            sameProfileNewGeneration));
+}
+
 void test_probe_profile_is_non_unity_and_deterministic() {
     const auto probe =
         ShadowGainProbe::make(
@@ -299,6 +329,7 @@ int main(int, char**) {
     RUN_TEST(test_reacquisition_slews_from_unity);
     RUN_TEST(test_time_rollback_resets_to_unity);
     RUN_TEST(test_gradient_endpoints_slew_independently);
+    RUN_TEST(test_settled_tracks_effective_profile_not_generation_only);
     RUN_TEST(test_probe_profile_is_non_unity_and_deterministic);
 
     return UNITY_END();

@@ -139,6 +139,51 @@ struct RenderGainContext {
 
         return false;
     }
+
+    // Compare only what can change rendered RGB.
+    //
+    // Generation/timestamp/age are diagnostics and do not make a profile
+    // dirty by themselves. Usable vs fail-open state does matter even when
+    // both currently resolve to unity, because reacquisition starts a new
+    // slew from the safe unity state.
+    constexpr bool sameRenderProfileAs(
+        const RenderGainContext& other) const {
+
+        const bool usable =
+            sourceUsable && !failOpen;
+
+        const bool otherUsable =
+            other.sourceUsable && !other.failOpen;
+
+        if (usable != otherUsable) {
+            return false;
+        }
+
+        if (!usable) {
+            return true;
+        }
+
+        for (std::size_t index = 0;
+             index < segmentGain.size();
+             ++index) {
+
+            if (sanitizeGainQ12(
+                    segmentGain[index].startQ12) !=
+                sanitizeGainQ12(
+                    other.segmentGain[index].startQ12)) {
+                return false;
+            }
+
+            if (sanitizeGainQ12(
+                    segmentGain[index].endQ12) !=
+                sanitizeGainQ12(
+                    other.segmentGain[index].endQ12)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
 };
 
 struct ShadowPixelResult {
