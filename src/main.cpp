@@ -363,9 +363,7 @@ void printLedMappingProfile() {
 
     Serial.printf(
         "LED MAP source=%s",
-        ledMappingSourceName(),
-        commissioningPatternName(
-            commissioningPattern));
+        ledMappingSourceName());
 
     for (std::size_t index = 0;
          index < profile.segment.size();
@@ -2834,7 +2832,9 @@ void printRuntimeStatus() {
             ? static_cast<unsigned long>(
                   tofSnapshot.spatialProfileUpdates)
             : 0UL,
-        ledMappingSourceName());
+        ledMappingSourceName(),
+        commissioningPatternName(
+            commissioningPattern));
 }
 
 void printConfiguration() {
