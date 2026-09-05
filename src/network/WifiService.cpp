@@ -1,11 +1,13 @@
 #include "network/WifiService.h"
 
 #include <Arduino.h>
+
+#include <algorithm>
+#include <cstring>
 #include <WiFi.h>
 #include <esp_err.h>
 #include <esp_wifi.h>
 
-#include "config/WifiCredentials.h"
 
 namespace ambilight {
 namespace {
@@ -18,38 +20,173 @@ bool deadlineReached(std::uint32_t nowMs, std::uint32_t deadlineMs) {
 
 } // namespace
 
-bool WifiService::begin() {
-    if (!config::wifiCredentialsPresent()) {
-        Serial.println("Wi-Fi disabled: include/secrets.h is not configured.");
-        enabled_ = false;
+bool WifiService::credentialsValid(
+    const char* ssid,
+    const char* password) {
+
+    if (ssid == nullptr) {
+        return false;
+    }
+
+    if (password == nullptr) {
+        password = "";
+    }
+
+    const std::size_t ssidLength =
+        std::strlen(ssid);
+
+    const std::size_t passwordLength =
+        std::strlen(password);
+
+    return
+        ssidLength > 0 &&
+        ssidLength <= kMaxSsidLength &&
+        passwordLength <=
+            kMaxPasswordLength;
+}
+
+void WifiService::copyText(
+    std::array<char, kMaxSsidLength + 1>& destination,
+    const char* source) {
+
+    destination.fill('\0');
+
+    if (source == nullptr) {
+        return;
+    }
+
+    const std::size_t length =
+        std::min<std::size_t>(
+            std::strlen(source),
+            kMaxSsidLength);
+
+    std::memcpy(
+        destination.data(),
+        source,
+        length);
+
+    destination[length] = '\0';
+}
+
+void WifiService::copyPassword(
+    std::array<char, kMaxPasswordLength + 1>& destination,
+    const char* source) {
+
+    destination.fill('\0');
+
+    if (source == nullptr) {
+        return;
+    }
+
+    const std::size_t length =
+        std::min<std::size_t>(
+            std::strlen(source),
+            kMaxPasswordLength);
+
+    std::memcpy(
+        destination.data(),
+        source,
+        length);
+
+    destination[length] = '\0';
+}
+
+bool WifiService::begin(
+    const char* ssid,
+    const char* password) {
+
+    if (ssid == nullptr ||
+        ssid[0] == '\0') {
+
+        disable();
+        Serial.println(
+            "Wi-Fi disabled: no credentials configured.");
         return true;
     }
 
+    return configure(
+        ssid,
+        password);
+}
+
+bool WifiService::configure(
+    const char* ssid,
+    const char* password) {
+
+    if (!credentialsValid(
+            ssid,
+            password)) {
+
+        return false;
+    }
+
+    if (password == nullptr) {
+        password = "";
+    }
+
+    if (enabled_) {
+        WiFi.disconnect(
+            false,
+            false);
+    }
+
+    copyText(
+        ssid_,
+        ssid);
+
+    copyPassword(
+        password_,
+        password);
+
     enabled_ = true;
+    wasConnected_ = false;
 
     WiFi.persistent(false);
     WiFi.mode(WIFI_STA);
     WiFi.setAutoReconnect(true);
-
-    // Realtime DDP cares about latency/jitter more than power consumption.
     WiFi.setSleep(false);
 
-    WiFi.begin(config::kWifiSsid, config::kWifiPassword);
+    WiFi.begin(
+        ssid_.data(),
+        password_.data());
 
-    const esp_err_t psResult = esp_wifi_set_ps(WIFI_PS_NONE);
+    const esp_err_t psResult =
+        esp_wifi_set_ps(
+            WIFI_PS_NONE);
+
     if (psResult != ESP_OK) {
         Serial.printf(
             "Wi-Fi warning: esp_wifi_set_ps(WIFI_PS_NONE) failed: %s\n",
             esp_err_to_name(psResult));
     }
 
-    nextReconnectMs_ = millis() + kReconnectIntervalMs;
+    nextReconnectMs_ =
+        millis() +
+        kReconnectIntervalMs;
 
     Serial.printf(
         "Wi-Fi connecting to SSID '%s' with power-save disabled.\n",
-        config::kWifiSsid);
+        ssid_.data());
 
     return true;
+}
+
+void WifiService::disable() {
+    if (enabled_) {
+        WiFi.disconnect(
+            true,
+            false);
+
+        WiFi.mode(
+            WIFI_OFF);
+    }
+
+    enabled_ = false;
+    wasConnected_ = false;
+    nextReconnectMs_ = 0;
+
+    ssid_.fill('\0');
+    password_.fill('\0');
 }
 
 bool WifiService::connected() const {
@@ -108,7 +245,8 @@ void WifiService::printStatus() const {
     }
 
     Serial.printf(
-        "Wi-Fi status: connected=%s status=%d RSSI=%d reconnects=%lu connects=%lu disconnects=%lu\n",
+        "Wi-Fi status: ssid='%s' connected=%s status=%d RSSI=%d reconnects=%lu connects=%lu disconnects=%lu\n",
+        ssid_.data(),
         connected() ? "yes" : "no",
         static_cast<int>(WiFi.status()),
         connected() ? WiFi.RSSI() : 0,
