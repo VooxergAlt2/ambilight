@@ -541,15 +541,21 @@ void dumpRenderShadow() {
                   stats.lastInputChannelSum);
 
     Serial.printf(
-        "RENDER SHADOW frames=%lu present=%lu usable=%lu failopen=%lu nonunity=%lu "
-        "last_changed=%u max_delta=%u shadow_rgb=%lu.%lu%% source_gen=%lu source_age=%lluus "
+        "RENDER mode=%s frames=%lu disabled=%lu shadow=%lu active=%lu present=%lu usable=%lu failopen=%lu nonunity=%lu "
+        "last_candidate_changed=%u last_physical_changed=%u max_delta=%u candidate_rgb=%lu.%lu%% source_gen=%lu source_age=%lluus "
         "prepare=%luus prepare_max=%luus\n",
+        ambilight::correctionModeName(
+            renderer.lastCorrectionMode()),
         static_cast<unsigned long>(stats.frames),
+        static_cast<unsigned long>(stats.disabledFrames),
+        static_cast<unsigned long>(stats.shadowFrames),
+        static_cast<unsigned long>(stats.activeFrames),
         static_cast<unsigned long>(stats.sourcePresentFrames),
         static_cast<unsigned long>(stats.sourceUsableFrames),
         static_cast<unsigned long>(stats.failOpenFrames),
         static_cast<unsigned long>(stats.nonUnityContextFrames),
         stats.lastWouldChangePixels,
+        stats.lastPhysicalChangedPixels,
         static_cast<unsigned>(stats.lastMaxChannelDelta),
         static_cast<unsigned long>(shadowPermille / 10U),
         static_cast<unsigned long>(shadowPermille % 10U),
@@ -559,9 +565,12 @@ void dumpRenderShadow() {
         static_cast<unsigned long>(stats.maxPrepareUs));
 
     Serial.printf(
-        "RENDER SHADOW cumulative_changed=%llu max_delta_ever=%u by_segment T=%llu R=%llu B=%llu L=%llu\n",
+        "RENDER cumulative_candidate_changed=%llu cumulative_physical_changed=%llu max_delta_ever=%u "
+        "candidate_by_segment T=%llu R=%llu B=%llu L=%llu\n",
         static_cast<unsigned long long>(
             stats.wouldChangePixels),
+        static_cast<unsigned long long>(
+            stats.physicalChangedPixels),
         static_cast<unsigned>(stats.maxChannelDelta),
         static_cast<unsigned long long>(
             stats.wouldChangeBySegment[
@@ -657,8 +666,14 @@ void dumpRenderShadow() {
         ambilight::SegmentId::Left,
         context);
 
-    Serial.println(
-        "RENDER SHADOW SAFETY: wouldOutput is calculated but original HyperHDR RGB is what reaches LedEngine.");
+    Serial.printf(
+        "RENDER OUTPUT: %s. %s\n",
+        ambilight::correctionModeName(
+            correctionMode),
+        correctionMode ==
+                ambilight::CorrectionMode::Active
+            ? "candidate RGB may reach physical LEDs; fail-open still resolves to original RGB"
+            : "physical LEDs receive original HyperHDR RGB");
     Serial.println();
 }
 
