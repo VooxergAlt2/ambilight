@@ -58,7 +58,9 @@ esp_err_t LedRenderer::render(
          ++logical) {
 
         const PhysicalPixel mapped =
-            SegmentMapper::map(logical);
+            SegmentMapper::map(
+                logical,
+                mappingProfile_);
 
         if (!mapped.valid) {
             ++mappingErrors_;
