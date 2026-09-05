@@ -7,6 +7,7 @@
 #include <esp_err.h>
 #include <esp_timer.h>
 #include <lwip/inet.h>
+#include <lwip/sockets.h>
 
 #include "config/BoardConfig.h"
 #include "config/FirmwareInfo.h"
@@ -143,10 +144,10 @@ bool ensureDdpRunning() {
         ddp.stats();
 
     Serial.printf(
-        "DDP socket bound to UDP/%u. RXBUF requested=%d actual=%d set=%s query=%s option_warnings=%lu.\n",
+        "DDP socket bound to UDP/%u. RXBUF requested=%ld actual=%ld set=%s query=%s option_warnings=%lu.\n",
         ambilight::DdpUdpService::kPort,
-        socketStats.requestedRxBufferBytes,
-        socketStats.actualRxBufferBytes,
+        static_cast<long>(socketStats.requestedRxBufferBytes),
+        static_cast<long>(socketStats.actualRxBufferBytes),
         socketStats.rxBufferSetOk ? "ok" : "no",
         socketStats.rxBufferQueryOk ? "ok" : "no",
         static_cast<unsigned long>(
@@ -2341,7 +2342,7 @@ void printRuntimeStatus() {
 
     Serial.printf(
         "STAT corr=%s brightness=%u persist=%s wifi=%s wsrc=%s rssi=%d pkt=%lu asm=%lu pub=%lu collapse=%lu rej=%lu stale=%lu timeout=%lu "
-        "budget=%lu lim=%lu pollmax=%luus rxreq=%d rxactual=%d rxset=%s rxget=%s optwarn=%lu "
+        "budget=%lu lim=%lu pollmax=%luus rxreq=%ld rxactual=%ld rxset=%s rxget=%s optwarn=%lu "
         "sender_lock=%s sender=%s:%u "
         "saccept=%lu sinvalid=%lu sforeign=%lu sacq=%lu srel=%lu render=%lu skip=%lu "
         "p50<=%luus p95<=%luus p99<=%luus ovf=%llu agemax=%lluus showmax=%luus "
@@ -2353,7 +2354,7 @@ void printRuntimeStatus() {
         "gainfail=%s gl=%u gt=%u gb=%u gr=%u "
         "shadow_usable=%lu shadow_nonunity=%lu shadow_changed=%u phys_changed=%u shadow_delta=%u shadowprep=%luus "
         "slew_snap=%lu probe=%s sched_rgb=%lu sched_state=%lu sched_comb=%lu sched_state_def=%lu rgbgen=%lu "
-        "tofinit=%lu toffail=%lu tofreadfail=%lu tofrestart=%lu black=%lu heap=%u minheap=%u\n",
+        "tofinit=%lu toffail=%lu tofreadfail=%lu tofrestart=%lu black=%lu heap=%lu minheap=%lu\n",
         ambilight::correctionModeName(
             correctionMode),
         static_cast<unsigned>(
@@ -2375,8 +2376,8 @@ void printRuntimeStatus() {
         static_cast<unsigned long>(udp.pollBudgetExhaustions),
         static_cast<unsigned long>(udp.pollDatagramLimitHits),
         static_cast<unsigned long>(udp.maxPollUs),
-        udp.requestedRxBufferBytes,
-        udp.actualRxBufferBytes,
+        static_cast<long>(udp.requestedRxBufferBytes),
+        static_cast<long>(udp.actualRxBufferBytes),
         udp.rxBufferSetOk ? "ok" : "no",
         udp.rxBufferQueryOk ? "ok" : "no",
         static_cast<unsigned long>(
@@ -2515,8 +2516,8 @@ void printRuntimeStatus() {
             ? static_cast<unsigned long>(tofSnapshot.staleRestarts)
             : 0UL,
         static_cast<unsigned long>(idleBlackouts),
-        ESP.getFreeHeap(),
-        ESP.getMinFreeHeap());
+        static_cast<unsigned long>(ESP.getFreeHeap()),
+        static_cast<unsigned long>(ESP.getMinFreeHeap()));
 
     Serial.printf(
         "STATCFG fw=%s stage=%u curve=%s curve_points=%u curve_updates=%lu spatial=%s spatial_updates=%lu ledmap=%s ledtest=%s\n",
@@ -2553,13 +2554,14 @@ void printConfiguration() {
             ambilight::config::kSerialProtocolVersion));
 
     Serial.printf(
-        "Logical LEDs=%u payload=%uB DDP=%u poll_budget=%uus max_datagrams=%u\n",
+        "Logical LEDs=%u payload=%uB DDP=%u poll_budget=%luus max_datagrams=%u\n",
         static_cast<unsigned>(ambilight::config::kLogicalLedCount),
         static_cast<unsigned>(
             ambilight::config::kLogicalLedCount *
             sizeof(ambilight::Rgb8)),
         ambilight::DdpUdpService::kPort,
-        ambilight::DdpUdpService::kPollBudgetUs,
+        static_cast<unsigned long>(
+            ambilight::DdpUdpService::kPollBudgetUs),
         static_cast<unsigned>(
             ambilight::DdpUdpService::kMaxDatagramsPerPoll));
 

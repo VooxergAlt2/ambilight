@@ -210,10 +210,10 @@ void WifiService::updateConnectionState(std::uint32_t nowMs) {
         if (isConnected) {
             ++connectEvents_;
             Serial.printf(
-                "Wi-Fi connected: IP=%s RSSI=%d dBm channel=%d\n",
+                "Wi-Fi connected: IP=%s RSSI=%d dBm channel=%ld\n",
                 WiFi.localIP().toString().c_str(),
                 WiFi.RSSI(),
-                WiFi.channel());
+                static_cast<long>(WiFi.channel()));
         } else {
             ++disconnectEvents_;
             Serial.printf(
