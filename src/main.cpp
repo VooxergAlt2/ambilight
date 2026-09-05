@@ -2653,6 +2653,9 @@ void printConfiguration() {
         "Spatial: y + Enter=status, yreset, or yW,H,X,Y,Z,ROT,MIRROR,DEADBAND (mm, not in ACTIVE).");
     Serial.println(
         "LED map: l + Enter=status, lreset, or lTlane:Trev,Rlane:Rrev,Blane:Brev,Llane:Lrev; brightness must be 0.");
+
+    printLedMappingProfile();
+
     Serial.println(
         "Active frame transport remains Wi-Fi/DDP only. "
         "USB/AWA is preserved separately as WIP.");
