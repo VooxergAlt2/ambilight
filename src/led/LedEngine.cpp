@@ -21,10 +21,22 @@ esp_err_t LedEngine::begin() {
         return result;
     }
 
-    group_.brightness(config::kTestBrightness);
+    begun_ = true;
+    group_.brightness(brightness_);
 
     clear();
     return show();
+}
+
+void LedEngine::setBrightness(
+    std::uint8_t brightness) {
+
+    brightness_ = brightness;
+
+    if (begun_) {
+        group_.brightness(
+            brightness_);
+    }
 }
 
 void LedEngine::clear() {
