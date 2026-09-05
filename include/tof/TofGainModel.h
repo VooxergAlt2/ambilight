@@ -31,6 +31,10 @@ public:
     bool valid() const { return valid_; }
     std::size_t count() const { return count_; }
 
+    const std::array<GainPoint, kMaxPoints>& points() const {
+        return points_;
+    }
+
     std::uint16_t evaluate(std::uint16_t distanceMm) const;
 
 private:
@@ -62,6 +66,9 @@ class TofGainModel {
 public:
     explicit TofGainModel(
         TofGainModelConfig config = {});
+
+    bool setCurve(
+        const DistanceGainCurve& curve);
 
     GainSnapshot evaluate(
         const TofGeometrySnapshot& geometry,
