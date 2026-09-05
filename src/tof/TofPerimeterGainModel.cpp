@@ -215,7 +215,7 @@ PerimeterGainSnapshot TofPerimeterGainModel::evaluate(
                 unitySnapshot(
                     generation,
                     nowUs,
-                    false);
+                    true);
 
             return latest_;
         }
@@ -236,7 +236,7 @@ PerimeterGainSnapshot TofPerimeterGainModel::evaluate(
                 unitySnapshot(
                     generation,
                     nowUs,
-                    false);
+                    true);
 
             return latest_;
         }
