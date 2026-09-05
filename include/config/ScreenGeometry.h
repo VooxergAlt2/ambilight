@@ -22,6 +22,11 @@ constexpr float kTofSensorOffsetYmm = 0.0F;
 // +Z points from TV toward wall.
 constexpr float kLedPlaneZFromTofMm = 0.0F;
 
+// Ignore sensor jitter that changes the predicted wall position by less than
+// this amount everywhere on the LED rectangle. The comparison is cumulative
+// against the last plane that actually rebuilt the gain field.
+constexpr float kTofPlaneWallDeadbandMm = 10.0F;
+
 constexpr float halfWidth() {
     return kLedPerimeterWidthMm / 2.0F;
 }
