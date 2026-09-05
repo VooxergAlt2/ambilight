@@ -50,6 +50,8 @@ struct TofSnapshot {
     std::uint32_t planeFailOpens = 0;
     std::uint16_t lastPlaneWallDeltaMm = 0;
 
+    std::uint32_t gainCurveUpdates = 0;
+
     std::uint32_t lastReadUs = 0;
     std::uint32_t maxReadUs = 0;
 };
@@ -63,6 +65,9 @@ public:
     TofService& operator=(const TofService&) = delete;
 
     bool begin();
+
+    bool setGainCurve(
+        const DistanceGainCurve& curve);
 
     bool copySnapshot(TofSnapshot& destination) const;
     bool copyGainSnapshot(GainSnapshot& destination) const;
@@ -80,6 +85,7 @@ private:
         std::uint32_t readUs,
         std::uint64_t timestampUs);
     void refreshGainStaleness(std::uint64_t nowUs);
+    void applyPendingGainCurve();
 
     static bool isUsableStatus(std::uint8_t status);
     static std::uint16_t medianOfValid(
@@ -96,6 +102,9 @@ private:
     TofPlaneChangeGate planeChangeGate_;
     TofGainModel gainModel_;
     TofPerimeterGainModel perimeterGainModel_;
+
+    DistanceGainCurve pendingGainCurve_{};
+    bool pendingGainCurveDirty_ = false;
 
     TofSnapshot snapshot_{};
 };
