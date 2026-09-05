@@ -119,6 +119,10 @@ std::uint64_t maxFrameAgeUs = 0;
 
 bool shadowGainProbeActive();
 
+bool parseUint16Token(
+    const char*& cursor,
+    std::uint16_t& value);
+
 const char* wifiCredentialSourceName(
     WifiCredentialSource source) {
 
