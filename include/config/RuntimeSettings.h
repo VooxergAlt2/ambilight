@@ -64,6 +64,10 @@ public:
         return tofGainCurveCustomized_;
     }
 
+    bool tofGainCurvePersisted() const {
+        return tofGainCurvePersisted_;
+    }
+
     DistanceGainCurve tofGainCurve() const {
         return DistanceGainCurve(
             tofGainPoints_,
@@ -140,6 +144,7 @@ private:
 
     std::size_t tofGainPointCount_ = 0;
     bool tofGainCurveCustomized_ = false;
+    bool tofGainCurvePersisted_ = false;
 
     bool persistenceAvailable_ = false;
 
