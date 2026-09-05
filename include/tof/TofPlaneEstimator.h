@@ -9,9 +9,6 @@
 namespace ambilight {
 
 struct TofPlaneEstimatorConfig {
-    // ST specifies a square FoV around 65 degrees on the diagonal.
-    float diagonalFovDeg = 65.0F;
-
     std::uint16_t minDistanceMm = 50;
     std::uint16_t maxDistanceMm = 4000;
 
@@ -22,8 +19,9 @@ struct TofPlaneEstimatorConfig {
     std::uint16_t minResidualWindowMm = 40;
     std::uint8_t residualMadMultiplier = 4;
 
-    // Status 5 is full-confidence. Status 9 remains usable but is weighted
-    // lower because ST describes it as a valid range with lower confidence.
+    // Status 5 is full-confidence. ST also documents statuses 6 and 9 as
+    // usable ranges; keep them at lower weight for plane fitting.
+    float status6Weight = 0.5F;
     float status9Weight = 0.5F;
 };
 
@@ -75,7 +73,6 @@ private:
         std::size_t normalizedRow,
         std::size_t normalizedCol,
         const TofGridTransform& transform,
-        double tanHalfAxisFov,
         Point& point) const;
 
     TofPlaneEstimatorConfig config_{};
