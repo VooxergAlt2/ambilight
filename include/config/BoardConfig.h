@@ -26,6 +26,8 @@ constexpr std::uint8_t kTofSclGpio = 7;
 constexpr std::uint8_t kTofRotationQuarterTurns = 0;
 constexpr bool kTofMirrorX = false;
 
-constexpr std::uint8_t kTestBrightness = 32;
+// Conservative first-boot output limit. Runtime/NVS setting can change this
+// without rebuilding firmware.
+constexpr std::uint8_t kDefaultOutputBrightness = 32;
 
 } // namespace ambilight::config
