@@ -8,6 +8,7 @@
 
 #include "core/RgbFrame.h"
 #include "led/LedEngine.h"
+#include "led/LedMappingProfile.h"
 #include "render/CorrectionMode.h"
 #include "render/RenderGainContext.h"
 
@@ -55,6 +56,21 @@ public:
     explicit LedRenderer(LedEngine& engine)
         : engine_(engine) {}
 
+    bool setMappingProfile(
+        const LedMappingProfile& profile) {
+
+        if (!profile.valid()) {
+            return false;
+        }
+
+        mappingProfile_ = profile;
+        return true;
+    }
+
+    const LedMappingProfile& mappingProfile() const {
+        return mappingProfile_;
+    }
+
     esp_err_t render(const RgbFrame& frame);
 
     // Backward-compatible preview path. Equivalent to SHADOW mode.
@@ -96,6 +112,7 @@ private:
     std::uint32_t mappingErrors_ = 0;
 
     RenderShadowStats shadowStats_{};
+    LedMappingProfile mappingProfile_{};
     RenderGainContext lastGainContext_{};
     CorrectionMode lastCorrectionMode_ =
         CorrectionMode::Disabled;
