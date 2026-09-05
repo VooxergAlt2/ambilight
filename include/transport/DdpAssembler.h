@@ -50,6 +50,10 @@ public:
 
     bool expire(std::uint64_t nowUs);
 
+    // Start a new sender/transport epoch without erasing accumulated stats.
+    // This clears both partial-frame state and completed-sequence history.
+    void resetStream();
+
     const DdpAssemblerStats& stats() const { return stats_; }
 
     bool active() const { return active_; }
