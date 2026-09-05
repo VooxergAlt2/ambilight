@@ -1,5 +1,7 @@
 #include "config/RuntimeSettings.h"
 
+#include "config/BoardConfig.h"
+
 namespace ambilight {
 
 RuntimeSettings::~RuntimeSettings() {
@@ -11,6 +13,9 @@ RuntimeSettings::~RuntimeSettings() {
 bool RuntimeSettings::begin() {
     correctionMode_ =
         CorrectionMode::Shadow;
+
+    outputBrightness_ =
+        config::kDefaultOutputBrightness;
 
     persistenceAvailable_ =
         preferences_.begin(
@@ -54,6 +59,11 @@ bool RuntimeSettings::begin() {
         static_cast<CorrectionMode>(
             raw);
 
+    outputBrightness_ =
+        preferences_.getUChar(
+            kOutputBrightnessKey,
+            config::kDefaultOutputBrightness);
+
     return true;
 }
 
@@ -83,6 +93,36 @@ bool RuntimeSettings::setCorrectionMode(
         preferences_.putUChar(
             kCorrectionModeKey,
             raw);
+
+    if (written != sizeof(std::uint8_t)) {
+        ++stats_.writeFailures;
+        return false;
+    }
+
+    ++stats_.writes;
+    return true;
+}
+
+bool RuntimeSettings::setOutputBrightness(
+    std::uint8_t brightness) {
+
+    if (outputBrightness_ ==
+        brightness) {
+        return persistenceAvailable_;
+    }
+
+    outputBrightness_ =
+        brightness;
+
+    if (!persistenceAvailable_) {
+        ++stats_.writeFailures;
+        return false;
+    }
+
+    const std::size_t written =
+        preferences_.putUChar(
+            kOutputBrightnessKey,
+            brightness);
 
     if (written != sizeof(std::uint8_t)) {
         ++stats_.writeFailures;
