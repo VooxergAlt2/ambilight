@@ -123,6 +123,17 @@ TofGainModel::TofGainModel(
     TofGainModelConfig config)
     : config_(config) {}
 
+bool TofGainModel::setCurve(
+    const DistanceGainCurve& curve) {
+
+    if (!curve.valid()) {
+        return false;
+    }
+
+    config_.curve = curve;
+    return true;
+}
+
 GainSnapshot TofGainModel::unitySnapshot(
     std::uint32_t generation,
     std::uint64_t sourceTimestampUs,
