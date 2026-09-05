@@ -1,6 +1,7 @@
 #include "config/RuntimeSettings.h"
 
 #include "config/BoardConfig.h"
+#include "config/TofCalibration.h"
 
 #include <algorithm>
 #include <cstring>
@@ -49,6 +50,13 @@ bool RuntimeSettings::begin() {
 
     wifiSsid_.fill('\0');
     wifiPassword_.fill('\0');
+
+    tofGainPoints_ =
+        config::kTofGainPoints;
+    tofGainPointCount_ =
+        config::kTofGainPointCount;
+    tofGainCurveCustomized_ =
+        false;
 
     persistenceAvailable_ =
         preferences_.begin(
@@ -127,6 +135,71 @@ bool RuntimeSettings::begin() {
         copyText(
             wifiPassword_,
             storedPassword.c_str());
+    }
+
+    const std::uint8_t storedCurveCount =
+        preferences_.getUChar(
+            kTofGainCountKey,
+            0);
+
+    if (storedCurveCount != 0) {
+        std::array<
+            GainPoint,
+            DistanceGainCurve::kMaxPoints>
+            storedPoints{};
+
+        const std::size_t expectedBytes =
+            sizeof(storedPoints);
+
+        const std::size_t storedBytes =
+            preferences_.getBytesLength(
+                kTofGainCurveKey);
+
+        bool storedCurveValid =
+            storedCurveCount >= 2 &&
+            storedCurveCount <=
+                DistanceGainCurve::kMaxPoints &&
+            storedBytes ==
+                expectedBytes;
+
+        if (storedCurveValid) {
+            const std::size_t loaded =
+                preferences_.getBytes(
+                    kTofGainCurveKey,
+                    storedPoints.data(),
+                    expectedBytes);
+
+            storedCurveValid =
+                loaded == expectedBytes;
+        }
+
+        if (storedCurveValid) {
+            const DistanceGainCurve curve(
+                storedPoints,
+                storedCurveCount);
+
+            storedCurveValid =
+                curve.valid();
+        }
+
+        if (storedCurveValid) {
+            tofGainPoints_ =
+                storedPoints;
+
+            tofGainPointCount_ =
+                storedCurveCount;
+
+            tofGainCurveCustomized_ =
+                true;
+        } else {
+            ++stats_.invalidStoredValues;
+
+            preferences_.remove(
+                kTofGainCurveKey);
+
+            preferences_.remove(
+                kTofGainCountKey);
+        }
     }
 
     return true;
@@ -311,6 +384,108 @@ bool RuntimeSettings::clearWifiCredentials() {
 
     if (hadSsid ||
         hadPassword) {
+        ++stats_.writes;
+    }
+
+    return true;
+}
+
+
+bool RuntimeSettings::setTofGainCurve(
+    const std::array<
+        GainPoint,
+        DistanceGainCurve::kMaxPoints>& points,
+    std::size_t count) {
+
+    const DistanceGainCurve curve(
+        points,
+        count);
+
+    if (!curve.valid()) {
+        return false;
+    }
+
+    tofGainPoints_ = points;
+    tofGainPointCount_ = count;
+    tofGainCurveCustomized_ = true;
+
+    if (!persistenceAvailable_) {
+        ++stats_.writeFailures;
+        return false;
+    }
+
+    const std::size_t curveBytes =
+        preferences_.putBytes(
+            kTofGainCurveKey,
+            points.data(),
+            sizeof(points));
+
+    const std::size_t countBytes =
+        preferences_.putUChar(
+            kTofGainCountKey,
+            static_cast<std::uint8_t>(
+                count));
+
+    if (curveBytes != sizeof(points) ||
+        countBytes != sizeof(std::uint8_t)) {
+
+        ++stats_.writeFailures;
+
+        preferences_.remove(
+            kTofGainCurveKey);
+
+        preferences_.remove(
+            kTofGainCountKey);
+
+        return false;
+    }
+
+    ++stats_.writes;
+    return true;
+}
+
+bool RuntimeSettings::resetTofGainCurve() {
+    tofGainPoints_ =
+        config::kTofGainPoints;
+
+    tofGainPointCount_ =
+        config::kTofGainPointCount;
+
+    tofGainCurveCustomized_ =
+        false;
+
+    if (!persistenceAvailable_) {
+        ++stats_.writeFailures;
+        return false;
+    }
+
+    const bool hadCurve =
+        preferences_.isKey(
+            kTofGainCurveKey);
+
+    const bool hadCount =
+        preferences_.isKey(
+            kTofGainCountKey);
+
+    const bool curveOk =
+        !hadCurve ||
+        preferences_.remove(
+            kTofGainCurveKey);
+
+    const bool countOk =
+        !hadCount ||
+        preferences_.remove(
+            kTofGainCountKey);
+
+    if (!curveOk ||
+        !countOk) {
+
+        ++stats_.writeFailures;
+        return false;
+    }
+
+    if (hadCurve ||
+        hadCount) {
         ++stats_.writes;
     }
 
