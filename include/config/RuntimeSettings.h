@@ -1,5 +1,7 @@
 #pragma once
 
+#include <array>
+#include <cstddef>
 #include <cstdint>
 
 #include <Preferences.h>
@@ -16,6 +18,8 @@ struct RuntimeSettingsStats {
 
 class RuntimeSettings {
 public:
+    static constexpr std::size_t kMaxWifiSsidLength = 32;
+    static constexpr std::size_t kMaxWifiPasswordLength = 63;
     RuntimeSettings() = default;
     ~RuntimeSettings();
 
@@ -32,6 +36,18 @@ public:
         return outputBrightness_;
     }
 
+    bool wifiCredentialsPresent() const {
+        return wifiSsid_[0] != '\0';
+    }
+
+    const char* wifiSsid() const {
+        return wifiSsid_.data();
+    }
+
+    const char* wifiPassword() const {
+        return wifiPassword_.data();
+    }
+
     // Runtime state changes even if persistence is unavailable. Return value
     // reports whether the new value is durably stored.
     bool setCorrectionMode(
@@ -39,6 +55,12 @@ public:
 
     bool setOutputBrightness(
         std::uint8_t brightness);
+
+    bool setWifiCredentials(
+        const char* ssid,
+        const char* password);
+
+    bool clearWifiCredentials();
 
     bool persistenceAvailable() const {
         return persistenceAvailable_;
@@ -55,6 +77,10 @@ private:
         "corr_mode";
     static constexpr const char* kOutputBrightnessKey =
         "brightness";
+    static constexpr const char* kWifiSsidKey =
+        "wifi_ssid";
+    static constexpr const char* kWifiPasswordKey =
+        "wifi_password";
 
     Preferences preferences_;
 
@@ -62,6 +88,16 @@ private:
         CorrectionMode::Shadow;
 
     std::uint8_t outputBrightness_ = 32;
+
+    std::array<
+        char,
+        kMaxWifiSsidLength + 1>
+        wifiSsid_{};
+
+    std::array<
+        char,
+        kMaxWifiPasswordLength + 1>
+        wifiPassword_{};
 
     bool persistenceAvailable_ = false;
 
