@@ -1638,7 +1638,7 @@ bool serviceRender(std::uint64_t nowUs) {
         !cachedTargetGainContext.sameRenderProfileAs(
             renderGainController.target());
 
-    const bool gainDirty =
+    const bool renderStateDirty =
         correctionModeDirty ||
         brightnessDirty ||
         ledMappingDirty ||
@@ -1654,7 +1654,7 @@ bool serviceRender(std::uint64_t nowUs) {
         renderScheduler.decide(
             rgbFrameValid,
             rgbDirty,
-            gainDirty,
+            renderStateDirty,
             nowUs);
 
     if (!decision.render) {
@@ -2046,12 +2046,12 @@ void dumpRenderShadow() {
         targetContext);
 
     Serial.printf(
-        "RENDER SCHED rgb=%lu gain_only=%lu combined=%lu gain_deferred=%lu no_frame=%lu clean=%lu "
+        "RENDER SCHED rgb=%lu state_only=%lu combined=%lu state_deferred=%lu no_frame=%lu clean=%lu "
         "last_rgb_gen=%lu mailbox_gen=%lu\n",
         static_cast<unsigned long>(schedulerStats.rgbRenders),
-        static_cast<unsigned long>(schedulerStats.gainOnlyRenders),
+        static_cast<unsigned long>(schedulerStats.stateOnlyRenders),
         static_cast<unsigned long>(schedulerStats.combinedRenders),
-        static_cast<unsigned long>(schedulerStats.gainDeferrals),
+        static_cast<unsigned long>(schedulerStats.stateDeferrals),
         static_cast<unsigned long>(schedulerStats.noFrameSkips),
         static_cast<unsigned long>(schedulerStats.cleanSkips),
         static_cast<unsigned long>(lastRenderedRgbGeneration),
@@ -2743,7 +2743,7 @@ void printRuntimeStatus() {
         "spfail=%s spmin=%u spmax=%u "
         "gainfail=%s gl=%u gt=%u gb=%u gr=%u "
         "shadow_usable=%lu shadow_nonunity=%lu shadow_changed=%u phys_changed=%u shadow_delta=%u shadowprep=%luus "
-        "slew_snap=%lu probe=%s sched_rgb=%lu sched_gain=%lu sched_comb=%lu sched_def=%lu rgbgen=%lu "
+        "slew_snap=%lu probe=%s sched_rgb=%lu sched_state=%lu sched_comb=%lu sched_state_def=%lu rgbgen=%lu "
         "tofinit=%lu toffail=%lu tofreadfail=%lu tofrestart=%lu black=%lu heap=%u minheap=%u\n",
         ambilight::correctionModeName(
             correctionMode),
@@ -2885,11 +2885,11 @@ void printRuntimeStatus() {
         static_cast<unsigned long>(
             renderScheduler.stats().rgbRenders),
         static_cast<unsigned long>(
-            renderScheduler.stats().gainOnlyRenders),
+            renderScheduler.stats().stateOnlyRenders),
         static_cast<unsigned long>(
             renderScheduler.stats().combinedRenders),
         static_cast<unsigned long>(
-            renderScheduler.stats().gainDeferrals),
+            renderScheduler.stats().stateDeferrals),
         static_cast<unsigned long>(
             lastRenderedRgbGeneration),
         haveTof
@@ -2931,7 +2931,7 @@ void printRuntimeStatus() {
 void printConfiguration() {
     Serial.println();
     Serial.println(
-        "ESP32-C6 Ambilight Stage 29: runtime config recovery + commissioning");
+        "ESP32-C6 Ambilight Stage 30: render-state scheduler cleanup + runtime recovery");
 
     Serial.printf(
         "Logical LEDs=%u payload=%uB DDP=%u poll_budget=%uus max_datagrams=%u\n",
