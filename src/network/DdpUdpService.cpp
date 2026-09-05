@@ -72,12 +72,13 @@ bool DdpUdpService::begin() {
 }
 
 void DdpUdpService::stop() {
-    if (socket_ < 0) {
-        return;
+    if (socket_ >= 0) {
+        close(socket_);
+        socket_ = -1;
     }
 
-    close(socket_);
-    socket_ = -1;
+    senderGate_.reset();
+    assembler_.resetStream();
 }
 
 DdpPollResult DdpUdpService::poll() {
@@ -91,6 +92,12 @@ DdpPollResult DdpUdpService::poll() {
         static_cast<std::uint64_t>(esp_timer_get_time());
 
     assembler_.expire(pollStartedUs);
+
+    if (senderGate_.expire(
+            pollStartedUs)) {
+
+        assembler_.resetStream();
+    }
 
     bool haveCompletedFrame = false;
 
@@ -134,9 +141,34 @@ DdpPollResult DdpUdpService::poll() {
         const std::uint64_t packetUs =
             static_cast<std::uint64_t>(esp_timer_get_time());
 
+        // A lease can expire while draining a busy socket. Reset the old
+        // assembler epoch before allowing a new sender to acquire ownership.
+        if (senderGate_.expire(
+                packetUs)) {
+
+            assembler_.resetStream();
+        }
+
+        const DdpSenderEndpoint endpoint{
+            sender.sin_addr.s_addr,
+            ntohs(sender.sin_port)
+        };
+
+        const DdpSenderDecision senderDecision =
+            senderGate_.evaluate(
+                endpoint,
+                rxBuffer_.data(),
+                static_cast<std::size_t>(
+                    received),
+                packetUs);
+
+        if (senderDecision !=
+            DdpSenderDecision::Accepted) {
+
+            continue;
+        }
+
         lastPacketUs_ = packetUs;
-        lastSenderIpv4_ = sender.sin_addr.s_addr;
-        lastSenderPort_ = ntohs(sender.sin_port);
 
         const DdpIngestResult ingestResult = assembler_.ingest(
             rxBuffer_.data(),
