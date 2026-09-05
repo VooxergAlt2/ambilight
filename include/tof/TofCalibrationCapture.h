@@ -63,13 +63,8 @@ struct CalibrationSegmentDistanceSummary {
 struct CalibrationSpatialSummary {
     bool valid = false;
     std::uint32_t validFrames = 0;
-    std::uint32_t warningFrames = 0;
-
     CalibrationUnsignedSummary minDistanceMm{};
     CalibrationUnsignedSummary maxDistanceMm{};
-
-    std::uint16_t medianExtrapolationXPermille = 0;
-    std::uint16_t medianExtrapolationYPermille = 0;
 
     std::array<
         CalibrationSegmentDistanceSummary,
@@ -99,7 +94,7 @@ struct CalibrationCaptureSummary {
 class TofCalibrationCapture {
 public:
     static constexpr std::size_t kMaxSamples = 64;
-    static constexpr std::uint64_t kDefaultDurationUs = 5000000;
+    static constexpr std::uint64_t kDefaultDurationUs = 60000000;
 
     void start(
         std::uint64_t nowUs,
@@ -145,9 +140,6 @@ private:
     struct SpatialSamples {
         std::array<std::uint16_t, kMaxSamples> minDistanceMm{};
         std::array<std::uint16_t, kMaxSamples> maxDistanceMm{};
-        std::array<std::uint16_t, kMaxSamples> extrapolationXPermille{};
-        std::array<std::uint16_t, kMaxSamples> extrapolationYPermille{};
-
         std::array<
             std::array<std::uint16_t, kMaxSamples>,
             static_cast<std::size_t>(SegmentId::Count)>
@@ -211,7 +203,6 @@ private:
     std::uint32_t storedSamples_ = 0;
     std::uint32_t planeSamplesCount_ = 0;
     std::uint32_t spatialSamplesCount_ = 0;
-    std::uint32_t spatialWarningFrames_ = 0;
 
     BandSamples left_{};
     BandSamples center_{};
