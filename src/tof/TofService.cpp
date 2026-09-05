@@ -8,6 +8,7 @@
 #include <esp_timer.h>
 
 #include "config/BoardConfig.h"
+#include "config/ScreenGeometry.h"
 #include "config/TofCalibration.h"
 
 namespace ambilight {
@@ -59,11 +60,26 @@ TofGainModelConfig makeGainModelConfig() {
     return gainConfig;
 }
 
+TofPerimeterGainModelConfig makePerimeterGainModelConfig() {
+    TofPerimeterGainModelConfig gainConfig;
+
+    gainConfig.curve.configure(
+        config::kTofGainPoints,
+        config::kTofGainPointCount);
+
+    gainConfig.geometry =
+        config::kPerimeterScreenGeometry;
+
+    return gainConfig;
+}
+
 } // namespace
 
 TofService::TofService()
     : processor_(makeProcessorConfig()),
-      gainModel_(makeGainModelConfig()) {}
+      gainModel_(makeGainModelConfig()),
+      perimeterGainModel_(
+          makePerimeterGainModelConfig()) {}
 
 TofService::~TofService() {
     if (task_ != nullptr) {
@@ -137,6 +153,24 @@ bool TofService::copyGainSnapshot(
     }
 
     destination = snapshot_.gains;
+
+    xSemaphoreGive(mutex_);
+    return true;
+}
+
+bool TofService::copyPerimeterGainSnapshot(
+    PerimeterGainSnapshot& destination) const {
+
+    if (mutex_ == nullptr) {
+        return false;
+    }
+
+    if (xSemaphoreTake(mutex_, pdMS_TO_TICKS(2)) != pdTRUE) {
+        return false;
+    }
+
+    destination =
+        snapshot_.perimeterGains;
 
     xSemaphoreGive(mutex_);
     return true;
@@ -274,6 +308,11 @@ void TofService::publishResults(
             geometry,
             timestampUs);
 
+    const PerimeterGainSnapshot perimeterGains =
+        perimeterGainModel_.evaluate(
+            geometry,
+            timestampUs);
+
     TofSnapshot next;
 
     if (mutex_ != nullptr &&
@@ -296,6 +335,8 @@ void TofService::publishResults(
     next.targetStatus = raw.targetStatus;
     next.geometry = geometry;
     next.gains = gains;
+    next.perimeterGains =
+        perimeterGains;
 
     next.medianMm = medianOfValid(
         results,
@@ -327,12 +368,26 @@ void TofService::refreshGainStaleness(
             geometry,
             nowUs);
 
-    if (!gains.failOpen) {
+    const PerimeterGainSnapshot perimeterGains =
+        perimeterGainModel_.evaluate(
+            geometry,
+            nowUs);
+
+    if (!gains.failOpen &&
+        !perimeterGains.failOpen) {
         return;
     }
 
     if (xSemaphoreTake(mutex_, portMAX_DELAY) == pdTRUE) {
-        snapshot_.gains = gains;
+        if (gains.failOpen) {
+            snapshot_.gains = gains;
+        }
+
+        if (perimeterGains.failOpen) {
+            snapshot_.perimeterGains =
+                perimeterGains;
+        }
+
         xSemaphoreGive(mutex_);
     }
 }
@@ -344,11 +399,20 @@ void TofService::taskLoop() {
                 xSemaphoreTake(mutex_, portMAX_DELAY) == pdTRUE) {
                 ++snapshot_.initFailures;
                 snapshot_.state = TofState::Error;
+                const auto nowUs =
+                    static_cast<std::uint64_t>(
+                        esp_timer_get_time());
+
                 snapshot_.gains =
                     gainModel_.evaluate(
                         TofGeometrySnapshot{},
-                        static_cast<std::uint64_t>(
-                            esp_timer_get_time()));
+                        nowUs);
+
+                snapshot_.perimeterGains =
+                    perimeterGainModel_.evaluate(
+                        TofGeometrySnapshot{},
+                        nowUs);
+
                 xSemaphoreGive(mutex_);
             }
 
