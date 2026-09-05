@@ -10,7 +10,6 @@
 #include <esp_timer.h>
 
 #include "config/BoardConfig.h"
-#include "config/ScreenGeometry.h"
 #include "config/TofCalibration.h"
 
 namespace ambilight {
@@ -34,33 +33,18 @@ constexpr UBaseType_t kTaskPriority = 0;
 TofProcessorConfig makeProcessorConfig() {
     TofProcessorConfig processorConfig;
 
-    switch (config::kTofRotationQuarterTurns % 4U) {
-    case 1:
-        processorConfig.transform.rotation = TofRotation::Deg90;
-        break;
-    case 2:
-        processorConfig.transform.rotation = TofRotation::Deg180;
-        break;
-    case 3:
-        processorConfig.transform.rotation = TofRotation::Deg270;
-        break;
-    default:
-        processorConfig.transform.rotation = TofRotation::Deg0;
-        break;
-    }
-
-    processorConfig.transform.mirrorX = config::kTofMirrorX;
+    const TofSpatialProfile defaultProfile;
+    processorConfig.transform =
+        defaultProfile.transform();
 
     return processorConfig;
 }
 
 TofPlaneChangeGateConfig makePlaneChangeGateConfig() {
-    TofPlaneChangeGateConfig gateConfig;
-    gateConfig.geometry =
-        config::kPerimeterScreenGeometry;
-    gateConfig.wallDeltaDeadbandMm =
-        config::kTofPlaneWallDeadbandMm;
-    return gateConfig;
+    const TofSpatialProfile defaultProfile;
+
+    return
+        defaultProfile.planeGateConfig();
 }
 
 TofGainModelConfig makeGainModelConfig() {
@@ -80,8 +64,10 @@ TofPerimeterGainModelConfig makePerimeterGainModelConfig() {
         config::kTofGainPoints,
         config::kTofGainPointCount);
 
+    const TofSpatialProfile defaultProfile;
+
     gainConfig.geometry =
-        config::kPerimeterScreenGeometry;
+        defaultProfile.perimeterGeometry();
 
     return gainConfig;
 }
