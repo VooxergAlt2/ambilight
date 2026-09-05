@@ -1,109 +1,30 @@
-# Stage 16: spatial projection confidence
+# Stage 16 note: extrapolation confidence retired
 
-## Purpose
+Stage 16 introduced an extrapolation ratio comparing the ToF-observed wall footprint with the configured LED perimeter.
 
-Stage 16 quantifies how far the fitted wall plane is extrapolated from the area directly observed by VL53L5CX to the LED perimeter.
+Stage 19 removes that ratio from the spatial gain model.
 
-The warning is diagnostic only. Physical gain application remains disabled.
+## Current rule
 
-## Why this matters
+The wall plane is the spatial model.
 
-A valid plane fit can still be based on a relatively small patch of wall.
+Once the robust plane is valid and fresh, every LED point is projected along +Z onto that plane.
 
-At short TV-to-wall distances the sensor sees a smaller physical wall area, while the 65-inch LED rectangle remains about 1437.5 x 1000 mm.
+The directly observed wall footprint:
 
-Projecting the fitted plane to the LED corners may therefore be a several-times extrapolation.
+- may remain useful as a diagnostic of the plane estimator
+- does not scale gain
+- does not modify projected distance
+- does not trigger a projection warning
+- does not fail open by itself
 
-## Observed wall span
+## Projection validity
 
-After robust residual rejection, TofPlaneEstimator now publishes:
+Projection is usable when:
 
-- observedHalfSpanXmm
-- observedHalfSpanYmm
+1. the wall plane is valid and fresh
+2. the configured logical screen geometry is valid
+3. every LED +Z ray produces a finite wall distance
+4. every distance lies inside the configured physical distance range
 
-These are the maximum absolute X/Y extents of accepted 3D wall points around the ToF optical origin.
-
-## Requested screen span
-
-TofPerimeterGainModel calculates the maximum absolute X/Y endpoint coordinate from configured screen geometry:
-
-- screenHalfSpanXmm
-- screenHalfSpanYmm
-
-## Extrapolation ratio
-
-Reported as permille:
-
-    1000 = 1.0x
-    2500 = 2.5x
-    4000 = 4.0x
-
-For example:
-
-    screen half-width = 500 mm
-    observed half-width = 100 mm
-    extrapolation X = 5.0x
-
-## Warning policy
-
-Current recommended diagnostic threshold:
-
-    4.0x
-
-If either axis exceeds it:
-
-    extrapolationWarning = true
-
-This does not fail open in Stage 16.
-
-Reason: close-to-wall operation may naturally require substantial extrapolation, and real hardware data is needed before choosing a hard limit.
-
-## Validity separation
-
-The spatial snapshot distinguishes:
-
-- planeUsable: the wall plane itself is valid/fresh
-- projectionUsable: the plane can be projected to all configured LED endpoints within the allowed distance range
-- extrapolationWarning: projection is mathematically valid but extends far beyond directly observed wall coverage
-- failOpen: gains must resolve to unity
-
-This avoids blaming the plane estimator when the actual failure is screen projection.
-
-## Debug
-
-    p
-
-now prints accepted observed wall half-span.
-
-    s
-
-prints:
-
-- plane usable
-- projection usable
-- fail-open
-- min/max predicted LED-wall distance
-- observed X/Y half-span
-- screen X/Y half-span
-- extrapolation X/Y
-- warning state
-- each segment endpoint distance/gain
-
-Periodic STAT adds compact:
-
-    spex=X/Y spwarn=yes|no
-
-where X/Y are permille.
-
-## Tests
-
-Tests verify:
-
-- plane fit exposes non-zero observed coverage
-- 5.0x X / 2.5x Y extrapolation raises warning
-- warning does not fail open
-- render bridge additionally requires projectionUsable
-
-## Current safety
-
-The real distance-to-gain curve remains identity and ShadowRenderPolicy still outputs original HyperHDR RGB.
+This keeps the geometry model simple: fit the wall plane first, then derive the wall position behind the whole LED perimeter from that plane.
