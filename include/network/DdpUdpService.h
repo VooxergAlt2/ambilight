@@ -13,6 +13,9 @@ namespace ambilight {
 
 struct DdpPollResult {
     std::uint32_t datagrams = 0;
+    std::uint32_t acceptedDatagrams = 0;
+    std::uint32_t senderRejectedDatagrams = 0;
+
     std::uint32_t completeFrames = 0;
     std::uint32_t elapsedUs = 0;
 
