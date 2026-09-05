@@ -779,4 +779,49 @@ bool RuntimeSettings::resetLedMappingProfile() {
     return true;
 }
 
+bool RuntimeSettings::factoryReset() {
+    correctionMode_ =
+        CorrectionMode::Shadow;
+
+    outputBrightness_ =
+        config::kDefaultOutputBrightness;
+
+    wifiSsid_.fill('\0');
+    wifiPassword_.fill('\0');
+
+    tofGainPoints_ =
+        config::kTofGainPoints;
+    tofGainPointCount_ =
+        config::kTofGainPointCount;
+    tofGainCurveCustomized_ =
+        false;
+    tofGainCurvePersisted_ =
+        false;
+
+    tofSpatialProfile_ = {};
+    tofSpatialProfileCustomized_ =
+        false;
+    tofSpatialProfilePersisted_ =
+        false;
+
+    ledMappingProfile_ = {};
+    ledMappingProfileCustomized_ =
+        false;
+    ledMappingProfilePersisted_ =
+        false;
+
+    if (!persistenceAvailable_) {
+        ++stats_.writeFailures;
+        return false;
+    }
+
+    if (!preferences_.clear()) {
+        ++stats_.writeFailures;
+        return false;
+    }
+
+    ++stats_.writes;
+    return true;
+}
+
 } // namespace ambilight
