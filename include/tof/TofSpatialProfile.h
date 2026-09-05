@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <type_traits>
 
 #include "core/ScreenGeometry.h"
 #include "tof/TofPlaneChangeGate.h"
@@ -196,6 +197,10 @@ struct TofSpatialProfile {
         return config;
     }
 };
+
+static_assert(
+    std::is_trivially_copyable<TofSpatialProfile>::value,
+    "Persisted spatial profile must remain trivially copyable");
 
 static_assert(
     sizeof(TofSpatialProfile) <= 32,
