@@ -8,6 +8,7 @@
 
 #include "render/CorrectionMode.h"
 #include "tof/TofGainModel.h"
+#include "tof/TofSpatialProfile.h"
 
 namespace ambilight {
 
@@ -74,6 +75,18 @@ public:
             tofGainPointCount_);
     }
 
+    const TofSpatialProfile& tofSpatialProfile() const {
+        return tofSpatialProfile_;
+    }
+
+    bool tofSpatialProfileCustomized() const {
+        return tofSpatialProfileCustomized_;
+    }
+
+    bool tofSpatialProfilePersisted() const {
+        return tofSpatialProfilePersisted_;
+    }
+
     // Runtime state changes even if persistence is unavailable. Return value
     // reports whether the new value is durably stored.
     bool setCorrectionMode(
@@ -95,6 +108,11 @@ public:
         std::size_t count);
 
     bool resetTofGainCurve();
+
+    bool setTofSpatialProfile(
+        const TofSpatialProfile& profile);
+
+    bool resetTofSpatialProfile();
 
     bool persistenceAvailable() const {
         return persistenceAvailable_;
@@ -119,6 +137,10 @@ private:
         "tof_curve";
     static constexpr const char* kTofGainCountKey =
         "tof_count";
+    static constexpr const char* kTofSpatialProfileKey =
+        "spatial";
+    static constexpr const char* kTofSpatialVersionKey =
+        "spatial_ver";
 
     Preferences preferences_;
 
@@ -145,6 +167,10 @@ private:
     std::size_t tofGainPointCount_ = 0;
     bool tofGainCurveCustomized_ = false;
     bool tofGainCurvePersisted_ = false;
+
+    TofSpatialProfile tofSpatialProfile_{};
+    bool tofSpatialProfileCustomized_ = false;
+    bool tofSpatialProfilePersisted_ = false;
 
     bool persistenceAvailable_ = false;
 
