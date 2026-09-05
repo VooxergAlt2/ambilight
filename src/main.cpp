@@ -443,12 +443,6 @@ bool parseLedMappingText(
         profile.valid();
 }
 
-void resetLedMapCommand() {
-    ledMapCommandPending = false;
-    ledMapCommandLength = 0;
-    ledMapCommandBuffer.fill('\0');
-}
-
 bool applyLedMappingProfile(
     const ambilight::LedMappingProfile& profile) {
 
@@ -505,39 +499,37 @@ void resetLedMappingProfile() {
     printLedMappingProfile();
 }
 
-void finishLedMapCommand() {
-    ledMapCommandBuffer[
-        ledMapCommandLength] = '\0';
+void handleLedMapCommand(
+    const char* command) {
 
-    if (ledMapCommandLength == 0) {
+    if (command == nullptr ||
+        command[0] == '\0') {
+
         printLedMappingProfile();
-        resetLedMapCommand();
         return;
     }
 
     if (std::strcmp(
-            ledMapCommandBuffer.data(),
+            command,
             "reset") == 0) {
 
         resetLedMappingProfile();
-        resetLedMapCommand();
         return;
     }
 
     ambilight::LedMappingProfile profile;
 
     if (!parseLedMappingText(
-            ledMapCommandBuffer.data(),
+            command,
             profile)) {
 
         Serial.println(
             "LED MAP invalid. Example: l0:0,1:0,2:0,3:0");
-        resetLedMapCommand();
         return;
     }
 
-    applyLedMappingProfile(profile);
-    resetLedMapCommand();
+    applyLedMappingProfile(
+        profile);
 }
 
 const char* spatialProfileSourceName() {
