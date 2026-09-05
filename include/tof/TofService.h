@@ -9,6 +9,7 @@
 #include <freertos/task.h>
 
 #include "tof/TofGainModel.h"
+#include "tof/TofPerimeterGainModel.h"
 #include "tof/TofProcessor.h"
 #include "tof/TofTypes.h"
 
@@ -35,6 +36,7 @@ struct TofSnapshot {
 
     TofGeometrySnapshot geometry{};
     GainSnapshot gains{};
+    PerimeterGainSnapshot perimeterGains{};
 
     std::uint32_t initAttempts = 0;
     std::uint32_t initFailures = 0;
@@ -58,6 +60,8 @@ public:
 
     bool copySnapshot(TofSnapshot& destination) const;
     bool copyGainSnapshot(GainSnapshot& destination) const;
+    bool copyPerimeterGainSnapshot(
+        PerimeterGainSnapshot& destination) const;
 
 private:
     static void taskEntry(void* context);
@@ -84,6 +88,7 @@ private:
 
     TofProcessor processor_;
     TofGainModel gainModel_;
+    TofPerimeterGainModel perimeterGainModel_;
 
     TofSnapshot snapshot_{};
 };
