@@ -346,6 +346,94 @@ void test_per_pixel_curve_evaluation_is_exact_across_calibration_knot() {
         result.logicalGainQ12[114]);
 }
 
+
+void test_runtime_curve_replacement_rebuilds_exact_per_pixel_values() {
+    auto model = makeModel();
+
+    const auto geometry =
+        makePlane(
+            600.0F,
+            0.0F,
+            0.0F,
+            1000000);
+
+    const auto before =
+        model.evaluate(
+            geometry,
+            1100000);
+
+    TEST_ASSERT_EQUAL_UINT16(
+        2560,
+        before.logicalGainQ12[0]);
+
+    std::array<
+        GainPoint,
+        DistanceGainCurve::kMaxPoints>
+        points{};
+
+    points[0] = {100, 512};
+    points[1] = {500, 1024};
+    points[2] = {900, 2048};
+
+    const DistanceGainCurve replacement(
+        points,
+        3);
+
+    TEST_ASSERT_TRUE(
+        model.setCurve(
+            replacement));
+
+    const auto after =
+        model.evaluate(
+            geometry,
+            1200000);
+
+    TEST_ASSERT_FALSE(
+        after.failOpen);
+
+    // 600 mm is 1/4 of the way from 500/1024 to 900/2048.
+    TEST_ASSERT_EQUAL_UINT16(
+        1280,
+        after.logicalGainQ12[0]);
+
+    TEST_ASSERT_EQUAL_UINT16(
+        1280,
+        after.logicalGainQ12[779]);
+}
+
+void test_invalid_runtime_curve_does_not_replace_perimeter_curve() {
+    auto model = makeModel();
+
+    std::array<
+        GainPoint,
+        DistanceGainCurve::kMaxPoints>
+        invalidPoints{};
+
+    invalidPoints[0] = {500, 2048};
+    invalidPoints[1] = {400, 4096};
+
+    const DistanceGainCurve invalidCurve(
+        invalidPoints,
+        2);
+
+    TEST_ASSERT_FALSE(
+        model.setCurve(
+            invalidCurve));
+
+    const auto result =
+        model.evaluate(
+            makePlane(
+                600.0F,
+                0.0F,
+                0.0F,
+                1000000),
+            1100000);
+
+    TEST_ASSERT_EQUAL_UINT16(
+        2560,
+        result.logicalGainQ12[0]);
+}
+
 void test_led_plane_z_offset_is_subtracted() {
     TofPerimeterGainModelConfig config;
     config.curve = makeCurve();
@@ -482,6 +570,8 @@ int main(int, char**) {
     RUN_TEST(test_pitch_creates_vertical_within_segment_gradients);
     RUN_TEST(test_combined_yaw_pitch_changes_all_four_segments);
     RUN_TEST(test_per_pixel_curve_evaluation_is_exact_across_calibration_knot);
+    RUN_TEST(test_runtime_curve_replacement_rebuilds_exact_per_pixel_values);
+    RUN_TEST(test_invalid_runtime_curve_does_not_replace_perimeter_curve);
     RUN_TEST(test_led_plane_z_offset_is_subtracted);
     RUN_TEST(test_invalid_or_stale_plane_fails_open);
     RUN_TEST(test_observed_fov_span_does_not_gate_plane_projection);
