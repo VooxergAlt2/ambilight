@@ -4,39 +4,45 @@ Custom ESP32-C6 Ambilight endpoint for HyperHDR.
 
 ## Current stage
 
-Stage 17 carries the 2D yaw/pitch correction as an exact 780-pixel logical gain field. Every logical LED gets its own wall distance and its own calibration-curve evaluation, so correction remains exact even when one segment crosses multiple calibration knots. Physical ToF gain application is still disabled.
+Stage 19 keeps active transport Wi-Fi/DDP and treats VL53L5CX as a slow TV-pose sensor rather than a realtime video sensor.
 
-Physical LEDs still receive original HyperHDR RGB.
+Normal ToF processing happens about every 12 seconds. The sensor remains initialized, ranges internally at 1 Hz, and only one 8x8 frame is transferred and processed per pose interval.
 
-## Why this matters
+Physical ToF gain application is still disabled. Physical LEDs receive original HyperHDR RGB.
 
-ToF is environmental state, not video state.
+## Wall model
 
-Even if the RGB image is static, moving the TV should eventually be able to update brightness compensation.
+VL53L5CX `distance_mm` is treated as ST's perpendicular Z distance.
 
-The firmware now caches the latest RGB frame and can shadow-rerender it when gain state changes.
+The estimator reconstructs X/Y using ST's published 8x8 zone-center pitch/yaw table and fits:
 
-## Render triggers
+    z_wall = intercept + slope_x*x + slope_y*y
 
-- new RGB frame
-- changing gain profile
-- both together
+For every one of the 780 logical LEDs:
 
-Gain-only rerenders are limited to about 60 Hz.
+1. build its screen-space point
+2. project a ray along screen/sensor +Z
+3. intersect that ray with the fitted wall plane
+4. obtain LED-to-wall throw distance
+5. evaluate the distance-to-gain calibration curve
 
-## Gain target polling
+The correction field therefore remains exact inside every segment.
 
-The main loop polls the small GainSnapshot at up to 100 Hz.
+## No extrapolation-confidence gate
 
-If one mutex copy fails, the last successful snapshot is retained.
+The previous Stage 16 extrapolation-ratio warning is retired.
 
-Renderer freshness rules decide when it is truly stale.
+Once the wall plane itself is valid, LED-wall distances are defined by that plane. The directly observed ToF footprint does not scale, modify, or reject the projected perimeter.
 
-## DDP latency metrics stay clean
+Projection fails open only when the wall plane is invalid/stale or a calculated LED-wall distance is outside the configured physical range.
 
-Only genuinely new DDP RGB frames update the frame-age histogram.
+## Rate domains
 
-Gain-only rerenders of an old cached frame do not contaminate network p50/p95/p99.
+- HyperHDR / DDP RGB: realtime
+- ToF sensor internal ranging: 1 Hz
+- ToF wall-pose processing: about every 12 s
+- renderer target polling: 1 Hz
+- gain slew / gain-only rerender after a target change: up to about 60 Hz
 
 ## Debug commands
 
@@ -44,16 +50,19 @@ Gain-only rerenders of an old cached frame do not contaminate network p50/p95/p9
 raw ToF map
 
     g
-processed LEFT/CENTER/RIGHT geometry
+legacy LEFT/CENTER/RIGHT geometry
 
     p
 robust 2D wall plane, yaw/pitch and residual quality
 
     k
-ToF gain snapshot
+legacy ToF gain snapshot
+
+    s
+perimeter wall distances and shadow gains
 
     c
-5-second calibration capture
+60-second slow pose calibration capture
 
     r
 renderer shadow + target/effective + scheduler stats
@@ -61,15 +70,11 @@ renderer shadow + target/effective + scheduler stats
     x
 10-second aggressive shadow probe
 
-## Expected scheduler behavior during x
+## Calibration capture
 
-With an RGB frame already cached:
+The capture records plane yaw/pitch/intercept and wall distances derived from the plane for TOP/RIGHT/BOTTOM/LEFT.
 
-- gain-only renders rise while endpoints slew
-- deferrals may rise between 60 Hz opportunities
-- once effective profile reaches target, gain-only activity stops
-- when x expires, gain-only renders resume while returning to real target
-- physical LEDs remain visually unchanged
+At the end it prints p10/median/p90 summaries. With the normal ~12-second pose interval, a 60-second capture yields several independent measurements without continuously loading the MCU or I2C bus.
 
 ## USB/AWA
 
@@ -79,18 +84,8 @@ Preserved separately in:
 
 Active development remains Wi-Fi/DDP.
 
+## Safety
 
-## Spatial confidence
+The shipping distance-to-gain curve is still unity.
 
-The `p` command reports the physical wall half-span covered by accepted ToF points.
-
-The `s` command compares that with the configured LED perimeter and reports X/Y extrapolation ratios. A ratio above 4.0x currently raises a warning only, so close-wall cases can be measured before deciding on a hard rejection threshold.
-
-
-## Exact within-segment correction
-
-Spatial correction is no longer approximated by interpolating two endpoint gains.
-
-The ToF task computes the linear wall distance for each logical LED and evaluates the distance-to-gain calibration curve for that exact distance. Renderer and slew controller then operate on a 780-value Q12 field.
-
-The `s` and `r` diagnostics show start, midpoint, and end gain values so internal segment behavior can be inspected directly.
+Even if a non-unity shadow profile is produced, `ShadowRenderPolicy` still sends original HyperHDR RGB to the physical LEDs.
