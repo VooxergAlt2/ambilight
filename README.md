@@ -4,7 +4,7 @@ Custom ESP32-C6 Ambilight endpoint for HyperHDR.
 
 ## Current stage
 
-Stage 14 keeps one-PC Wi-Fi/DDP transport and adds a robust 2D VL53L5CX wall-plane fit for yaw and pitch. The existing LEFT/CENTER/RIGHT diagnostics remain available, and physical ToF gain application is still disabled.
+Stage 15 projects the 2D VL53L5CX wall plane onto the full LED perimeter. Every segment now has independent logical start/end shadow gains, so yaw and pitch both create correction inside segments. Physical ToF gain application is still disabled.
 
 Physical LEDs still receive original HyperHDR RGB.
 
