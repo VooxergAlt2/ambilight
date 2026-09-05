@@ -24,7 +24,7 @@ struct RenderGainControllerStats {
     std::uint32_t failOpenUnitySnaps = 0;
     std::uint32_t timeRollbacks = 0;
 
-    std::uint16_t maxEndpointStepQ12 = 0;
+    std::uint16_t maxPixelStepQ12 = 0;
 };
 
 class RenderGainController {
