@@ -2327,295 +2327,287 @@ bool shadowGainProbeActive() {
     return nowUs < shadowProbeUntilUs;
 }
 
-void serviceDebugCommands() {
-    while (Serial.available() > 0) {
-        const int input = Serial.read();
+void handleBrightnessCommand(
+    const char* command) {
 
-        if (factoryCommandPending) {
-            if (input == '\r' || input == '\n') {
-                finishFactoryCommand();
-                continue;
-            }
+    if (command == nullptr ||
+        command[0] == '\0') {
 
-            if (input < 32 || input > 126 ||
-                factoryCommandLength + 1 >=
-                    factoryCommandBuffer.size()) {
+        printOutputBrightness();
+        return;
+    }
 
-                Serial.println(
-                    "FACTORY RESET command invalid/too long.");
-                resetFactoryCommand();
-                continue;
-            }
+    std::uint16_t value = 0;
 
-            factoryCommandBuffer[
-                factoryCommandLength++] =
-                static_cast<char>(input);
+    for (const char* cursor = command;
+         *cursor != '\0';
+         ++cursor) {
 
-            continue;
-        }
-
-        if (commissioningCommandPending) {
-            commissioningCommandPending = false;
-
-            const std::uint64_t nowUs =
-                static_cast<std::uint64_t>(
-                    esp_timer_get_time());
-
-            if (input == '0') {
-                finishCommissioning(
-                    nowUs,
-                    true,
-                    "serial cancel");
-            } else if (input == '1') {
-                startCommissioning(
-                    ambilight::LedCommissioningPattern::SegmentIdentity);
-            } else if (input == '2') {
-                startCommissioning(
-                    ambilight::LedCommissioningPattern::DirectionMarkers);
-            } else if (
-                input == '\r' ||
-                input == '\n') {
-
-                printCommissioningStatus();
-            } else {
-                Serial.println(
-                    "LED TEST invalid. Use i0, i1, i2, or i + Enter.");
-            }
-
-            continue;
-        }
-
-        if (ledMapCommandPending) {
-            if (input == '\r' || input == '\n') {
-                finishLedMapCommand();
-                continue;
-            }
-
-            if (input < 32 || input > 126 ||
-                ledMapCommandLength + 1 >=
-                    ledMapCommandBuffer.size()) {
-
-                Serial.println(
-                    "LED MAP command invalid/too long.");
-                resetLedMapCommand();
-                continue;
-            }
-
-            ledMapCommandBuffer[
-                ledMapCommandLength++] =
-                static_cast<char>(input);
-
-            continue;
-        }
-
-        if (spatialCommandPending) {
-            if (input == '\r' || input == '\n') {
-                finishSpatialCommand();
-                continue;
-            }
-
-            if (input < 32 || input > 126) {
-                Serial.println(
-                    "TOF SPATIAL command contains unsupported control characters.");
-                resetSpatialCommand();
-                continue;
-            }
-
-            if (spatialCommandLength + 1 >=
-                spatialCommandBuffer.size()) {
-
-                Serial.println(
-                    "TOF SPATIAL command too long.");
-                resetSpatialCommand();
-                continue;
-            }
-
-            spatialCommandBuffer[
-                spatialCommandLength++] =
-                static_cast<char>(input);
-
-            continue;
-        }
-
-        if (gainCurveCommandPending) {
-            if (input == '\r' || input == '\n') {
-                finishGainCurveCommand();
-                continue;
-            }
-
-            if (input < 32 || input > 126) {
-                Serial.println(
-                    "TOF CURVE command contains unsupported control characters.");
-                resetGainCurveCommand();
-                continue;
-            }
-
-            if (gainCurveCommandLength + 1 >=
-                gainCurveCommandBuffer.size()) {
-
-                Serial.println(
-                    "TOF CURVE command too long.");
-                resetGainCurveCommand();
-                continue;
-            }
-
-            gainCurveCommandBuffer[
-                gainCurveCommandLength++] =
-                static_cast<char>(input);
-
-            continue;
-        }
-
-        if (wifiCommandPending) {
-            if (input == '\r' || input == '\n') {
-                finishWifiCommand();
-                continue;
-            }
-
-            if (input < 32 || input > 126) {
-                Serial.println(
-                    "Wi-Fi command contains unsupported control characters.");
-                resetWifiCommand();
-                continue;
-            }
-
-            if (wifiCommandLength + 1 >=
-                wifiCommandBuffer.size()) {
-
-                Serial.println(
-                    "Wi-Fi command too long.");
-                resetWifiCommand();
-                continue;
-            }
-
-            wifiCommandBuffer[
-                wifiCommandLength++] =
-                static_cast<char>(input);
-
-            continue;
-        }
-
-        if (brightnessCommandPending) {
-            if (input >= '0' && input <= '9') {
-                if (brightnessCommandDigits >= 3) {
-                    brightnessCommandPending = false;
-                    brightnessCommandDigits = 0;
-                    brightnessCommandValue = 0;
-
-                    Serial.println(
-                        "OUTPUT brightness command invalid. Use b0..b255.");
-                    continue;
-                }
-
-                brightnessCommandValue =
-                    static_cast<std::uint16_t>(
-                        brightnessCommandValue * 10U +
-                        static_cast<std::uint16_t>(
-                            input - '0'));
-
-                ++brightnessCommandDigits;
-                continue;
-            }
-
-            if (input == '\r' || input == '\n') {
-                if (brightnessCommandDigits == 0) {
-                    printOutputBrightness();
-                } else if (
-                    brightnessCommandValue <= 255U) {
-
-                    setOutputBrightness(
-                        static_cast<std::uint8_t>(
-                            brightnessCommandValue));
-                } else {
-                    Serial.println(
-                        "OUTPUT brightness out of range. Use 0..255.");
-                }
-
-                brightnessCommandPending = false;
-                brightnessCommandDigits = 0;
-                brightnessCommandValue = 0;
-                continue;
-            }
-
-            brightnessCommandPending = false;
-            brightnessCommandDigits = 0;
-            brightnessCommandValue = 0;
+        if (*cursor < '0' ||
+            *cursor > '9') {
 
             Serial.println(
                 "OUTPUT brightness command invalid. Use b0..b255.");
+            return;
+        }
+
+        value =
+            static_cast<std::uint16_t>(
+                value * 10U +
+                static_cast<std::uint16_t>(
+                    *cursor - '0'));
+    }
+
+    if (value > 255U) {
+        Serial.println(
+            "OUTPUT brightness out of range. Use 0..255.");
+        return;
+    }
+
+    setOutputBrightness(
+        static_cast<std::uint8_t>(
+            value));
+}
+
+void handleCorrectionCommand(
+    const char* command) {
+
+    if (command == nullptr ||
+        command[0] == '\0') {
+
+        // Preserve the historical ! + Enter no-op.
+        return;
+    }
+
+    if (command[0] == '0' &&
+        command[1] == '\0') {
+
+        setCorrectionMode(
+            ambilight::CorrectionMode::Disabled);
+        return;
+    }
+
+    if (command[0] == '1' &&
+        command[1] == '\0') {
+
+        setCorrectionMode(
+            ambilight::CorrectionMode::Shadow);
+        return;
+    }
+
+    if (command[0] == '2' &&
+        command[1] == '\0') {
+
+        setCorrectionMode(
+            ambilight::CorrectionMode::Active);
+        return;
+    }
+
+    Serial.println(
+        "CORRECTION command invalid. Use !0, !1 or !2.");
+}
+
+void handleCommissioningCommand(
+    const char* command) {
+
+    const std::uint64_t nowUs =
+        static_cast<std::uint64_t>(
+            esp_timer_get_time());
+
+    if (command == nullptr ||
+        command[0] == '\0') {
+
+        printCommissioningStatus();
+        return;
+    }
+
+    if (command[1] != '\0') {
+        Serial.println(
+            "LED TEST invalid. Use i0, i1, i2, or i + Enter.");
+        return;
+    }
+
+    switch (command[0]) {
+    case '0':
+        finishCommissioning(
+            nowUs,
+            true,
+            "serial cancel");
+        return;
+
+    case '1':
+        startCommissioning(
+            ambilight::LedCommissioningPattern::
+                SegmentIdentity);
+        return;
+
+    case '2':
+        startCommissioning(
+            ambilight::LedCommissioningPattern::
+                DirectionMarkers);
+        return;
+
+    default:
+        Serial.println(
+            "LED TEST invalid. Use i0, i1, i2, or i + Enter.");
+        return;
+    }
+}
+
+void printSerialFramingError(
+    const ambilight::SerialCommandEvent& event) {
+
+    const bool tooLong =
+        event.error ==
+        ambilight::SerialCommandError::TooLong;
+
+    switch (event.kind) {
+    case ambilight::SerialCommandKind::Factory:
+        Serial.println(
+            "FACTORY RESET command invalid/too long.");
+        break;
+
+    case ambilight::SerialCommandKind::LedMap:
+        Serial.println(
+            "LED MAP command invalid/too long.");
+        break;
+
+    case ambilight::SerialCommandKind::Spatial:
+        Serial.println(
+            tooLong
+                ? "TOF SPATIAL command too long."
+                : "TOF SPATIAL command contains unsupported control characters.");
+        break;
+
+    case ambilight::SerialCommandKind::GainCurve:
+        Serial.println(
+            tooLong
+                ? "TOF CURVE command too long."
+                : "TOF CURVE command contains unsupported control characters.");
+        break;
+
+    case ambilight::SerialCommandKind::Wifi:
+        Serial.println(
+            tooLong
+                ? "Wi-Fi command too long."
+                : "Wi-Fi command contains unsupported control characters.");
+        break;
+
+    case ambilight::SerialCommandKind::Brightness:
+        Serial.println(
+            "OUTPUT brightness command invalid. Use b0..b255.");
+        break;
+
+    default:
+        Serial.println(
+            "SERIAL command framing error.");
+        break;
+    }
+}
+
+void dispatchSerialCommand(
+    ambilight::SerialCommandEvent event) {
+
+    if (!event.valid()) {
+        printSerialFramingError(
+            event);
+        return;
+    }
+
+    switch (event.kind) {
+    case ambilight::SerialCommandKind::Correction:
+        handleCorrectionCommand(
+            event.text());
+        break;
+
+    case ambilight::SerialCommandKind::Commissioning:
+        handleCommissioningCommand(
+            event.text());
+        break;
+
+    case ambilight::SerialCommandKind::Factory:
+        handleFactoryCommand(
+            event.text());
+        break;
+
+    case ambilight::SerialCommandKind::LedMap:
+        handleLedMapCommand(
+            event.text());
+        break;
+
+    case ambilight::SerialCommandKind::Spatial:
+        handleSpatialCommand(
+            event.text());
+        break;
+
+    case ambilight::SerialCommandKind::GainCurve:
+        handleGainCurveCommand(
+            event.text());
+        break;
+
+    case ambilight::SerialCommandKind::Wifi:
+        handleWifiCommand(
+            event.text());
+        break;
+
+    case ambilight::SerialCommandKind::Brightness:
+        handleBrightnessCommand(
+            event.text());
+        break;
+
+    case ambilight::SerialCommandKind::DumpTofRaw:
+        dumpTofMap();
+        break;
+
+    case ambilight::SerialCommandKind::DumpTofGeometry:
+        dumpTofGeometry();
+        break;
+
+    case ambilight::SerialCommandKind::DumpTofPlane:
+        dumpTofPlane();
+        break;
+
+    case ambilight::SerialCommandKind::DumpTofGains:
+        dumpTofGains();
+        break;
+
+    case ambilight::SerialCommandKind::DumpSpatialGains:
+        dumpSpatialGains();
+        break;
+
+    case ambilight::SerialCommandKind::StartCalibrationCapture:
+        startCalibrationCapture();
+        break;
+
+    case ambilight::SerialCommandKind::DumpRender:
+        dumpRenderShadow();
+        break;
+
+    case ambilight::SerialCommandKind::StartShadowProbe:
+        startShadowGainProbe();
+        break;
+
+    case ambilight::SerialCommandKind::CorrectionStatus:
+        printCorrectionMode();
+        break;
+
+    case ambilight::SerialCommandKind::None:
+        break;
+    }
+}
+
+void serviceDebugCommands() {
+    while (Serial.available() > 0) {
+        auto event =
+            serialCommandParser.feed(
+                Serial.read());
+
+        if (!event.ready()) {
             continue;
         }
 
-        if (correctionCommandPending) {
-            correctionCommandPending = false;
-
-            if (input == '0') {
-                setCorrectionMode(
-                    ambilight::CorrectionMode::Disabled);
-            } else if (input == '1') {
-                setCorrectionMode(
-                    ambilight::CorrectionMode::Shadow);
-            } else if (input == '2') {
-                setCorrectionMode(
-                    ambilight::CorrectionMode::Active);
-            } else if (
-                input != '\r' &&
-                input != '\n') {
-
-                Serial.println(
-                    "CORRECTION command invalid. Use !0, !1 or !2.");
-            }
-
-            continue;
-        }
-
-        if (input == '!') {
-            correctionCommandPending = true;
-        } else if (input == 'f' || input == 'F') {
-            factoryCommandPending = true;
-            factoryCommandLength = 0;
-            factoryCommandBuffer.fill('\0');
-        } else if (input == 'i' || input == 'I') {
-            commissioningCommandPending = true;
-        } else if (input == 'l' || input == 'L') {
-            ledMapCommandPending = true;
-            ledMapCommandLength = 0;
-            ledMapCommandBuffer.fill('\0');
-        } else if (input == 'y' || input == 'Y') {
-            spatialCommandPending = true;
-            spatialCommandLength = 0;
-            spatialCommandBuffer.fill('\0');
-        } else if (input == 'q' || input == 'Q') {
-            gainCurveCommandPending = true;
-            gainCurveCommandLength = 0;
-            gainCurveCommandBuffer.fill('\0');
-        } else if (input == 'w' || input == 'W') {
-            wifiCommandPending = true;
-            wifiCommandLength = 0;
-            wifiCommandBuffer.fill('\0');
-        } else if (input == 'b' || input == 'B') {
-            brightnessCommandPending = true;
-            brightnessCommandValue = 0;
-            brightnessCommandDigits = 0;
-        } else if (input == 't' || input == 'T') {
-            dumpTofMap();
-        } else if (input == 'g' || input == 'G') {
-            dumpTofGeometry();
-        } else if (input == 'p' || input == 'P') {
-            dumpTofPlane();
-        } else if (input == 'k' || input == 'K') {
-            dumpTofGains();
-        } else if (input == 's' || input == 'S') {
-            dumpSpatialGains();
-        } else if (input == 'c' || input == 'C') {
-            startCalibrationCapture();
-        } else if (input == 'r' || input == 'R') {
-            dumpRenderShadow();
-        } else if (input == 'x' || input == 'X') {
-            startShadowGainProbe();
-        } else if (input == 'm' || input == 'M') {
-            printCorrectionMode();
-        }
+        dispatchSerialCommand(
+            event);
     }
 }
 
