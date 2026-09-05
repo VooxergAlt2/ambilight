@@ -50,6 +50,7 @@ ambilight::RenderGainContext cachedTargetGainContext{};
 bool rgbFrameValid = false;
 bool rgbDirty = false;
 bool correctionModeDirty = false;
+bool correctionCommandPending = false;
 bool haveCachedPerimeterGainSnapshot = false;
 
 std::uint32_t lastMailboxGeneration = 0;
@@ -109,6 +110,9 @@ void setCorrectionMode(
     // ACTIVE therefore fades in rather than suddenly applying a previously
     // accumulated shadow profile.
     renderGainController.reset();
+
+    // A debug-only synthetic profile must never survive a mode transition.
+    shadowProbeUntilUs = 0;
 
     correctionModeDirty = true;
     nextGainTargetPollUs = 0;
@@ -967,7 +971,32 @@ void serviceDebugCommands() {
     while (Serial.available() > 0) {
         const int input = Serial.read();
 
-        if (input == 't' || input == 'T') {
+        if (correctionCommandPending) {
+            correctionCommandPending = false;
+
+            if (input == '0') {
+                setCorrectionMode(
+                    ambilight::CorrectionMode::Disabled);
+            } else if (input == '1') {
+                setCorrectionMode(
+                    ambilight::CorrectionMode::Shadow);
+            } else if (input == '2') {
+                setCorrectionMode(
+                    ambilight::CorrectionMode::Active);
+            } else if (
+                input != '\r' &&
+                input != '\n') {
+
+                Serial.println(
+                    "CORRECTION command invalid. Use !0, !1 or !2.");
+            }
+
+            continue;
+        }
+
+        if (input == '!') {
+            correctionCommandPending = true;
+        } else if (input == 't' || input == 'T') {
             dumpTofMap();
         } else if (input == 'g' || input == 'G') {
             dumpTofGeometry();
@@ -985,15 +1014,6 @@ void serviceDebugCommands() {
             startShadowGainProbe();
         } else if (input == 'm' || input == 'M') {
             printCorrectionMode();
-        } else if (input == '0') {
-            setCorrectionMode(
-                ambilight::CorrectionMode::Disabled);
-        } else if (input == '1') {
-            setCorrectionMode(
-                ambilight::CorrectionMode::Shadow);
-        } else if (input == '2') {
-            setCorrectionMode(
-                ambilight::CorrectionMode::Active);
         }
     }
 }
@@ -1218,7 +1238,7 @@ void printConfiguration() {
         ambilight::config::kTofMirrorX ? "yes" : "no");
 
     Serial.printf(
-        "Correction mode=%s (NVS=%s). 0=DISABLED, 1=SHADOW, 2=ACTIVE, m=status.\n",
+        "Correction mode=%s (NVS=%s). !0=DISABLED, !1=SHADOW, !2=ACTIVE, m=status.\n",
         ambilight::correctionModeName(
             correctionMode),
         runtimeSettings.persistenceAvailable()
