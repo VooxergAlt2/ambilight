@@ -4,7 +4,7 @@ Custom ESP32-C6 Ambilight endpoint for HyperHDR.
 
 ## Current development line
 
-Stage 26 adds UDP socket receive-buffer observability on top of Stage 25 DDP sender isolation.
+Stage 27 adds persistent runtime LED lane/direction mapping on top of the hardened DDP runtime.
 
 The firmware stack now includes:
 
@@ -179,3 +179,20 @@ Automatic GitHub Actions are disabled while Actions quota is exhausted.
 Only manual:
 
     workflow_dispatch
+
+
+## Runtime LED mapping
+
+Physical lane assignment and strip direction can be commissioned without rebuilding firmware.
+
+    l<Enter>                       status
+    l0:0,1:0,2:0,3:0<Enter>       set TOP/RIGHT/BOTTOM/LEFT lane:reverse
+    lreset<Enter>                  default
+
+Mapping edits require:
+
+    brightness = 0
+
+Each lane 0..3 must be used exactly once.
+
+GPIO pins and logical segment lengths remain compile-time constants.
