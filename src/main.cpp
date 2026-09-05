@@ -41,6 +41,7 @@ constexpr std::size_t kWifiCommandBufferSize =
 
 constexpr std::size_t kGainCurveCommandBufferSize = 128;
 constexpr std::size_t kSpatialCommandBufferSize = 128;
+constexpr std::size_t kLedMapCommandBufferSize = 64;
 
 ambilight::LedEngine ledEngine;
 ambilight::LedRenderer renderer(ledEngine);
@@ -65,12 +66,14 @@ bool rgbFrameValid = false;
 bool rgbDirty = false;
 bool correctionModeDirty = false;
 bool brightnessDirty = false;
+bool ledMappingDirty = false;
 
 bool correctionCommandPending = false;
 bool brightnessCommandPending = false;
 bool wifiCommandPending = false;
 bool gainCurveCommandPending = false;
 bool spatialCommandPending = false;
+bool ledMapCommandPending = false;
 
 std::uint16_t brightnessCommandValue = 0;
 std::uint8_t brightnessCommandDigits = 0;
@@ -86,6 +89,10 @@ std::size_t gainCurveCommandLength = 0;
 std::array<char, kSpatialCommandBufferSize>
     spatialCommandBuffer{};
 std::size_t spatialCommandLength = 0;
+
+std::array<char, kLedMapCommandBufferSize>
+    ledMapCommandBuffer{};
+std::size_t ledMapCommandLength = 0;
 
 enum class WifiCredentialSource : std::uint8_t {
     None = 0,
@@ -321,6 +328,198 @@ void finishWifiCommand() {
         true);
 
     resetWifiCommand();
+}
+
+const char* ledMappingSourceName() {
+    if (!runtimeSettings.ledMappingProfileCustomized()) {
+        return "DEFAULT";
+    }
+
+    return runtimeSettings.ledMappingProfilePersisted()
+        ? "CUSTOM_NVS"
+        : "CUSTOM_RUNTIME";
+}
+
+void printLedMappingProfile() {
+    const auto& profile =
+        runtimeSettings.ledMappingProfile();
+
+    static constexpr const char* kNames[] = {
+        "TOP", "RIGHT", "BOTTOM", "LEFT"
+    };
+
+    Serial.printf(
+        "LED MAP source=%s",
+        ledMappingSourceName());
+
+    for (std::size_t index = 0;
+         index < profile.segment.size();
+         ++index) {
+
+        const auto& mapping =
+            profile.segment[index];
+
+        Serial.printf(
+            " %s=lane%u%s",
+            kNames[index],
+            static_cast<unsigned>(
+                mapping.lane),
+            mapping.reversed
+                ? ":REV"
+                : ":FWD");
+    }
+
+    Serial.println();
+}
+
+bool parseLedMappingText(
+    const char* text,
+    ambilight::LedMappingProfile& profile) {
+
+    if (text == nullptr ||
+        *text == '\0') {
+        return false;
+    }
+
+    const char* cursor = text;
+
+    for (std::size_t index = 0;
+         index < profile.segment.size();
+         ++index) {
+
+        std::uint16_t lane = 0;
+        std::uint16_t reversed = 0;
+
+        if (!parseUint16Token(cursor, lane) ||
+            *cursor != ':') {
+            return false;
+        }
+
+        ++cursor;
+
+        if (!parseUint16Token(cursor, reversed) ||
+            lane > 255 ||
+            reversed > 255) {
+            return false;
+        }
+
+        profile.segment[index].lane =
+            static_cast<std::uint8_t>(lane);
+
+        profile.segment[index].reversed =
+            static_cast<std::uint8_t>(reversed);
+
+        if (index + 1 <
+            profile.segment.size()) {
+
+            if (*cursor != ',') {
+                return false;
+            }
+
+            ++cursor;
+        }
+    }
+
+    return
+        *cursor == '\0' &&
+        profile.valid();
+}
+
+void resetLedMapCommand() {
+    ledMapCommandPending = false;
+    ledMapCommandLength = 0;
+    ledMapCommandBuffer.fill('\0');
+}
+
+bool applyLedMappingProfile(
+    const ambilight::LedMappingProfile& profile) {
+
+    if (ledEngine.brightness() != 0) {
+        Serial.println(
+            "LED MAP change refused: set output brightness to 0 first.");
+        return false;
+    }
+
+    if (!renderer.setMappingProfile(
+            profile)) {
+        Serial.println(
+            "LED MAP profile is invalid.");
+        return false;
+    }
+
+    const bool persisted =
+        runtimeSettings.setLedMappingProfile(
+            profile);
+
+    ledMappingDirty = true;
+
+    Serial.printf(
+        "LED MAP applied; persisted=%s.\n",
+        persisted ? "yes" : "no");
+
+    printLedMappingProfile();
+    return true;
+}
+
+void resetLedMappingProfile() {
+    if (ledEngine.brightness() != 0) {
+        Serial.println(
+            "LED MAP reset refused: set output brightness to 0 first.");
+        return;
+    }
+
+    const bool persisted =
+        runtimeSettings.resetLedMappingProfile();
+
+    if (!renderer.setMappingProfile(
+            runtimeSettings.ledMappingProfile())) {
+        Serial.println(
+            "LED MAP default profile is invalid.");
+        return;
+    }
+
+    ledMappingDirty = true;
+
+    Serial.printf(
+        "LED MAP reset to default; persisted=%s.\n",
+        persisted ? "yes" : "no");
+
+    printLedMappingProfile();
+}
+
+void finishLedMapCommand() {
+    ledMapCommandBuffer[
+        ledMapCommandLength] = '\0';
+
+    if (ledMapCommandLength == 0) {
+        printLedMappingProfile();
+        resetLedMapCommand();
+        return;
+    }
+
+    if (std::strcmp(
+            ledMapCommandBuffer.data(),
+            "reset") == 0) {
+
+        resetLedMappingProfile();
+        resetLedMapCommand();
+        return;
+    }
+
+    ambilight::LedMappingProfile profile;
+
+    if (!parseLedMappingText(
+            ledMapCommandBuffer.data(),
+            profile)) {
+
+        Serial.println(
+            "LED MAP invalid. Example: l0:0,1:0,2:0,3:0");
+        resetLedMapCommand();
+        return;
+    }
+
+    applyLedMappingProfile(profile);
+    resetLedMapCommand();
 }
 
 const char* spatialProfileSourceName() {
@@ -1153,6 +1352,7 @@ bool serviceRender(std::uint64_t nowUs) {
     const bool gainDirty =
         correctionModeDirty ||
         brightnessDirty ||
+        ledMappingDirty ||
         (
             gainPipelineEnabled &&
             (
@@ -1221,6 +1421,7 @@ bool serviceRender(std::uint64_t nowUs) {
     renderScheduler.markRendered(nowUs);
     correctionModeDirty = false;
     brightnessDirty = false;
+    ledMappingDirty = false;
 
     if (decision.dueToRgb) {
         rgbDirty = false;
@@ -1922,6 +2123,29 @@ void serviceDebugCommands() {
     while (Serial.available() > 0) {
         const int input = Serial.read();
 
+        if (ledMapCommandPending) {
+            if (input == '\r' || input == '\n') {
+                finishLedMapCommand();
+                continue;
+            }
+
+            if (input < 32 || input > 126 ||
+                ledMapCommandLength + 1 >=
+                    ledMapCommandBuffer.size()) {
+
+                Serial.println(
+                    "LED MAP command invalid/too long.");
+                resetLedMapCommand();
+                continue;
+            }
+
+            ledMapCommandBuffer[
+                ledMapCommandLength++] =
+                static_cast<char>(input);
+
+            continue;
+        }
+
         if (spatialCommandPending) {
             if (input == '\r' || input == '\n') {
                 finishSpatialCommand();
@@ -2085,6 +2309,10 @@ void serviceDebugCommands() {
 
         if (input == '!') {
             correctionCommandPending = true;
+        } else if (input == 'l' || input == 'L') {
+            ledMapCommandPending = true;
+            ledMapCommandLength = 0;
+            ledMapCommandBuffer.fill('\0');
         } else if (input == 'y' || input == 'Y') {
             spatialCommandPending = true;
             spatialCommandLength = 0;
@@ -2333,7 +2561,7 @@ void printRuntimeStatus() {
         ESP.getMinFreeHeap());
 
     Serial.printf(
-        "STATCFG curve=%s curve_points=%u curve_updates=%lu spatial=%s spatial_updates=%lu\n",
+        "STATCFG curve=%s curve_points=%u curve_updates=%lu spatial=%s spatial_updates=%lu ledmap=%s\n",
         gainCurveSourceName(),
         static_cast<unsigned>(
             runtimeSettings.tofGainPointCount()),
@@ -2345,13 +2573,14 @@ void printRuntimeStatus() {
         haveTof
             ? static_cast<unsigned long>(
                   tofSnapshot.spatialProfileUpdates)
-            : 0UL);
+            : 0UL,
+        ledMappingSourceName());
 }
 
 void printConfiguration() {
     Serial.println();
     Serial.println(
-        "ESP32-C6 Ambilight Stage 26: DDP socket hardening + sender isolation");
+        "ESP32-C6 Ambilight Stage 27: runtime LED mapping + DDP hardening");
 
     Serial.printf(
         "Logical LEDs=%u payload=%uB DDP=%u poll_budget=%uus max_datagrams=%u\n",
@@ -2423,6 +2652,8 @@ void printConfiguration() {
     Serial.println(
         "Spatial: y + Enter=status, yreset, or yW,H,X,Y,Z,ROT,MIRROR,DEADBAND (mm, not in ACTIVE).");
     Serial.println(
+        "LED map: l + Enter=status, lreset, or lTlane:Trev,Rlane:Rrev,Blane:Brev,Llane:Lrev; brightness must be 0.");
+    Serial.println(
         "Active frame transport remains Wi-Fi/DDP only. "
         "USB/AWA is preserved separately as WIP.");
     Serial.println();
@@ -2444,6 +2675,14 @@ void setup() {
 
     ledEngine.setBrightness(
         runtimeSettings.outputBrightness());
+
+    if (!renderer.setMappingProfile(
+            runtimeSettings.ledMappingProfile())) {
+
+        fatal(
+            "LED runtime mapping profile is invalid",
+            ESP_ERR_INVALID_ARG);
+    }
 
     if (!tof.setSpatialProfile(
             runtimeSettings.tofSpatialProfile())) {
