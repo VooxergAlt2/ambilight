@@ -22,6 +22,7 @@
 #include "render/RenderGainController.h"
 #include "render/ShadowGainProbe.h"
 #include "render/RenderScheduler.h"
+#include "runtime/RuntimePayloadParser.h"
 #include "runtime/SerialCommandParser.h"
 #include "network/DdpUdpService.h"
 #include "network/WifiService.h"
@@ -104,10 +105,6 @@ std::uint64_t lastFrameAgeUs = 0;
 std::uint64_t maxFrameAgeUs = 0;
 
 bool shadowGainProbeActive();
-
-bool parseUint16Token(
-    const char*& cursor,
-    std::uint16_t& value);
 
 const char* wifiCredentialSourceName(
     WifiCredentialSource source) {
@@ -390,59 +387,6 @@ void printLedMappingProfile() {
     Serial.println();
 }
 
-bool parseLedMappingText(
-    const char* text,
-    ambilight::LedMappingProfile& profile) {
-
-    if (text == nullptr ||
-        *text == '\0') {
-        return false;
-    }
-
-    const char* cursor = text;
-
-    for (std::size_t index = 0;
-         index < profile.segment.size();
-         ++index) {
-
-        std::uint16_t lane = 0;
-        std::uint16_t reversed = 0;
-
-        if (!parseUint16Token(cursor, lane) ||
-            *cursor != ':') {
-            return false;
-        }
-
-        ++cursor;
-
-        if (!parseUint16Token(cursor, reversed) ||
-            lane > 255 ||
-            reversed > 255) {
-            return false;
-        }
-
-        profile.segment[index].lane =
-            static_cast<std::uint8_t>(lane);
-
-        profile.segment[index].reversed =
-            static_cast<std::uint8_t>(reversed);
-
-        if (index + 1 <
-            profile.segment.size()) {
-
-            if (*cursor != ',') {
-                return false;
-            }
-
-            ++cursor;
-        }
-    }
-
-    return
-        *cursor == '\0' &&
-        profile.valid();
-}
-
 bool applyLedMappingProfile(
     const ambilight::LedMappingProfile& profile) {
 
@@ -519,9 +463,14 @@ void handleLedMapCommand(
 
     ambilight::LedMappingProfile profile;
 
-    if (!parseLedMappingText(
-            command,
-            profile)) {
+    const auto parseResult =
+        ambilight::RuntimePayloadParser::
+            parseLedMapping(
+                command,
+                profile);
+
+    if (parseResult !=
+        ambilight::RuntimePayloadParseResult::Ok) {
 
         Serial.println(
             "LED MAP invalid. Example: l0:0,1:0,2:0,3:0");
@@ -567,183 +516,6 @@ void printSpatialProfile() {
             profile.mirrorX),
         static_cast<double>(
             profile.planeDeadbandMm()));
-}
-
-bool parseDecimalX10(
-    const char*& cursor,
-    std::int32_t& valueX10) {
-
-    if (cursor == nullptr) {
-        return false;
-    }
-
-    bool negative = false;
-
-    if (*cursor == '-') {
-        negative = true;
-        ++cursor;
-    }
-
-    if (*cursor < '0' ||
-        *cursor > '9') {
-        return false;
-    }
-
-    std::int32_t whole = 0;
-
-    while (*cursor >= '0' &&
-           *cursor <= '9') {
-
-        whole =
-            whole * 10 +
-            static_cast<std::int32_t>(
-                *cursor - '0');
-
-        if (whole > 100000) {
-            return false;
-        }
-
-        ++cursor;
-    }
-
-    std::int32_t fraction = 0;
-
-    if (*cursor == '.') {
-        ++cursor;
-
-        if (*cursor < '0' ||
-            *cursor > '9') {
-            return false;
-        }
-
-        fraction =
-            static_cast<std::int32_t>(
-                *cursor - '0');
-
-        ++cursor;
-
-        // Fixed profile precision is exactly 0.1 mm.
-        if (*cursor >= '0' &&
-            *cursor <= '9') {
-            return false;
-        }
-    }
-
-    std::int32_t result =
-        whole * 10 +
-        fraction;
-
-    if (negative) {
-        result = -result;
-    }
-
-    valueX10 = result;
-    return true;
-}
-
-bool consumeComma(
-    const char*& cursor) {
-
-    if (*cursor != ',') {
-        return false;
-    }
-
-    ++cursor;
-    return true;
-}
-
-bool parseSpatialProfileText(
-    const char* text,
-    ambilight::TofSpatialProfile& profile) {
-
-    if (text == nullptr ||
-        *text == '\0') {
-        return false;
-    }
-
-    const char* cursor = text;
-
-    std::int32_t width = 0;
-    std::int32_t height = 0;
-    std::int32_t sensorX = 0;
-    std::int32_t sensorY = 0;
-    std::int32_t ledZ = 0;
-    std::int32_t deadband = 0;
-
-    std::uint16_t rotation = 0;
-    std::uint16_t mirror = 0;
-
-    if (!parseDecimalX10(cursor, width) ||
-        !consumeComma(cursor) ||
-        !parseDecimalX10(cursor, height) ||
-        !consumeComma(cursor) ||
-        !parseDecimalX10(cursor, sensorX) ||
-        !consumeComma(cursor) ||
-        !parseDecimalX10(cursor, sensorY) ||
-        !consumeComma(cursor) ||
-        !parseDecimalX10(cursor, ledZ) ||
-        !consumeComma(cursor) ||
-        !parseUint16Token(cursor, rotation) ||
-        !consumeComma(cursor) ||
-        !parseUint16Token(cursor, mirror) ||
-        !consumeComma(cursor) ||
-        !parseDecimalX10(cursor, deadband) ||
-        *cursor != '\0') {
-
-        return false;
-    }
-
-    if (width < 0 ||
-        width > 65535 ||
-        height < 0 ||
-        height > 65535 ||
-        sensorX < -32768 ||
-        sensorX > 32767 ||
-        sensorY < -32768 ||
-        sensorY > 32767 ||
-        ledZ < -32768 ||
-        ledZ > 32767 ||
-        deadband < 0 ||
-        deadband > 65535 ||
-        rotation > 255 ||
-        mirror > 255) {
-
-        return false;
-    }
-
-    profile.widthMmX10 =
-        static_cast<std::uint16_t>(
-            width);
-
-    profile.heightMmX10 =
-        static_cast<std::uint16_t>(
-            height);
-
-    profile.sensorOffsetXmmX10 =
-        static_cast<std::int16_t>(
-            sensorX);
-
-    profile.sensorOffsetYmmX10 =
-        static_cast<std::int16_t>(
-            sensorY);
-
-    profile.ledPlaneZmmX10 =
-        static_cast<std::int16_t>(
-            ledZ);
-
-    profile.rotationQuarterTurns =
-        static_cast<std::uint8_t>(
-            rotation);
-
-    profile.mirrorX =
-        static_cast<std::uint8_t>(
-            mirror);
-
-    profile.planeDeadbandMmX10 =
-        static_cast<std::uint16_t>(
-            deadband);
-
-    return profile.valid();
 }
 
 void invalidateRenderedGainAfterSpatialChange() {
@@ -850,9 +622,14 @@ void handleSpatialCommand(
 
     ambilight::TofSpatialProfile profile;
 
-    if (!parseSpatialProfileText(
-            command,
-            profile)) {
+    const auto parseResult =
+        ambilight::RuntimePayloadParser::
+            parseSpatialProfile(
+                command,
+                profile);
+
+    if (parseResult !=
+        ambilight::RuntimePayloadParseResult::Ok) {
 
         Serial.println(
             "TOF SPATIAL command invalid. Example: y1437.5,1000,0,0,0,0,0,10");
@@ -910,113 +687,6 @@ void printTofGainCurve() {
     }
 
     Serial.println();
-}
-
-bool parseUint16Token(
-    const char*& cursor,
-    std::uint16_t& value) {
-
-    if (cursor == nullptr ||
-        *cursor < '0' ||
-        *cursor > '9') {
-
-        return false;
-    }
-
-    std::uint32_t parsed = 0;
-
-    while (*cursor >= '0' &&
-           *cursor <= '9') {
-
-        parsed =
-            parsed * 10U +
-            static_cast<std::uint32_t>(
-                *cursor - '0');
-
-        if (parsed > 65535U) {
-            return false;
-        }
-
-        ++cursor;
-    }
-
-    value =
-        static_cast<std::uint16_t>(
-            parsed);
-
-    return true;
-}
-
-bool parseGainCurveText(
-    const char* text,
-    std::array<
-        ambilight::GainPoint,
-        ambilight::DistanceGainCurve::kMaxPoints>& points,
-    std::size_t& count) {
-
-    points = {};
-    count = 0;
-
-    if (text == nullptr ||
-        *text == '\0') {
-        return false;
-    }
-
-    const char* cursor = text;
-
-    while (*cursor != '\0') {
-        if (count >=
-            points.size()) {
-
-            return false;
-        }
-
-        std::uint16_t distance = 0;
-        std::uint16_t gain = 0;
-
-        if (!parseUint16Token(
-                cursor,
-                distance)) {
-            return false;
-        }
-
-        if (*cursor != ':') {
-            return false;
-        }
-
-        ++cursor;
-
-        if (!parseUint16Token(
-                cursor,
-                gain)) {
-            return false;
-        }
-
-        points[count++] = {
-            distance,
-            gain
-        };
-
-        if (*cursor == '\0') {
-            break;
-        }
-
-        if (*cursor != ',') {
-            return false;
-        }
-
-        ++cursor;
-
-        if (*cursor == '\0') {
-            return false;
-        }
-    }
-
-    const ambilight::DistanceGainCurve curve(
-        points,
-        count);
-
-    return curve.valid();
 }
 
 void invalidateRenderedGainAfterCurveChange() {
@@ -1134,10 +804,15 @@ void handleGainCurveCommand(
 
     std::size_t count = 0;
 
-    if (!parseGainCurveText(
-            command,
-            points,
-            count)) {
+    const auto parseResult =
+        ambilight::RuntimePayloadParser::
+            parseGainCurve(
+                command,
+                points,
+                count);
+
+    if (parseResult !=
+        ambilight::RuntimePayloadParseResult::Ok) {
 
         Serial.println(
             "TOF CURVE command invalid. Example: q50:2048,500:3072,4000:4096");
@@ -2337,36 +2012,33 @@ void handleBrightnessCommand(
         return;
     }
 
-    std::uint16_t value = 0;
+    std::uint8_t value = 0;
 
-    for (const char* cursor = command;
-         *cursor != '\0';
-         ++cursor) {
+    const auto parseResult =
+        ambilight::RuntimePayloadParser::
+            parseBrightness(
+                command,
+                value);
 
-        if (*cursor < '0' ||
-            *cursor > '9') {
+    if (parseResult ==
+        ambilight::RuntimePayloadParseResult::
+            OutOfRange) {
 
-            Serial.println(
-                "OUTPUT brightness command invalid. Use b0..b255.");
-            return;
-        }
-
-        value =
-            static_cast<std::uint16_t>(
-                value * 10U +
-                static_cast<std::uint16_t>(
-                    *cursor - '0'));
-    }
-
-    if (value > 255U) {
         Serial.println(
             "OUTPUT brightness out of range. Use 0..255.");
         return;
     }
 
+    if (parseResult !=
+        ambilight::RuntimePayloadParseResult::Ok) {
+
+        Serial.println(
+            "OUTPUT brightness command invalid. Use b0..b255.");
+        return;
+    }
+
     setOutputBrightness(
-        static_cast<std::uint8_t>(
-            value));
+        value);
 }
 
 void handleCorrectionCommand(
