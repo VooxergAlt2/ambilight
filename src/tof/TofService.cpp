@@ -112,6 +112,54 @@ TofService::~TofService() {
     }
 }
 
+bool TofService::setGainCurve(
+    const DistanceGainCurve& curve) {
+
+    if (!curve.valid()) {
+        return false;
+    }
+
+    if (task_ == nullptr) {
+        const bool legacyOk =
+            gainModel_.setCurve(
+                curve);
+
+        const bool perimeterOk =
+            perimeterGainModel_.setCurve(
+                curve);
+
+        planeChangeGate_.reset();
+
+        return legacyOk &&
+            perimeterOk;
+    }
+
+    if (mutex_ == nullptr) {
+        return false;
+    }
+
+    if (xSemaphoreTake(
+            mutex_,
+            pdMS_TO_TICKS(20)) != pdTRUE) {
+
+        return false;
+    }
+
+    pendingGainCurve_ = curve;
+    pendingGainCurveDirty_ = true;
+
+    // Until the ToF task applies the new curve and rebuilds from a fresh pose,
+    // expose fail-open unity. This prevents a previously configured curve from
+    // being physically applied if ACTIVE is enabled immediately afterward.
+    snapshot_.gains = {};
+    snapshot_.perimeterGains = {};
+
+    xSemaphoreGive(
+        mutex_);
+
+    return true;
+}
+
 bool TofService::begin() {
     if (task_ != nullptr) {
         return true;
@@ -435,6 +483,65 @@ void TofService::publishResults(
     }
 }
 
+void TofService::applyPendingGainCurve() {
+    DistanceGainCurve curve;
+    bool shouldApply = false;
+
+    if (mutex_ == nullptr) {
+        return;
+    }
+
+    if (xSemaphoreTake(
+            mutex_,
+            portMAX_DELAY) == pdTRUE) {
+
+        if (pendingGainCurveDirty_) {
+            curve =
+                pendingGainCurve_;
+
+            pendingGainCurveDirty_ =
+                false;
+
+            shouldApply = true;
+        }
+
+        xSemaphoreGive(
+            mutex_);
+    }
+
+    if (!shouldApply) {
+        return;
+    }
+
+    const bool legacyOk =
+        gainModel_.setCurve(
+            curve);
+
+    const bool perimeterOk =
+        perimeterGainModel_.setCurve(
+            curve);
+
+    if (!legacyOk ||
+        !perimeterOk) {
+
+        return;
+    }
+
+    // Force the next valid pose to rebuild the full 780-value field even if
+    // the wall itself has not moved beyond the normal deadband.
+    planeChangeGate_.reset();
+
+    if (xSemaphoreTake(
+            mutex_,
+            portMAX_DELAY) == pdTRUE) {
+
+        ++snapshot_.gainCurveUpdates;
+
+        xSemaphoreGive(
+            mutex_);
+    }
+}
+
 void TofService::refreshGainStaleness(
     std::uint64_t nowUs) {
 
@@ -538,6 +645,8 @@ void TofService::taskLoop() {
         std::uint8_t consecutiveReadFailures = 0;
 
         for (;;) {
+            applyPendingGainCurve();
+
             const std::uint64_t nowUs =
                 static_cast<std::uint64_t>(esp_timer_get_time());
 
