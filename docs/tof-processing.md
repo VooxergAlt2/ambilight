@@ -1,144 +1,123 @@
-# Stage 8: ToF processing
+# ToF processing
 
 ## Scope
 
-Stage 8 converts raw VL53L5CX 8x8 ranging data into stable diagnostic LEFT/CENTER/RIGHT distance estimates.
+VL53L5CX is treated as a slow geometry sensor, independent from the realtime RGB path.
 
-It still does **not** modify LED RGB values.
-
-Active frame path remains:
+Active frame path:
 
     HyperHDR -> Wi-Fi/DDP -> FrameMailbox -> LedRenderer -> PARLIO x4
 
 Sensor path:
 
-    VL53L5CX 8x8 @ 10 Hz
-        -> raw frame
+    VL53L5CX 8x8
+        -> internal ranging at 1 Hz
+        -> one transferred/processed frame about every 12 s
         -> orientation normalization
         -> status/range validation
-        -> band extraction
-        -> robust spatial filtering
-        -> temporal filtering
-        -> TofGeometrySnapshot
+        -> robust band diagnostics
+        -> robust 2D wall plane
+        -> plane-change deadband
+        -> perimeter/gain rebuild only when geometry materially changes
 
 ## Normalized grid
-
-The processor works in a normalized 8x8 coordinate system.
 
 Config controls:
 
 - rotation: 0/90/180/270 degrees
 - optional horizontal mirror
 
-Default is currently rotation 0, mirror off.
-
-These are intentionally compile-time settings until actual sensor mounting is verified.
-
-## Bands
-
-Normalized columns:
-
-- LEFT: 0..2, maximum 24 zones
-- CENTER: 3..4, maximum 16 zones
-- RIGHT: 5..7, maximum 24 zones
-
-The center band is narrower so left/right estimates remain spatially separated.
+These remain compile-time settings until mounting geometry is known.
 
 ## Input validity
 
-A sample is considered a candidate only when:
+Usable range statuses:
 
-- target status is 5 or 9
-- distance > 0
-- distance is between 50 and 4000 mm
+- 5: full weight
+- 6: usable, lower plane-fit weight
+- 9: usable, lower plane-fit weight
 
-## Robust spatial filter
+Distance must be within 50..4000 mm.
 
-For each band:
+## Legacy LEFT/CENTER/RIGHT bands
 
-1. collect candidate distances
-2. compute raw median
-3. compute MAD, median absolute deviation
-4. outlier window = max(100 mm, 4 * MAD)
-5. reject samples outside that window
-6. require at least:
-   - 6 accepted zones for LEFT/RIGHT
-   - 4 accepted zones for CENTER
-7. compute robust median from accepted values
+Normalized columns:
 
-This deliberately avoids a plain arithmetic mean, which is too sensitive to one zone seeing an object, bracket, cable, or edge.
+- LEFT: 0..2
+- CENTER: 3..4
+- RIGHT: 5..7
 
-## Temporal filter
+Each band uses median/MAD outlier rejection. These values remain useful diagnostics but are not the authoritative spatial model for rendering.
 
-Each band has independent state.
+## Wall plane
 
-- time constant: 600 ms
-- deadband: 10 mm
-- alpha is derived from real frame delta-time
-- filter uses integer Q16 arithmetic
-- first valid result initializes immediately
+The authoritative spatial model is:
 
-Changing sensor update frequency therefore does not silently change the intended smoothing time.
+    z = intercept + slope_x*x + slope_y*y
 
-## Diagnostic outputs
+VL53L5CX `distance_mm` is used as perpendicular Z. X/Y are reconstructed from ST's zone-center angle LUT.
 
-Each TofBandEstimate exposes:
+Plane fitting uses weighted least squares, median/MAD residual rejection, then a refined fit.
 
-- valid
-- candidates
-- accepted
-- raw median
-- MAD
-- robust median
-- filtered distance
+## Plane-change deadband
 
-Geometry also exposes:
+A valid new plane is compared with the last plane that actually rebuilt the gain field.
 
-    rightMinusLeftMm = filteredRight - filteredLeft
+The comparison is performed in physical screen space:
 
-Positive means the normalized right band is farther from the wall.
+1. evaluate both planes at the LED-rectangle corners
+2. take maximum absolute wall-Z change
+3. if maximum change is below 10 mm:
+   - do not rebuild 780 distances
+   - do not rebuild 780 gains
+   - refresh source generation/timestamp only
+4. if change reaches/exceeds 10 mm:
+   - accept the new plane
+   - rebuild the field
 
-This is only a **relative geometry indicator**. It is not yet interpreted as a yaw angle.
+The deadband is cumulative because the comparison reference is not moved on skipped measurements.
+
+Example:
+
+    applied = 600 mm
+    candidate = 606 mm -> skip
+    candidate = 611 mm -> rebuild
+
+A small slope can still trigger a rebuild if it causes >=10 mm change at a screen edge.
+
+## Freshness
+
+Normal processing interval:
+
+    ~12 s
+
+Gain/plane freshness timeout:
+
+    30 s
+
+A fresh measurement inside the deadband refreshes the existing field's timestamp without recalculating it.
+
+If the plane becomes invalid, the gain path fails open to unity.
 
 ## Recovery
 
-Sensor health is independent from Ambilight.
+- five consecutive ranging read failures trigger restart
+- no successful frame for roughly 30 seconds triggers restart
+- retry delay: 5 seconds
+- RGB/DDP runtime is independent from ToF recovery
 
-After ranging starts:
+## Verification strategy
 
-- five consecutive ranging read failures trigger ToF restart
-- no successful ToF frame for 3 seconds triggers ToF restart
-- retry delay is 5 seconds
-- DDP/LED runtime is never restarted by ToF recovery
+Software development does not wait for hardware measurements.
 
-## Native tests
+Before hardware is available, behavior is locked by:
 
-The pure C++ processor is tested with synthetic maps for:
+- sensor-contract fixtures
+- synthetic flat/yaw/pitch planes
+- outlier tests
+- rotation/mirror tests
+- plane-deadband tests
+- per-LED projection tests
+- fail-open tests
 
-- exact rotation index mapping
-- flat wall
-- independent LEFT/CENTER/RIGHT distances
-- single extreme outlier
-- invalid target statuses
-- out-of-range measurements
-- insufficient valid zones
-- rotation + mirror normalization
-- step response in both directions
-- deadband behavior
-- status 9 acceptance
-
-## Hardware capture plan before brightness integration
-
-Collect both raw `t` and processed `g` output for at least:
-
-1. TV parallel, close to wall
-2. TV parallel, fully extended
-3. left edge close / right edge far
-4. right edge close / left edge far
-5. intermediate yaw
-6. a person/object briefly crossing sensor FoV
-7. sensor partially occluded if physically possible
-
-For each pose, observe whether LEFT/CENTER/RIGHT move monotonically and whether MAD/accepted counts remain healthy.
-
-Adaptive brightness must not be implemented until these captures are reviewed.
+Hardware testing later validates mounting orientation, offsets, real noise and photometric calibration values.
