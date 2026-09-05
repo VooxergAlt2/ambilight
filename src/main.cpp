@@ -1301,6 +1301,218 @@ void refreshRgbCache() {
     rgbDirty = true;
 }
 
+const char* commissioningPatternName(
+    ambilight::LedCommissioningPattern pattern) {
+
+    switch (pattern) {
+    case ambilight::LedCommissioningPattern::None:
+        return "NONE";
+    case ambilight::LedCommissioningPattern::SegmentIdentity:
+        return "SEGMENTS";
+    case ambilight::LedCommissioningPattern::DirectionMarkers:
+        return "DIRECTION";
+    }
+
+    return "INVALID";
+}
+
+void printCommissioningStatus() {
+    const std::uint64_t nowUs =
+        static_cast<std::uint64_t>(
+            esp_timer_get_time());
+
+    const std::uint64_t remainingMs =
+        commissioningPattern !=
+                ambilight::LedCommissioningPattern::None &&
+            commissioningUntilUs > nowUs
+            ? (commissioningUntilUs - nowUs) /
+                1000ULL
+            : 0ULL;
+
+    Serial.printf(
+        "LED TEST pattern=%s remaining=%llums brightness=%u/255 runs=%lu renders=%lu cancels=%lu\n",
+        commissioningPatternName(
+            commissioningPattern),
+        static_cast<unsigned long long>(
+            remainingMs),
+        static_cast<unsigned>(
+            ledEngine.brightness()),
+        static_cast<unsigned long>(
+            commissioningRuns),
+        static_cast<unsigned long>(
+            commissioningRenders),
+        static_cast<unsigned long>(
+            commissioningCancels));
+}
+
+void finishCommissioning(
+    std::uint64_t nowUs,
+    bool cancelled,
+    const char* reason) {
+
+    if (commissioningPattern ==
+        ambilight::LedCommissioningPattern::None) {
+        return;
+    }
+
+    commissioningPattern =
+        ambilight::LedCommissioningPattern::None;
+    commissioningUntilUs = 0;
+    commissioningDirty = false;
+
+    if (cancelled) {
+        ++commissioningCancels;
+    }
+
+    // Pull the newest DDP frame that accumulated while the test owned the
+    // physical output. If none exists, restore any older cached frame.
+    refreshRgbCache();
+
+    if (rgbFrameValid) {
+        rgbDirty = true;
+    } else {
+        ambilight::RgbFrame black;
+        black.clear();
+        black.receivedUs = nowUs;
+
+        const esp_err_t result =
+            renderer.render(
+                black,
+                ambilight::RenderGainContext::unity(),
+                ambilight::CorrectionMode::Disabled);
+
+        if (result != ESP_OK) {
+            fatal(
+                "commissioning blackout failed",
+                result);
+        }
+    }
+
+    Serial.printf(
+        "LED TEST stopped: %s.\n",
+        reason != nullptr
+            ? reason
+            : "done");
+}
+
+void startCommissioning(
+    ambilight::LedCommissioningPattern pattern) {
+
+    const std::uint8_t brightness =
+        ledEngine.brightness();
+
+    if (brightness == 0 ||
+        brightness >
+            kCommissioningMaxBrightness) {
+
+        Serial.printf(
+            "LED TEST refused: set brightness to 1..%u first. Current=%u.\n",
+            static_cast<unsigned>(
+                kCommissioningMaxBrightness),
+            static_cast<unsigned>(
+                brightness));
+        return;
+    }
+
+    if (pattern ==
+        ambilight::LedCommissioningPattern::None) {
+        return;
+    }
+
+    const std::uint64_t nowUs =
+        static_cast<std::uint64_t>(
+            esp_timer_get_time());
+
+    ambilight::LedCommissioningPatternBuilder::build(
+        pattern,
+        commissioningFrame);
+
+    commissioningFrame.receivedUs =
+        nowUs;
+
+    commissioningPattern = pattern;
+    commissioningUntilUs =
+        nowUs +
+        kCommissioningDurationUs;
+
+    commissioningDirty = true;
+    ++commissioningRuns;
+
+    Serial.printf(
+        "LED TEST started: %s for %llums at brightness=%u/255. ToF correction is bypassed for the test frame.\n",
+        commissioningPatternName(
+            pattern),
+        static_cast<unsigned long long>(
+            kCommissioningDurationUs /
+            1000ULL),
+        static_cast<unsigned>(
+            brightness));
+}
+
+bool serviceCommissioning(
+    std::uint64_t nowUs) {
+
+    if (commissioningPattern ==
+        ambilight::LedCommissioningPattern::None) {
+        return false;
+    }
+
+    if (nowUs >=
+        commissioningUntilUs) {
+
+        finishCommissioning(
+            nowUs,
+            false,
+            "duration complete");
+
+        return false;
+    }
+
+    const std::uint8_t brightness =
+        ledEngine.brightness();
+
+    if (brightness == 0 ||
+        brightness >
+            kCommissioningMaxBrightness) {
+
+        finishCommissioning(
+            nowUs,
+            true,
+            "brightness left safe test range");
+
+        return false;
+    }
+
+    if (!commissioningDirty &&
+        !brightnessDirty &&
+        !ledMappingDirty) {
+
+        return true;
+    }
+
+    commissioningFrame.receivedUs =
+        nowUs;
+
+    const esp_err_t result =
+        renderer.render(
+            commissioningFrame,
+            ambilight::RenderGainContext::unity(),
+            ambilight::CorrectionMode::Disabled);
+
+    if (result != ESP_OK) {
+        fatal(
+            "commissioning render failed",
+            result);
+    }
+
+    ++commissioningRenders;
+    commissioningDirty = false;
+    brightnessDirty = false;
+    ledMappingDirty = false;
+
+    return true;
+}
+
 void refreshTargetGainContext(
     std::uint64_t nowUs) {
 
