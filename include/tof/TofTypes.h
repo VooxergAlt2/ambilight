@@ -59,6 +59,12 @@ struct TofPlaneEstimate {
     std::uint16_t residualMedianMm = 0;
     std::uint16_t residualMadMm = 0;
 
+    // Maximum accepted point extent around the ToF optical origin.
+    // These spans describe how much of the wall was directly observed before
+    // the plane is extrapolated toward the LED perimeter.
+    std::uint16_t observedHalfSpanXmm = 0;
+    std::uint16_t observedHalfSpanYmm = 0;
+
     // Diagnostic orientation only.
     //
     // Positive yaw: wall farther toward normalized right.
