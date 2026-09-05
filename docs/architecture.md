@@ -2,61 +2,67 @@
 
 ## Current stage
 
-Stage 15 uses the fitted 2D wall plane to create spatial shadow gains around the complete LED perimeter.
+Stage 16 adds confidence diagnostics to the 2D spatial perimeter-gain pipeline.
 
-Physical gains remain disabled.
+Physical correction remains disabled.
 
-## Geometry chain
+## Spatial chain
 
-    VL53L5CX 8x8
-      -> TofPlaneEstimator
-      -> z = c + ax + by
-      -> TofPerimeterGainModel
-      -> endpoint wall distances
-      -> endpoint Q12 gains
-      -> PerimeterGainSnapshot
-      -> TofRenderGainBridge
+    VL53L5CX
+      -> robust 3D wall points
+      -> wall plane
+      -> observed wall X/Y span
+      -> screen perimeter projection
+      -> endpoint distances
+      -> endpoint gains
       -> RenderGainContext
-      -> RenderGainController
-      -> LedRenderer per-pixel interpolation
-      -> ShadowRenderPolicy
+      -> render-rate slew
+      -> per-pixel shadow interpolation
       -> ORIGINAL RGB
 
-## Within-segment correction
+## Confidence layers
 
-Each segment has independent logical start/end values.
+Plane validity answers:
 
-Therefore correction is 2D, not just per-side:
+    did the accepted ToF points support a coherent wall plane?
 
-- yaw creates horizontal gradients
-- pitch creates vertical gradients
-- compound orientation creates gradients on all sides
+Projection validity answers:
 
-## Parallel legacy path
+    can that plane produce sane wall distances at every configured LED endpoint?
 
-The older LEFT/CENTER/RIGHT TofGainModel remains active for diagnostics only.
+Extrapolation warning answers:
 
-The renderer target now comes from PerimeterGainSnapshot.
+    how far outside the directly observed wall patch are we projecting?
 
-## Screen geometry
+These are intentionally separate signals.
 
-Screen-space endpoint coordinates are separate from physical LED lane/index mapping.
+## Extrapolation
 
-This is critical:
+The estimator records accepted point half-spans X/Y.
 
-- physical strip reversal affects wiring only
-- screen-space logical direction controls spatial compensation
+The spatial model compares those spans to the configured LED perimeter half-spans.
 
-The current endpoint directions are provisional and must be verified on hardware.
+A ratio over 4.0x currently produces a warning only.
 
-## Current safety
+No hard extrapolation fail-open is enabled before real bracket measurements exist.
 
-The real distance curve remains unity.
+## Renderer contract
 
-ShadowRenderPolicy still sends original RGB to PARLIO.
+TofRenderGainBridge requires:
 
-## Next concern
+- snapshot fresh
+- plane usable
+- projection usable
+- not fail-open
 
-Plane projection can extrapolate beyond the area directly observed by the sensor FoV, especially at small wall distance.
+Extrapolation warning alone does not disable shadow gains.
 
-A following stage should quantify that extrapolation and endpoint uncertainty before physical gains are allowed.
+## Remaining mathematical concern
+
+The renderer currently interpolates gain linearly between segment endpoint gains.
+
+Distance itself is linear along a straight segment under the fitted plane, but a calibrated distance-to-gain curve can contain multiple piecewise-linear intervals.
+
+Therefore endpoint-gain interpolation is not exact if one segment spans calibration breakpoints.
+
+The next stage should carry distance through the render profile and evaluate the calibration curve at the actual per-pixel distance.
