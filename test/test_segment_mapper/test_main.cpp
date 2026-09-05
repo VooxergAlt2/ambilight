@@ -3,6 +3,7 @@
 #include "core/Geometry.h"
 #include "led/SegmentMapper.h"
 
+using ambilight::LedMappingProfile;
 using ambilight::PhysicalPixel;
 using ambilight::SegmentConfig;
 using ambilight::SegmentId;
@@ -94,10 +95,112 @@ void test_reversed_segment_mapping() {
     TEST_ASSERT_FALSE(after.valid);
 }
 
+
+void test_runtime_profile_can_permute_lanes() {
+    LedMappingProfile profile;
+
+    profile.segment[0].lane = 3; // TOP -> lane 3
+    profile.segment[1].lane = 2; // RIGHT -> lane 2
+    profile.segment[2].lane = 1; // BOTTOM -> lane 1
+    profile.segment[3].lane = 0; // LEFT -> lane 0
+
+    TEST_ASSERT_TRUE(profile.valid());
+
+    const auto top =
+        SegmentMapper::map(
+            0,
+            profile);
+
+    const auto right =
+        SegmentMapper::map(
+            230,
+            profile);
+
+    const auto bottom =
+        SegmentMapper::map(
+            390,
+            profile);
+
+    const auto left =
+        SegmentMapper::map(
+            620,
+            profile);
+
+    TEST_ASSERT_EQUAL_UINT8(3, top.lane);
+    TEST_ASSERT_EQUAL_UINT8(2, right.lane);
+    TEST_ASSERT_EQUAL_UINT8(1, bottom.lane);
+    TEST_ASSERT_EQUAL_UINT8(0, left.lane);
+}
+
+void test_runtime_profile_reverses_only_selected_segment() {
+    LedMappingProfile profile;
+    profile.segment[
+        static_cast<std::size_t>(
+            SegmentId::Top)].reversed = 1;
+
+    TEST_ASSERT_TRUE(profile.valid());
+
+    const auto firstTop =
+        SegmentMapper::map(
+            0,
+            profile);
+
+    const auto lastTop =
+        SegmentMapper::map(
+            229,
+            profile);
+
+    const auto firstRight =
+        SegmentMapper::map(
+            230,
+            profile);
+
+    TEST_ASSERT_EQUAL_UINT16(
+        229,
+        firstTop.index);
+
+    TEST_ASSERT_EQUAL_UINT16(
+        0,
+        lastTop.index);
+
+    TEST_ASSERT_EQUAL_UINT16(
+        0,
+        firstRight.index);
+}
+
+void test_duplicate_runtime_lane_is_rejected() {
+    LedMappingProfile profile;
+
+    profile.segment[1].lane = 0;
+
+    TEST_ASSERT_FALSE(
+        profile.valid());
+
+    const auto mapped =
+        SegmentMapper::map(
+            230,
+            profile);
+
+    TEST_ASSERT_FALSE(
+        mapped.valid);
+}
+
+void test_invalid_runtime_reversal_flag_is_rejected() {
+    LedMappingProfile profile;
+    profile.segment[0].reversed = 2;
+
+    TEST_ASSERT_FALSE(
+        profile.valid());
+}
+
 int main(int, char**) {
     UNITY_BEGIN();
     RUN_TEST(test_default_geometry_boundaries);
     RUN_TEST(test_out_of_range_is_invalid);
     RUN_TEST(test_reversed_segment_mapping);
+    RUN_TEST(test_runtime_profile_can_permute_lanes);
+    RUN_TEST(test_runtime_profile_reverses_only_selected_segment);
+    RUN_TEST(test_duplicate_runtime_lane_is_rejected);
+    RUN_TEST(test_invalid_runtime_reversal_flag_is_rejected);
     return UNITY_END();
 }
