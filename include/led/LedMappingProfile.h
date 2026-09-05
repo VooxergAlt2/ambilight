@@ -28,7 +28,7 @@ struct LedMappingProfile {
             {3, 0}  // LEFT
         }};
 
-    bool valid() const {
+    constexpr bool valid() const {
         std::array<
             bool,
             config::kParlioLaneCount>
@@ -68,7 +68,7 @@ struct LedMappingProfile {
         return true;
     }
 
-    LedSegmentMapping forSegment(
+    constexpr LedSegmentMapping forSegment(
         SegmentId id) const {
 
         const std::size_t index =
