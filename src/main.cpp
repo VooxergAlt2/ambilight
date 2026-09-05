@@ -50,7 +50,14 @@ ambilight::RenderGainContext cachedTargetGainContext{};
 bool rgbFrameValid = false;
 bool rgbDirty = false;
 bool correctionModeDirty = false;
+bool brightnessDirty = false;
+
 bool correctionCommandPending = false;
+bool brightnessCommandPending = false;
+
+std::uint16_t brightnessCommandValue = 0;
+std::uint8_t brightnessCommandDigits = 0;
+
 bool haveCachedPerimeterGainSnapshot = false;
 
 std::uint32_t lastMailboxGeneration = 0;
@@ -78,6 +85,8 @@ void printCorrectionMode() {
         "CORRECTION mode=%s persisted=%s nvs=%s writes=%lu write_fail=%lu invalid_stored=%lu\n",
         ambilight::correctionModeName(
             correctionMode),
+        static_cast<unsigned>(
+            ledEngine.brightness()),
         runtimeSettings.persistenceAvailable()
             ? "yes"
             : "no",
@@ -90,6 +99,49 @@ void printCorrectionMode() {
             runtimeSettings.stats().writeFailures),
         static_cast<unsigned long>(
             runtimeSettings.stats().invalidStoredValues));
+}
+
+void printOutputBrightness() {
+    const std::uint8_t brightness =
+        ledEngine.brightness();
+
+    const std::uint32_t percentX10 =
+        (
+            static_cast<std::uint32_t>(
+                brightness) *
+            1000U +
+            127U
+        ) /
+        255U;
+
+    Serial.printf(
+        "OUTPUT brightness=%u/255 (%lu.%lu%%) persisted=%s\n",
+        static_cast<unsigned>(brightness),
+        static_cast<unsigned long>(
+            percentX10 / 10U),
+        static_cast<unsigned long>(
+            percentX10 % 10U),
+        runtimeSettings.persistenceAvailable()
+            ? "yes"
+            : "no");
+}
+
+void setOutputBrightness(
+    std::uint8_t brightness) {
+
+    const bool persisted =
+        runtimeSettings.setOutputBrightness(
+            brightness);
+
+    ledEngine.setBrightness(
+        brightness);
+
+    brightnessDirty = true;
+
+    Serial.printf(
+        "OUTPUT brightness changed to %u/255; persisted=%s.\n",
+        static_cast<unsigned>(brightness),
+        persisted ? "yes" : "no");
 }
 
 void setCorrectionMode(
@@ -222,6 +274,7 @@ bool serviceRender(std::uint64_t nowUs) {
 
     const bool gainDirty =
         correctionModeDirty ||
+        brightnessDirty ||
         (
             gainPipelineEnabled &&
             (
@@ -289,6 +342,7 @@ bool serviceRender(std::uint64_t nowUs) {
 
     renderScheduler.markRendered(nowUs);
     correctionModeDirty = false;
+    brightnessDirty = false;
 
     if (decision.dueToRgb) {
         rgbDirty = false;
@@ -986,6 +1040,57 @@ void serviceDebugCommands() {
     while (Serial.available() > 0) {
         const int input = Serial.read();
 
+        if (brightnessCommandPending) {
+            if (input >= '0' && input <= '9') {
+                if (brightnessCommandDigits >= 3) {
+                    brightnessCommandPending = false;
+                    brightnessCommandDigits = 0;
+                    brightnessCommandValue = 0;
+
+                    Serial.println(
+                        "OUTPUT brightness command invalid. Use b0..b255.");
+                    continue;
+                }
+
+                brightnessCommandValue =
+                    static_cast<std::uint16_t>(
+                        brightnessCommandValue * 10U +
+                        static_cast<std::uint16_t>(
+                            input - '0'));
+
+                ++brightnessCommandDigits;
+                continue;
+            }
+
+            if (input == '\r' || input == '\n') {
+                if (brightnessCommandDigits == 0) {
+                    printOutputBrightness();
+                } else if (
+                    brightnessCommandValue <= 255U) {
+
+                    setOutputBrightness(
+                        static_cast<std::uint8_t>(
+                            brightnessCommandValue));
+                } else {
+                    Serial.println(
+                        "OUTPUT brightness out of range. Use 0..255.");
+                }
+
+                brightnessCommandPending = false;
+                brightnessCommandDigits = 0;
+                brightnessCommandValue = 0;
+                continue;
+            }
+
+            brightnessCommandPending = false;
+            brightnessCommandDigits = 0;
+            brightnessCommandValue = 0;
+
+            Serial.println(
+                "OUTPUT brightness command invalid. Use b0..b255.");
+            continue;
+        }
+
         if (correctionCommandPending) {
             correctionCommandPending = false;
 
@@ -1011,6 +1116,10 @@ void serviceDebugCommands() {
 
         if (input == '!') {
             correctionCommandPending = true;
+        } else if (input == 'b' || input == 'B') {
+            brightnessCommandPending = true;
+            brightnessCommandValue = 0;
+            brightnessCommandDigits = 0;
         } else if (input == 't' || input == 'T') {
             dumpTofMap();
         } else if (input == 'g' || input == 'G') {
@@ -1062,7 +1171,7 @@ void printRuntimeStatus() {
     const auto& geometry = tofSnapshot.geometry;
 
     Serial.printf(
-        "STAT corr=%s persist=%s wifi=%s rssi=%d pkt=%lu asm=%lu pub=%lu collapse=%lu rej=%lu stale=%lu timeout=%lu "
+        "STAT corr=%s brightness=%u persist=%s wifi=%s rssi=%d pkt=%lu asm=%lu pub=%lu collapse=%lu rej=%lu stale=%lu timeout=%lu "
         "budget=%lu lim=%lu pollmax=%luus sender=%s:%u render=%lu skip=%lu "
         "p50<=%luus p95<=%luus p99<=%luus ovf=%llu agemax=%lluus showmax=%luus "
         "tof=%s tofgen=%lu rawvalid=%u rawmed=%u tofage=%llums tofread=%luus tofreadmax=%luus "
@@ -1238,7 +1347,8 @@ void printConfiguration() {
         "PARLIO lanes=%u lane_length=%u brightness=%u/255\n",
         static_cast<unsigned>(ambilight::config::kParlioLaneCount),
         static_cast<unsigned>(ambilight::config::kPhysicalLaneLength),
-        static_cast<unsigned>(ambilight::config::kTestBrightness));
+        static_cast<unsigned>(
+            ledEngine.brightness()));
 
     Serial.printf(
         "VL53L5CX SDA=%u SCL=%u 8x8 internal 1Hz, pose processed about every 12s, "
@@ -1263,6 +1373,8 @@ void printConfiguration() {
     Serial.println(
         "Debug: 't'=raw, 'g'=bands, 'p'=plane, 'k'=legacy gains, 's'=spatial gains, 'c'=capture, 'r'=render, 'x'=shadow probe.");
     Serial.println(
+        "Output brightness: b0..b255 followed by Enter; b + Enter prints status.");
+    Serial.println(
         "Active frame transport remains Wi-Fi/DDP only. "
         "USB/AWA is preserved separately as WIP.");
     Serial.println();
@@ -1281,6 +1393,9 @@ void setup() {
 
     correctionMode =
         runtimeSettings.correctionMode();
+
+    ledEngine.setBrightness(
+        runtimeSettings.outputBrightness());
 
     printConfiguration();
 
