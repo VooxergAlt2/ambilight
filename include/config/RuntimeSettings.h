@@ -132,6 +132,10 @@ public:
 
     bool resetLedMappingProfile();
 
+    // Clear the complete ambilight NVS namespace and restore the in-memory
+    // runtime view to firmware defaults. Return value reports durable clear.
+    bool factoryReset();
+
     bool persistenceAvailable() const {
         return persistenceAvailable_;
     }
