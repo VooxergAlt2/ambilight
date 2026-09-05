@@ -345,7 +345,7 @@ void dumpTofPlane() {
 
     Serial.printf(
         "TOF PLANE valid=%s candidates=%u accepted=%u z0=%.1fmm "
-        "slope_x=%.5f slope_y=%.5f yaw=%d.%02ddeg pitch=%d.%02ddeg "
+        "slope_x=%.5f slope_y=%.5f yaw=%.2fdeg pitch=%.2fdeg "
         "residual_med=%umm residual_mad=%umm\n",
         plane.valid ? "yes" : "no",
         static_cast<unsigned>(plane.candidates),
@@ -353,10 +353,8 @@ void dumpTofPlane() {
         static_cast<double>(plane.interceptMm),
         static_cast<double>(plane.slopeX),
         static_cast<double>(plane.slopeY),
-        static_cast<int>(plane.yawCentiDeg / 100),
-        static_cast<int>(std::abs(plane.yawCentiDeg % 100)),
-        static_cast<int>(plane.pitchCentiDeg / 100),
-        static_cast<int>(std::abs(plane.pitchCentiDeg % 100)),
+        static_cast<double>(plane.yawCentiDeg) / 100.0,
+        static_cast<double>(plane.pitchCentiDeg) / 100.0,
         plane.residualMedianMm,
         plane.residualMadMm);
 
