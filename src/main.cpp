@@ -9,6 +9,7 @@
 #include <lwip/inet.h>
 
 #include "config/BoardConfig.h"
+#include "config/FirmwareInfo.h"
 #include "config/RuntimeSettings.h"
 #include "config/WifiCredentials.h"
 #include "core/FrameMailbox.h"
@@ -822,6 +823,27 @@ void handleGainCurveCommand(
     applyTofGainCurve(
         points,
         count);
+}
+
+void printFirmwareInfo() {
+    Serial.printf(
+        "FW name=%s version=%s stage=%u target=%s serial_proto=%u "
+        "logical_leds=%u ddp_port=%u spatial_schema=%u ledmap_schema=%u\n",
+        ambilight::config::kFirmwareName,
+        ambilight::config::kFirmwareVersion,
+        static_cast<unsigned>(
+            ambilight::config::kDevelopmentStage),
+        ambilight::config::kFirmwareTarget,
+        static_cast<unsigned>(
+            ambilight::config::kSerialProtocolVersion),
+        static_cast<unsigned>(
+            ambilight::config::kLogicalLedCount),
+        static_cast<unsigned>(
+            ambilight::DdpUdpService::kPort),
+        static_cast<unsigned>(
+            ambilight::TofSpatialProfile::kSchemaVersion),
+        static_cast<unsigned>(
+            ambilight::LedMappingProfile::kSchemaVersion));
 }
 
 void printCorrectionMode() {
@@ -2263,6 +2285,10 @@ void dispatchSerialCommand(
         printCorrectionMode();
         break;
 
+    case ambilight::SerialCommandKind::FirmwareStatus:
+        printFirmwareInfo();
+        break;
+
     case ambilight::SerialCommandKind::None:
         break;
     }
@@ -2493,7 +2519,10 @@ void printRuntimeStatus() {
         ESP.getMinFreeHeap());
 
     Serial.printf(
-        "STATCFG curve=%s curve_points=%u curve_updates=%lu spatial=%s spatial_updates=%lu ledmap=%s ledtest=%s\n",
+        "STATCFG fw=%s stage=%u curve=%s curve_points=%u curve_updates=%lu spatial=%s spatial_updates=%lu ledmap=%s ledtest=%s\n",
+        ambilight::config::kFirmwareVersion,
+        static_cast<unsigned>(
+            ambilight::config::kDevelopmentStage),
         gainCurveSourceName(),
         static_cast<unsigned>(
             runtimeSettings.tofGainPointCount()),
@@ -2513,8 +2542,15 @@ void printRuntimeStatus() {
 
 void printConfiguration() {
     Serial.println();
-    Serial.println(
-        "ESP32-C6 Ambilight Stage 33: typed runtime payload parser + serial events");
+    Serial.printf(
+        "%s %s Stage %u target=%s serial_proto=%u\n",
+        ambilight::config::kFirmwareName,
+        ambilight::config::kFirmwareVersion,
+        static_cast<unsigned>(
+            ambilight::config::kDevelopmentStage),
+        ambilight::config::kFirmwareTarget,
+        static_cast<unsigned>(
+            ambilight::config::kSerialProtocolVersion));
 
     Serial.printf(
         "Logical LEDs=%u payload=%uB DDP=%u poll_budget=%uus max_datagrams=%u\n",
@@ -2576,7 +2612,7 @@ void printConfiguration() {
             runtimeSettings.tofGainPointCount()));
 
     Serial.println(
-        "Debug: 't'=raw, 'g'=bands, 'p'=plane, 'k'=legacy gains, 's'=spatial gains, 'c'=capture, 'r'=render, 'x'=shadow probe.");
+        "Debug: 't'=raw, 'g'=bands, 'p'=plane, 'k'=legacy gains, 's'=spatial gains, 'c'=capture, 'r'=render, 'x'=shadow probe, 'v'=firmware.");
     Serial.println(
         "Output brightness: b0..b255 followed by Enter; b + Enter prints status.");
     Serial.println(
