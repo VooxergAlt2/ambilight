@@ -15,11 +15,12 @@ namespace ambilight {
 namespace {
 
 constexpr std::uint8_t kResolution = 64;
-constexpr std::uint8_t kRangingFrequencyHz = 10;
+constexpr std::uint8_t kRangingFrequencyHz = 1;
 
 constexpr std::uint32_t kInitRetryMs = 5000;
-constexpr std::uint32_t kPollDelayMs = 10;
-constexpr std::uint32_t kRangingStaleMs = 3000;
+constexpr std::uint32_t kPollDelayMs = 100;
+constexpr std::uint32_t kRangingStaleMs = 30000;
+constexpr std::uint32_t kMeasurementIntervalMs = 12000;
 constexpr std::uint8_t kMaxConsecutiveReadFailures = 5;
 
 constexpr std::uint32_t kI2cClockHz = 1000000;
@@ -248,7 +249,7 @@ bool TofService::initializeSensor() {
 }
 
 bool TofService::isUsableStatus(std::uint8_t status) {
-    return status == 5 || status == 9;
+    return status == 5 || status == 6 || status == 9;
 }
 
 std::uint16_t TofService::medianOfValid(
@@ -490,7 +491,10 @@ void TofService::taskLoop() {
                     readFinishedUs - readStartedUs),
                 readFinishedUs);
 
-            vTaskDelay(pdMS_TO_TICKS(kPollDelayMs));
+            // TV pose changes slowly. Keep the sensor initialized and ranging
+            // internally at 1 Hz, but only transfer/process one 8x8 frame
+            // every ~12 seconds.
+            vTaskDelay(pdMS_TO_TICKS(kMeasurementIntervalMs));
         }
 
         vTaskDelay(pdMS_TO_TICKS(kInitRetryMs));
