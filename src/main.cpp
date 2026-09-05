@@ -152,7 +152,8 @@ void printWifiProvisioningStatus() {
         "Wi-Fi credentials source=%s persisted_nvs=%s password=hidden\n",
         wifiCredentialSourceName(
             wifiCredentialSource),
-        runtimeSettings.wifiCredentialsPresent()
+        wifiCredentialSource ==
+                WifiCredentialSource::Nvs
             ? "yes"
             : "no");
 }
@@ -208,8 +209,14 @@ void clearRuntimeWifiCredentials() {
                 ambilight::config::kWifiSsid,
                 ambilight::config::kWifiPassword)) {
 
+            wifi.disable();
+            ddp.stop();
+
+            wifiCredentialSource =
+                WifiCredentialSource::None;
+
             Serial.println(
-                "Compile-time Wi-Fi fallback is invalid.");
+                "Compile-time Wi-Fi fallback is invalid; Wi-Fi/DDP disabled.");
             return;
         }
 
@@ -1034,8 +1041,10 @@ void dumpSpatialGains() {
         ambilight::SegmentId::Left,
         gains);
 
-    Serial.println(
-        "These are shadow targets only; physical RGB remains original.");
+    Serial.printf(
+        "These are ToF correction targets; physical application depends on correction mode=%s.\n",
+        ambilight::correctionModeName(
+            correctionMode));
     Serial.println();
 }
 
@@ -1069,8 +1078,10 @@ void dumpTofGains() {
         static_cast<unsigned long>(gainPercentX10(gains.bottomQ12) / 10U),
         static_cast<unsigned long>(gainPercentX10(gains.bottomQ12) % 10U));
 
-    Serial.println(
-        "Stage 11 note: GainSnapshot reaches LedRenderer only through shadow context; ShadowRenderPolicy still outputs original RGB.");
+    Serial.printf(
+        "Legacy band gains are diagnostic; the renderer uses the plane/per-pixel model. Physical application mode=%s.\n",
+        ambilight::correctionModeName(
+            correctionMode));
     Serial.println();
 }
 
@@ -1159,7 +1170,7 @@ void printCalibrationSummary(
     }
 
     Serial.println(
-        "CAL note: wall distances are intersections of LED +Z rays with the fitted plane; RGB is unchanged.");
+        "CAL note: capture is observational only and does not change correction mode or RGB state.");
     Serial.println();
 }
 
