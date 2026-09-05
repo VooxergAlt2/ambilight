@@ -29,10 +29,8 @@ RenderGainContext makeUniformTarget(
     context.sourceUsable = true;
     context.failOpen = false;
 
-    for (auto& endpoints : context.segmentGain) {
-        endpoints.startQ12 = gainQ12;
-        endpoints.endQ12 = gainQ12;
-    }
+    context.logicalGainQ12.fill(
+        gainQ12);
 
     return context;
 }
