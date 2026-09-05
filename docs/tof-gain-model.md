@@ -2,79 +2,88 @@
 
 ## Purpose
 
-Convert LED-to-wall distance into an attenuation factor.
+Convert plane-derived LED-to-wall distance into an attenuation factor.
 
-The authoritative render-side spatial source is the 2D wall-plane perimeter model. The older LEFT/CENTER/RIGHT GainSnapshot remains available for diagnostics.
+The authoritative render source is the exact 780-value wall-plane model.
 
-## Q12 gain format
+The older LEFT/CENTER/RIGHT GainSnapshot remains diagnostic only.
 
-Unity:
+## Q12 format
 
     4096 = 1.000
-
-Examples:
-
     3072 = 0.750
     2048 = 0.500
+    0    = 0.000
 
-Values above unity are forbidden. The correction attenuates only.
+Gain above unity is rejected.
 
 ## Distance curve
 
-DistanceGainCurve supports up to eight points.
+DistanceGainCurve supports up to eight control points.
 
 Rules:
 
-- at least two points
+- at least 2 points
 - strictly increasing distance
-- gain <= unity
+- gain <= 4096
 - gain non-decreasing with distance
 
-Each logical LED evaluates the curve at its own plane-derived wall distance.
+For each logical LED:
 
-## Current default calibration
-
-Until real photometric data exists:
-
-    50 mm   -> 1.0
-    4000 mm -> 1.0
-
-This makes the shipping/default profile safe and neutral.
-
-The software path is still completed independently of those future measured coefficients.
-
-## Spatial source
-
-For each of 780 logical LEDs:
-
-    distance_i = fitted_wall_z(x_i, y_i) - z_led_i
+    distance_i = wall_z(x_i, y_i) - z_led_i
     gain_i = curve(distance_i)
 
-The complete 780-value field is recalculated only when the accepted wall plane changes materially.
+The curve is evaluated independently for all 780 LEDs when the wall plane or calibration profile requires a rebuild.
+
+## Runtime calibration
+
+The active curve is no longer limited to compile-time constants.
+
+Serial:
+
+    q<Enter>                                  status
+    q50:2048,500:3072,4000:4096<Enter>       set
+    qreset<Enter>                             default
+
+Runtime profile is stored in NVS and restored at boot.
+
+Curve edits are refused in ACTIVE mode.
+
+## Curve update fail-safe
+
+A runtime curve change immediately invalidates existing gain snapshots to unity.
+
+The ToF task then installs the new curve and resets the accepted-plane reference.
+
+The next valid pose therefore rebuilds the entire 780-value field even if the TV itself did not move.
 
 ## Plane deadband interaction
 
-If a fresh ToF plane changes predicted wall position by less than the configured 10 mm maximum over the LED rectangle:
+Normal pose updates inside the 10 mm wall-position deadband do not rebuild gains.
 
-- existing gains remain unchanged
-- generation/timestamp are refreshed
-- no per-LED curve evaluation is performed
+A curve change bypasses this optimization exactly once by resetting PlaneChangeGate.
 
-Several small movements accumulate relative to the last accepted plane and eventually trigger a rebuild.
+After the first new-curve rebuild, normal cumulative deadband behavior resumes.
 
-## Fail-open
+## Freshness
 
-The field resolves to unity when:
+Normal pose processing:
 
-- wall plane is invalid
-- source becomes stale
-- curve configuration is invalid
-- a projected LED-wall distance is invalid/out of range
+    about every 12 s
 
-Freshness timeout is 30 seconds, compatible with the normal ~12-second pose sampling interval.
+Gain freshness:
 
-## Development strategy
+    30 s
 
-Real wall measurements are required only to tune the final calibration points and validate mounting geometry.
+A fresh pose inside the deadband refreshes snapshot age without recalculating the field.
 
-They do not block implementation of the complete software pipeline.
+## Default curve
+
+The firmware default remains:
+
+    50 mm   -> 4096
+    4000 mm -> 4096
+
+It is neutral by design.
+
+Physical calibration later only needs to replace these runtime control points, not modify firmware architecture.
