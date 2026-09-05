@@ -7,6 +7,7 @@
 #include <Preferences.h>
 
 #include "render/CorrectionMode.h"
+#include "tof/TofGainModel.h"
 
 namespace ambilight {
 
@@ -48,6 +49,27 @@ public:
         return wifiPassword_.data();
     }
 
+    const std::array<
+        GainPoint,
+        DistanceGainCurve::kMaxPoints>&
+    tofGainPoints() const {
+        return tofGainPoints_;
+    }
+
+    std::size_t tofGainPointCount() const {
+        return tofGainPointCount_;
+    }
+
+    bool tofGainCurveCustomized() const {
+        return tofGainCurveCustomized_;
+    }
+
+    DistanceGainCurve tofGainCurve() const {
+        return DistanceGainCurve(
+            tofGainPoints_,
+            tofGainPointCount_);
+    }
+
     // Runtime state changes even if persistence is unavailable. Return value
     // reports whether the new value is durably stored.
     bool setCorrectionMode(
@@ -61,6 +83,14 @@ public:
         const char* password);
 
     bool clearWifiCredentials();
+
+    bool setTofGainCurve(
+        const std::array<
+            GainPoint,
+            DistanceGainCurve::kMaxPoints>& points,
+        std::size_t count);
+
+    bool resetTofGainCurve();
 
     bool persistenceAvailable() const {
         return persistenceAvailable_;
@@ -81,6 +111,10 @@ private:
         "wifi_ssid";
     static constexpr const char* kWifiPasswordKey =
         "wifi_password";
+    static constexpr const char* kTofGainCurveKey =
+        "tof_curve";
+    static constexpr const char* kTofGainCountKey =
+        "tof_count";
 
     Preferences preferences_;
 
@@ -98,6 +132,14 @@ private:
         char,
         kMaxWifiPasswordLength + 1>
         wifiPassword_{};
+
+    std::array<
+        GainPoint,
+        DistanceGainCurve::kMaxPoints>
+        tofGainPoints_{};
+
+    std::size_t tofGainPointCount_ = 0;
+    bool tofGainCurveCustomized_ = false;
 
     bool persistenceAvailable_ = false;
 
