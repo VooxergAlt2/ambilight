@@ -2514,7 +2514,7 @@ void printRuntimeStatus() {
 void printConfiguration() {
     Serial.println();
     Serial.println(
-        "ESP32-C6 Ambilight Stage 32: typed serial command parser + runtime recovery");
+        "ESP32-C6 Ambilight Stage 33: typed runtime payload parser + serial events");
 
     Serial.printf(
         "Logical LEDs=%u payload=%uB DDP=%u poll_budget=%uus max_datagrams=%u\n",
