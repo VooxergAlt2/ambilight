@@ -40,6 +40,7 @@ constexpr std::size_t kWifiCommandBufferSize =
     1;
 
 constexpr std::size_t kGainCurveCommandBufferSize = 128;
+constexpr std::size_t kSpatialCommandBufferSize = 128;
 
 ambilight::LedEngine ledEngine;
 ambilight::LedRenderer renderer(ledEngine);
@@ -69,6 +70,7 @@ bool correctionCommandPending = false;
 bool brightnessCommandPending = false;
 bool wifiCommandPending = false;
 bool gainCurveCommandPending = false;
+bool spatialCommandPending = false;
 
 std::uint16_t brightnessCommandValue = 0;
 std::uint8_t brightnessCommandDigits = 0;
@@ -80,6 +82,10 @@ std::size_t wifiCommandLength = 0;
 std::array<char, kGainCurveCommandBufferSize>
     gainCurveCommandBuffer{};
 std::size_t gainCurveCommandLength = 0;
+
+std::array<char, kSpatialCommandBufferSize>
+    spatialCommandBuffer{};
+std::size_t spatialCommandLength = 0;
 
 enum class WifiCredentialSource : std::uint8_t {
     None = 0,
@@ -302,6 +308,347 @@ void finishWifiCommand() {
         true);
 
     resetWifiCommand();
+}
+
+const char* spatialProfileSourceName() {
+    if (!runtimeSettings.tofSpatialProfileCustomized()) {
+        return "DEFAULT";
+    }
+
+    return
+        runtimeSettings.tofSpatialProfilePersisted()
+            ? "CUSTOM_NVS"
+            : "CUSTOM_RUNTIME";
+}
+
+void printSpatialProfile() {
+    const auto& profile =
+        runtimeSettings.tofSpatialProfile();
+
+    Serial.printf(
+        "TOF SPATIAL PROFILE source=%s width=%.1fmm height=%.1fmm "
+        "sensor_x=%.1fmm sensor_y=%.1fmm led_z=%.1fmm rot=%u mirror=%u deadband=%.1fmm\n",
+        spatialProfileSourceName(),
+        static_cast<double>(
+            profile.widthMm()),
+        static_cast<double>(
+            profile.heightMm()),
+        static_cast<double>(
+            profile.sensorOffsetXmm()),
+        static_cast<double>(
+            profile.sensorOffsetYmm()),
+        static_cast<double>(
+            profile.ledPlaneZmm()),
+        static_cast<unsigned>(
+            profile.rotationQuarterTurns),
+        static_cast<unsigned>(
+            profile.mirrorX),
+        static_cast<double>(
+            profile.planeDeadbandMm()));
+}
+
+bool parseDecimalX10(
+    const char*& cursor,
+    std::int32_t& valueX10) {
+
+    if (cursor == nullptr) {
+        return false;
+    }
+
+    bool negative = false;
+
+    if (*cursor == '-') {
+        negative = true;
+        ++cursor;
+    }
+
+    if (*cursor < '0' ||
+        *cursor > '9') {
+        return false;
+    }
+
+    std::int32_t whole = 0;
+
+    while (*cursor >= '0' &&
+           *cursor <= '9') {
+
+        whole =
+            whole * 10 +
+            static_cast<std::int32_t>(
+                *cursor - '0');
+
+        if (whole > 100000) {
+            return false;
+        }
+
+        ++cursor;
+    }
+
+    std::int32_t fraction = 0;
+
+    if (*cursor == '.') {
+        ++cursor;
+
+        if (*cursor < '0' ||
+            *cursor > '9') {
+            return false;
+        }
+
+        fraction =
+            static_cast<std::int32_t>(
+                *cursor - '0');
+
+        ++cursor;
+
+        // Fixed profile precision is exactly 0.1 mm.
+        if (*cursor >= '0' &&
+            *cursor <= '9') {
+            return false;
+        }
+    }
+
+    std::int32_t result =
+        whole * 10 +
+        fraction;
+
+    if (negative) {
+        result = -result;
+    }
+
+    valueX10 = result;
+    return true;
+}
+
+bool consumeComma(
+    const char*& cursor) {
+
+    if (*cursor != ',') {
+        return false;
+    }
+
+    ++cursor;
+    return true;
+}
+
+bool parseSpatialProfileText(
+    const char* text,
+    ambilight::TofSpatialProfile& profile) {
+
+    if (text == nullptr ||
+        *text == '\0') {
+        return false;
+    }
+
+    const char* cursor = text;
+
+    std::int32_t width = 0;
+    std::int32_t height = 0;
+    std::int32_t sensorX = 0;
+    std::int32_t sensorY = 0;
+    std::int32_t ledZ = 0;
+    std::int32_t deadband = 0;
+
+    std::uint16_t rotation = 0;
+    std::uint16_t mirror = 0;
+
+    if (!parseDecimalX10(cursor, width) ||
+        !consumeComma(cursor) ||
+        !parseDecimalX10(cursor, height) ||
+        !consumeComma(cursor) ||
+        !parseDecimalX10(cursor, sensorX) ||
+        !consumeComma(cursor) ||
+        !parseDecimalX10(cursor, sensorY) ||
+        !consumeComma(cursor) ||
+        !parseDecimalX10(cursor, ledZ) ||
+        !consumeComma(cursor) ||
+        !parseUint16Token(cursor, rotation) ||
+        !consumeComma(cursor) ||
+        !parseUint16Token(cursor, mirror) ||
+        !consumeComma(cursor) ||
+        !parseDecimalX10(cursor, deadband) ||
+        *cursor != '\0') {
+
+        return false;
+    }
+
+    if (width < 0 ||
+        width > 65535 ||
+        height < 0 ||
+        height > 65535 ||
+        sensorX < -32768 ||
+        sensorX > 32767 ||
+        sensorY < -32768 ||
+        sensorY > 32767 ||
+        ledZ < -32768 ||
+        ledZ > 32767 ||
+        deadband < 0 ||
+        deadband > 65535 ||
+        rotation > 255 ||
+        mirror > 255) {
+
+        return false;
+    }
+
+    profile.widthMmX10 =
+        static_cast<std::uint16_t>(
+            width);
+
+    profile.heightMmX10 =
+        static_cast<std::uint16_t>(
+            height);
+
+    profile.sensorOffsetXmmX10 =
+        static_cast<std::int16_t>(
+            sensorX);
+
+    profile.sensorOffsetYmmX10 =
+        static_cast<std::int16_t>(
+            sensorY);
+
+    profile.ledPlaneZmmX10 =
+        static_cast<std::int16_t>(
+            ledZ);
+
+    profile.rotationQuarterTurns =
+        static_cast<std::uint8_t>(
+            rotation);
+
+    profile.mirrorX =
+        static_cast<std::uint8_t>(
+            mirror);
+
+    profile.planeDeadbandMmX10 =
+        static_cast<std::uint16_t>(
+            deadband);
+
+    return profile.valid();
+}
+
+void invalidateRenderedGainAfterSpatialChange() {
+    cachedPerimeterGainSnapshot = {};
+    haveCachedPerimeterGainSnapshot = false;
+
+    cachedTargetGainContext =
+        ambilight::RenderGainContext::unity();
+
+    renderGainController.reset();
+
+    correctionModeDirty = true;
+    nextGainTargetPollUs = 0;
+}
+
+bool applySpatialProfile(
+    const ambilight::TofSpatialProfile& profile) {
+
+    if (correctionMode ==
+        ambilight::CorrectionMode::Active) {
+
+        Serial.println(
+            "TOF SPATIAL change refused in ACTIVE mode. Switch to SHADOW or DISABLED first.");
+        return false;
+    }
+
+    if (!profile.valid()) {
+        Serial.println(
+            "TOF SPATIAL profile is invalid.");
+        return false;
+    }
+
+    if (!tof.setSpatialProfile(
+            profile)) {
+
+        Serial.println(
+            "TOF SPATIAL profile could not be queued to sensor service.");
+        return false;
+    }
+
+    const bool persisted =
+        runtimeSettings.setTofSpatialProfile(
+            profile);
+
+    invalidateRenderedGainAfterSpatialChange();
+
+    Serial.printf(
+        "TOF SPATIAL profile applied; persisted=%s. Waiting for next valid pose rebuild.\n",
+        persisted ? "yes" : "no");
+
+    printSpatialProfile();
+    return true;
+}
+
+void resetSpatialProfile() {
+    if (correctionMode ==
+        ambilight::CorrectionMode::Active) {
+
+        Serial.println(
+            "TOF SPATIAL reset refused in ACTIVE mode. Switch to SHADOW or DISABLED first.");
+        return;
+    }
+
+    const bool persisted =
+        runtimeSettings.resetTofSpatialProfile();
+
+    const auto profile =
+        runtimeSettings.tofSpatialProfile();
+
+    if (!tof.setSpatialProfile(
+            profile)) {
+
+        Serial.println(
+            "TOF SPATIAL reset stored, but sensor service could not queue it. Reboot will load the default.");
+        return;
+    }
+
+    invalidateRenderedGainAfterSpatialChange();
+
+    Serial.printf(
+        "TOF SPATIAL profile reset to default; persisted=%s. Waiting for next valid pose rebuild.\n",
+        persisted ? "yes" : "no");
+
+    printSpatialProfile();
+}
+
+void resetSpatialCommand() {
+    spatialCommandPending = false;
+    spatialCommandLength = 0;
+    spatialCommandBuffer.fill('\0');
+}
+
+void finishSpatialCommand() {
+    spatialCommandBuffer[
+        spatialCommandLength] = '\0';
+
+    if (spatialCommandLength == 0) {
+        printSpatialProfile();
+        resetSpatialCommand();
+        return;
+    }
+
+    if (std::strcmp(
+            spatialCommandBuffer.data(),
+            "reset") == 0) {
+
+        resetSpatialProfile();
+        resetSpatialCommand();
+        return;
+    }
+
+    ambilight::TofSpatialProfile profile;
+
+    if (!parseSpatialProfileText(
+            spatialCommandBuffer.data(),
+            profile)) {
+
+        Serial.println(
+            "TOF SPATIAL command invalid. Example: y1437.5,1000,0,0,0,0,0,10");
+        resetSpatialCommand();
+        return;
+    }
+
+    applySpatialProfile(
+        profile);
+
+    resetSpatialCommand();
 }
 
 const char* gainCurveSourceName() {
@@ -1562,6 +1909,35 @@ void serviceDebugCommands() {
     while (Serial.available() > 0) {
         const int input = Serial.read();
 
+        if (spatialCommandPending) {
+            if (input == '\r' || input == '\n') {
+                finishSpatialCommand();
+                continue;
+            }
+
+            if (input < 32 || input > 126) {
+                Serial.println(
+                    "TOF SPATIAL command contains unsupported control characters.");
+                resetSpatialCommand();
+                continue;
+            }
+
+            if (spatialCommandLength + 1 >=
+                spatialCommandBuffer.size()) {
+
+                Serial.println(
+                    "TOF SPATIAL command too long.");
+                resetSpatialCommand();
+                continue;
+            }
+
+            spatialCommandBuffer[
+                spatialCommandLength++] =
+                static_cast<char>(input);
+
+            continue;
+        }
+
         if (gainCurveCommandPending) {
             if (input == '\r' || input == '\n') {
                 finishGainCurveCommand();
@@ -1696,6 +2072,10 @@ void serviceDebugCommands() {
 
         if (input == '!') {
             correctionCommandPending = true;
+        } else if (input == 'y' || input == 'Y') {
+            spatialCommandPending = true;
+            spatialCommandLength = 0;
+            spatialCommandBuffer.fill('\0');
         } else if (input == 'q' || input == 'Q') {
             gainCurveCommandPending = true;
             gainCurveCommandLength = 0;
@@ -1919,20 +2299,25 @@ void printRuntimeStatus() {
         ESP.getMinFreeHeap());
 
     Serial.printf(
-        "STATCFG curve=%s curve_points=%u curve_updates=%lu\n",
+        "STATCFG curve=%s curve_points=%u curve_updates=%lu spatial=%s spatial_updates=%lu\n",
         gainCurveSourceName(),
         static_cast<unsigned>(
             runtimeSettings.tofGainPointCount()),
         haveTof
             ? static_cast<unsigned long>(
                   tofSnapshot.gainCurveUpdates)
+            : 0UL,
+        spatialProfileSourceName(),
+        haveTof
+            ? static_cast<unsigned long>(
+                  tofSnapshot.spatialProfileUpdates)
             : 0UL);
 }
 
 void printConfiguration() {
     Serial.println();
     Serial.println(
-        "ESP32-C6 Ambilight Stage 23: runtime ToF calibration + Wi-Fi/output settings");
+        "ESP32-C6 Ambilight Stage 24: runtime spatial profile + calibration/settings");
 
     Serial.printf(
         "Logical LEDs=%u payload=%uB DDP=%u poll_budget=%uus max_datagrams=%u\n",
@@ -1952,17 +2337,32 @@ void printConfiguration() {
         static_cast<unsigned>(
             ledEngine.brightness()));
 
+    const auto& spatialProfile =
+        runtimeSettings.tofSpatialProfile();
+
     Serial.printf(
         "VL53L5CX SDA=%u SCL=%u 8x8 internal 1Hz, pose processed about every 12s, "
-        "plane_deadband=%.1fmm, rotation=%u mirror_x=%s; "
+        "spatial=%s %.1fx%.1fmm sensor=(%.1f,%.1f) led_z=%.1fmm "
+        "plane_deadband=%.1fmm rotation=%u mirror_x=%s; "
         "physical correction follows the persisted runtime mode.\n",
         ambilight::config::kTofSdaGpio,
         ambilight::config::kTofSclGpio,
+        spatialProfileSourceName(),
         static_cast<double>(
-            ambilight::config::kTofPlaneWallDeadbandMm),
+            spatialProfile.widthMm()),
+        static_cast<double>(
+            spatialProfile.heightMm()),
+        static_cast<double>(
+            spatialProfile.sensorOffsetXmm()),
+        static_cast<double>(
+            spatialProfile.sensorOffsetYmm()),
+        static_cast<double>(
+            spatialProfile.ledPlaneZmm()),
+        static_cast<double>(
+            spatialProfile.planeDeadbandMm()),
         static_cast<unsigned>(
-            ambilight::config::kTofRotationQuarterTurns % 4U),
-        ambilight::config::kTofMirrorX ? "yes" : "no");
+            spatialProfile.rotationQuarterTurns),
+        spatialProfile.mirrorX ? "yes" : "no");
 
     Serial.printf(
         "Correction mode=%s (NVS=%s). !0=DISABLED, !1=SHADOW, !2=ACTIVE, m=status.\n",
@@ -1987,6 +2387,8 @@ void printConfiguration() {
     Serial.println(
         "ToF curve: q + Enter=status, qreset + Enter=default, qDIST:GAIN,... + Enter=set (not in ACTIVE).");
     Serial.println(
+        "Spatial: y + Enter=status, yreset, or yW,H,X,Y,Z,ROT,MIRROR,DEADBAND (mm, not in ACTIVE).");
+    Serial.println(
         "Active frame transport remains Wi-Fi/DDP only. "
         "USB/AWA is preserved separately as WIP.");
     Serial.println();
@@ -2008,6 +2410,14 @@ void setup() {
 
     ledEngine.setBrightness(
         runtimeSettings.outputBrightness());
+
+    if (!tof.setSpatialProfile(
+            runtimeSettings.tofSpatialProfile())) {
+
+        fatal(
+            "ToF runtime spatial profile is invalid",
+            ESP_ERR_INVALID_ARG);
+    }
 
     if (!tof.setGainCurve(
             runtimeSettings.tofGainCurve())) {
