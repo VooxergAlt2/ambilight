@@ -160,9 +160,9 @@ RenderGainContext RenderGainController::update(
     const std::uint16_t maxStep =
         maxStepForDeltaTime(deltaUs);
 
-    stats_.maxEndpointStepQ12 =
+    stats_.maxPixelStepQ12 =
         std::max(
-            stats_.maxEndpointStepQ12,
+            stats_.maxPixelStepQ12,
             maxStep);
 
     for (std::size_t index = 0;
