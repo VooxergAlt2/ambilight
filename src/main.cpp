@@ -39,6 +39,8 @@ constexpr std::size_t kWifiCommandBufferSize =
     ambilight::RuntimeSettings::kMaxWifiPasswordLength +
     1;
 
+constexpr std::size_t kGainCurveCommandBufferSize = 128;
+
 ambilight::LedEngine ledEngine;
 ambilight::LedRenderer renderer(ledEngine);
 ambilight::FrameMailbox mailbox;
@@ -66,6 +68,7 @@ bool brightnessDirty = false;
 bool correctionCommandPending = false;
 bool brightnessCommandPending = false;
 bool wifiCommandPending = false;
+bool gainCurveCommandPending = false;
 
 std::uint16_t brightnessCommandValue = 0;
 std::uint8_t brightnessCommandDigits = 0;
@@ -73,6 +76,10 @@ std::uint8_t brightnessCommandDigits = 0;
 std::array<char, kWifiCommandBufferSize>
     wifiCommandBuffer{};
 std::size_t wifiCommandLength = 0;
+
+std::array<char, kGainCurveCommandBufferSize>
+    gainCurveCommandBuffer{};
+std::size_t gainCurveCommandLength = 0;
 
 enum class WifiCredentialSource : std::uint8_t {
     None = 0,
@@ -295,6 +302,302 @@ void finishWifiCommand() {
         true);
 
     resetWifiCommand();
+}
+
+const char* gainCurveSourceName() {
+    if (!runtimeSettings.tofGainCurveCustomized()) {
+        return "DEFAULT";
+    }
+
+    return
+        runtimeSettings.tofGainCurvePersisted()
+            ? "CUSTOM_NVS"
+            : "CUSTOM_RUNTIME";
+}
+
+void printTofGainCurve() {
+    const auto& points =
+        runtimeSettings.tofGainPoints();
+
+    const std::size_t count =
+        runtimeSettings.tofGainPointCount();
+
+    Serial.printf(
+        "TOF CURVE source=%s points=%u",
+        gainCurveSourceName(),
+        static_cast<unsigned>(count));
+
+    for (std::size_t index = 0;
+         index < count;
+         ++index) {
+
+        const std::uint32_t percentX10 =
+            (
+                static_cast<std::uint32_t>(
+                    points[index].gainQ12) *
+                1000U +
+                ambilight::kGainUnityQ12 / 2U
+            ) /
+            ambilight::kGainUnityQ12;
+
+        Serial.printf(
+            " [%u:%u=%lu.%lu%%]",
+            points[index].distanceMm,
+            points[index].gainQ12,
+            static_cast<unsigned long>(
+                percentX10 / 10U),
+            static_cast<unsigned long>(
+                percentX10 % 10U));
+    }
+
+    Serial.println();
+}
+
+bool parseUint16Token(
+    const char*& cursor,
+    std::uint16_t& value) {
+
+    if (cursor == nullptr ||
+        *cursor < '0' ||
+        *cursor > '9') {
+
+        return false;
+    }
+
+    std::uint32_t parsed = 0;
+
+    while (*cursor >= '0' &&
+           *cursor <= '9') {
+
+        parsed =
+            parsed * 10U +
+            static_cast<std::uint32_t>(
+                *cursor - '0');
+
+        if (parsed > 65535U) {
+            return false;
+        }
+
+        ++cursor;
+    }
+
+    value =
+        static_cast<std::uint16_t>(
+            parsed);
+
+    return true;
+}
+
+bool parseGainCurveText(
+    const char* text,
+    std::array<
+        ambilight::GainPoint,
+        ambilight::DistanceGainCurve::kMaxPoints>& points,
+    std::size_t& count) {
+
+    points = {};
+    count = 0;
+
+    if (text == nullptr ||
+        *text == '\0') {
+        return false;
+    }
+
+    const char* cursor = text;
+
+    while (*cursor != '\0') {
+        if (count >=
+            points.size()) {
+
+            return false;
+        }
+
+        std::uint16_t distance = 0;
+        std::uint16_t gain = 0;
+
+        if (!parseUint16Token(
+                cursor,
+                distance)) {
+            return false;
+        }
+
+        if (*cursor != ':') {
+            return false;
+        }
+
+        ++cursor;
+
+        if (!parseUint16Token(
+                cursor,
+                gain)) {
+            return false;
+        }
+
+        points[count++] = {
+            distance,
+            gain
+        };
+
+        if (*cursor == '\0') {
+            break;
+        }
+
+        if (*cursor != ',') {
+            return false;
+        }
+
+        ++cursor;
+
+        if (*cursor == '\0') {
+            return false;
+        }
+    }
+
+    const ambilight::DistanceGainCurve curve(
+        points,
+        count);
+
+    return curve.valid();
+}
+
+void invalidateRenderedGainAfterCurveChange() {
+    cachedTargetGainContext =
+        ambilight::RenderGainContext::unity();
+
+    renderGainController.reset();
+
+    correctionModeDirty = true;
+    nextGainTargetPollUs = 0;
+}
+
+bool applyTofGainCurve(
+    const std::array<
+        ambilight::GainPoint,
+        ambilight::DistanceGainCurve::kMaxPoints>& points,
+    std::size_t count) {
+
+    if (correctionMode ==
+        ambilight::CorrectionMode::Active) {
+
+        Serial.println(
+            "TOF CURVE change refused in ACTIVE mode. Switch to SHADOW or DISABLED first.");
+        return false;
+    }
+
+    const ambilight::DistanceGainCurve curve(
+        points,
+        count);
+
+    if (!curve.valid()) {
+        Serial.println(
+            "TOF CURVE invalid: require 2..8 increasing distances, non-decreasing gains, gain <= 4096.");
+        return false;
+    }
+
+    if (!tof.setGainCurve(
+            curve)) {
+
+        Serial.println(
+            "TOF CURVE could not be queued to sensor service.");
+        return false;
+    }
+
+    const bool persisted =
+        runtimeSettings.setTofGainCurve(
+            points,
+            count);
+
+    invalidateRenderedGainAfterCurveChange();
+
+    Serial.printf(
+        "TOF CURVE applied; points=%u persisted=%s. Waiting for next valid ToF pose rebuild.\n",
+        static_cast<unsigned>(count),
+        persisted ? "yes" : "no");
+
+    printTofGainCurve();
+    return true;
+}
+
+void resetTofGainCurve() {
+    if (correctionMode ==
+        ambilight::CorrectionMode::Active) {
+
+        Serial.println(
+            "TOF CURVE reset refused in ACTIVE mode. Switch to SHADOW or DISABLED first.");
+        return;
+    }
+
+    const bool persisted =
+        runtimeSettings.resetTofGainCurve();
+
+    const ambilight::DistanceGainCurve curve =
+        runtimeSettings.tofGainCurve();
+
+    if (!tof.setGainCurve(
+            curve)) {
+
+        Serial.println(
+            "TOF CURVE reset stored, but sensor service could not queue it. Reboot will load the default.");
+        return;
+    }
+
+    invalidateRenderedGainAfterCurveChange();
+
+    Serial.printf(
+        "TOF CURVE reset to default; persisted=%s. Waiting for next valid ToF pose rebuild.\n",
+        persisted ? "yes" : "no");
+
+    printTofGainCurve();
+}
+
+void resetGainCurveCommand() {
+    gainCurveCommandPending = false;
+    gainCurveCommandLength = 0;
+    gainCurveCommandBuffer.fill('\0');
+}
+
+void finishGainCurveCommand() {
+    gainCurveCommandBuffer[
+        gainCurveCommandLength] = '\0';
+
+    if (gainCurveCommandLength == 0) {
+        printTofGainCurve();
+        resetGainCurveCommand();
+        return;
+    }
+
+    if (std::strcmp(
+            gainCurveCommandBuffer.data(),
+            "reset") == 0) {
+
+        resetTofGainCurve();
+        resetGainCurveCommand();
+        return;
+    }
+
+    std::array<
+        ambilight::GainPoint,
+        ambilight::DistanceGainCurve::kMaxPoints>
+        points{};
+
+    std::size_t count = 0;
+
+    if (!parseGainCurveText(
+            gainCurveCommandBuffer.data(),
+            points,
+            count)) {
+
+        Serial.println(
+            "TOF CURVE command invalid. Example: q50:2048,500:3072,4000:4096");
+        resetGainCurveCommand();
+        return;
+    }
+
+    applyTofGainCurve(
+        points,
+        count);
+
+    resetGainCurveCommand();
 }
 
 void printCorrectionMode() {
@@ -1259,6 +1562,35 @@ void serviceDebugCommands() {
     while (Serial.available() > 0) {
         const int input = Serial.read();
 
+        if (gainCurveCommandPending) {
+            if (input == '\r' || input == '\n') {
+                finishGainCurveCommand();
+                continue;
+            }
+
+            if (input < 32 || input > 126) {
+                Serial.println(
+                    "TOF CURVE command contains unsupported control characters.");
+                resetGainCurveCommand();
+                continue;
+            }
+
+            if (gainCurveCommandLength + 1 >=
+                gainCurveCommandBuffer.size()) {
+
+                Serial.println(
+                    "TOF CURVE command too long.");
+                resetGainCurveCommand();
+                continue;
+            }
+
+            gainCurveCommandBuffer[
+                gainCurveCommandLength++] =
+                static_cast<char>(input);
+
+            continue;
+        }
+
         if (wifiCommandPending) {
             if (input == '\r' || input == '\n') {
                 finishWifiCommand();
@@ -1364,6 +1696,10 @@ void serviceDebugCommands() {
 
         if (input == '!') {
             correctionCommandPending = true;
+        } else if (input == 'q' || input == 'Q') {
+            gainCurveCommandPending = true;
+            gainCurveCommandLength = 0;
+            gainCurveCommandBuffer.fill('\0');
         } else if (input == 'w' || input == 'W') {
             wifiCommandPending = true;
             wifiCommandLength = 0;
@@ -1581,12 +1917,22 @@ void printRuntimeStatus() {
         static_cast<unsigned long>(idleBlackouts),
         ESP.getFreeHeap(),
         ESP.getMinFreeHeap());
+
+    Serial.printf(
+        "STATCFG curve=%s curve_points=%u curve_updates=%lu\n",
+        gainCurveSourceName(),
+        static_cast<unsigned>(
+            runtimeSettings.tofGainPointCount()),
+        haveTof
+            ? static_cast<unsigned long>(
+                  tofSnapshot.gainCurveUpdates)
+            : 0UL);
 }
 
 void printConfiguration() {
     Serial.println();
     Serial.println(
-        "ESP32-C6 Ambilight Stage 21: runtime output brightness + correction modes");
+        "ESP32-C6 Ambilight Stage 23: runtime ToF calibration + Wi-Fi/output settings");
 
     Serial.printf(
         "Logical LEDs=%u payload=%uB DDP=%u poll_budget=%uus max_datagrams=%u\n",
@@ -1626,12 +1972,20 @@ void printConfiguration() {
             ? "available"
             : "unavailable");
 
+    Serial.printf(
+        "ToF gain curve=%s points=%u; q=status/set/reset.\n",
+        gainCurveSourceName(),
+        static_cast<unsigned>(
+            runtimeSettings.tofGainPointCount()));
+
     Serial.println(
         "Debug: 't'=raw, 'g'=bands, 'p'=plane, 'k'=legacy gains, 's'=spatial gains, 'c'=capture, 'r'=render, 'x'=shadow probe.");
     Serial.println(
         "Output brightness: b0..b255 followed by Enter; b + Enter prints status.");
     Serial.println(
         "Wi-Fi: wSSID|PASSWORD + Enter sets/reconnects, w + Enter=status, wclear + Enter=clear NVS.");
+    Serial.println(
+        "ToF curve: q + Enter=status, qreset + Enter=default, qDIST:GAIN,... + Enter=set (not in ACTIVE).");
     Serial.println(
         "Active frame transport remains Wi-Fi/DDP only. "
         "USB/AWA is preserved separately as WIP.");
@@ -1654,6 +2008,14 @@ void setup() {
 
     ledEngine.setBrightness(
         runtimeSettings.outputBrightness());
+
+    if (!tof.setGainCurve(
+            runtimeSettings.tofGainCurve())) {
+
+        fatal(
+            "ToF runtime gain curve is invalid",
+            ESP_ERR_INVALID_ARG);
+    }
 
     printConfiguration();
 
