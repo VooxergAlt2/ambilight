@@ -38,12 +38,12 @@ ambilight::RenderGainController renderGainController;
 ambilight::RenderScheduler renderScheduler;
 
 ambilight::RgbFrame renderSnapshot;
-ambilight::GainSnapshot cachedGainSnapshot{};
+ambilight::PerimeterGainSnapshot cachedPerimeterGainSnapshot{};
 ambilight::RenderGainContext cachedTargetGainContext{};
 
 bool rgbFrameValid = false;
 bool rgbDirty = false;
-bool haveCachedGainSnapshot = false;
+bool haveCachedPerimeterGainSnapshot = false;
 
 std::uint32_t lastMailboxGeneration = 0;
 std::uint32_t lastRenderedRgbGeneration = 0;
@@ -109,17 +109,17 @@ void refreshTargetGainContext(
         return;
     }
 
-    ambilight::GainSnapshot latest{};
+    ambilight::PerimeterGainSnapshot latest{};
 
-    if (tof.copyGainSnapshot(latest)) {
-        cachedGainSnapshot = latest;
-        haveCachedGainSnapshot = true;
+    if (tof.copyPerimeterGainSnapshot(latest)) {
+        cachedPerimeterGainSnapshot = latest;
+        haveCachedPerimeterGainSnapshot = true;
     }
 
     cachedTargetGainContext =
         ambilight::TofRenderGainBridge::make(
-            cachedGainSnapshot,
-            haveCachedGainSnapshot,
+            cachedPerimeterGainSnapshot,
+            haveCachedPerimeterGainSnapshot,
             nowUs);
 
     if (shadowProbeUntilUs != 0 &&
@@ -542,6 +542,80 @@ void dumpRenderShadow() {
     Serial.println();
 }
 
+void printPerimeterSegmentGain(
+    const char* name,
+    ambilight::SegmentId segmentId,
+    const ambilight::PerimeterGainSnapshot& gains) {
+
+    const auto index =
+        static_cast<std::size_t>(
+            segmentId);
+
+    const auto& segment =
+        gains.segment[index];
+
+    Serial.printf(
+        "TOF SPATIAL %s d=%u->%umm k=%u(%lu.%lu%%)->%u(%lu.%lu%%)\n",
+        name,
+        segment.startDistanceMm,
+        segment.endDistanceMm,
+        segment.startQ12,
+        static_cast<unsigned long>(
+            gainPercentX10(segment.startQ12) / 10U),
+        static_cast<unsigned long>(
+            gainPercentX10(segment.startQ12) % 10U),
+        segment.endQ12,
+        static_cast<unsigned long>(
+            gainPercentX10(segment.endQ12) / 10U),
+        static_cast<unsigned long>(
+            gainPercentX10(segment.endQ12) % 10U));
+}
+
+void dumpSpatialGains() {
+    ambilight::TofSnapshot snapshot;
+
+    if (!tof.copySnapshot(snapshot)) {
+        Serial.println(
+            "TOF spatial gains unavailable: snapshot mutex busy/not initialized.");
+        return;
+    }
+
+    const auto& gains =
+        snapshot.perimeterGains;
+
+    Serial.printf(
+        "TOF SPATIAL GAINS gen=%lu plane_usable=%s fail_open=%s range=%u..%umm\n",
+        static_cast<unsigned long>(gains.generation),
+        gains.planeUsable ? "yes" : "no",
+        gains.failOpen ? "yes" : "no",
+        gains.minDistanceMm,
+        gains.maxDistanceMm);
+
+    printPerimeterSegmentGain(
+        "TOP   ",
+        ambilight::SegmentId::Top,
+        gains);
+
+    printPerimeterSegmentGain(
+        "RIGHT ",
+        ambilight::SegmentId::Right,
+        gains);
+
+    printPerimeterSegmentGain(
+        "BOTTOM",
+        ambilight::SegmentId::Bottom,
+        gains);
+
+    printPerimeterSegmentGain(
+        "LEFT  ",
+        ambilight::SegmentId::Left,
+        gains);
+
+    Serial.println(
+        "These are shadow targets only; physical RGB remains original.");
+    Serial.println();
+}
+
 void dumpTofGains() {
     ambilight::TofSnapshot snapshot;
 
@@ -697,6 +771,8 @@ void serviceDebugCommands() {
             dumpTofPlane();
         } else if (input == 'k' || input == 'K') {
             dumpTofGains();
+        } else if (input == 's' || input == 'S') {
+            dumpSpatialGains();
         } else if (input == 'c' || input == 'C') {
             startCalibrationCapture();
         } else if (input == 'r' || input == 'R') {
@@ -742,6 +818,7 @@ void printRuntimeStatus() {
         "tof=%s tofgen=%lu rawvalid=%u rawmed=%u tofage=%llums tofread=%luus tofreadmax=%luus "
         "geom=%s l=%u c=%u r=%u delta=%d acc=%u "
         "plane=%s pyaw=%d ppitch=%d pacc=%u pmad=%u "
+        "spfail=%s spmin=%u spmax=%u "
         "gainfail=%s gl=%u gt=%u gb=%u gr=%u "
         "shadow_usable=%lu shadow_nonunity=%lu shadow_changed=%u shadow_delta=%u shadowprep=%luus "
         "slew_snap=%lu probe=%s sched_rgb=%lu sched_gain=%lu sched_comb=%lu sched_def=%lu rgbgen=%lu "
@@ -817,6 +894,13 @@ void printRuntimeStatus() {
         haveTof
             ? geometry.plane.residualMadMm
             : 0U,
+        haveTof && tofSnapshot.perimeterGains.failOpen ? "yes" : "no",
+        haveTof
+            ? tofSnapshot.perimeterGains.minDistanceMm
+            : 0U,
+        haveTof
+            ? tofSnapshot.perimeterGains.maxDistanceMm
+            : 0U,
         haveTof && tofSnapshot.gains.failOpen ? "yes" : "no",
         haveTof ? tofSnapshot.gains.leftQ12 : ambilight::kGainUnityQ12,
         haveTof ? tofSnapshot.gains.topQ12 : ambilight::kGainUnityQ12,
@@ -865,7 +949,7 @@ void printRuntimeStatus() {
 void printConfiguration() {
     Serial.println();
     Serial.println(
-        "ESP32-C6 Ambilight Stage 14: Wi-Fi/DDP + robust ToF wall plane");
+        "ESP32-C6 Ambilight Stage 15: Wi-Fi/DDP + 2D perimeter shadow gains");
 
     Serial.printf(
         "Logical LEDs=%u payload=%uB DDP=%u poll_budget=%uus max_datagrams=%u\n",
@@ -894,7 +978,7 @@ void printConfiguration() {
         ambilight::config::kTofMirrorX ? "yes" : "no");
 
     Serial.println(
-        "Debug: 't'=raw, 'g'=bands, 'p'=plane, 'k'=gains, 'c'=capture, 'r'=shadow/scheduler, 'x'=10s probe.");
+        "Debug: 't'=raw, 'g'=bands, 'p'=plane, 'k'=legacy gains, 's'=spatial gains, 'c'=capture, 'r'=shadow, 'x'=probe.");
     Serial.println(
         "Active frame transport remains Wi-Fi/DDP only. "
         "USB/AWA is preserved separately as WIP.");
