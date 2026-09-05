@@ -60,6 +60,10 @@ bool RuntimeSettings::begin() {
     tofGainCurvePersisted_ =
         false;
 
+    ledMappingProfile_ = {};
+    ledMappingProfileCustomized_ = false;
+    ledMappingProfilePersisted_ = false;
+
     tofSpatialProfile_ = {};
     tofSpatialProfileCustomized_ =
         false;
@@ -143,6 +147,47 @@ bool RuntimeSettings::begin() {
         copyText(
             wifiPassword_,
             storedPassword.c_str());
+    }
+
+    const std::uint16_t ledMapVersion =
+        preferences_.getUShort(
+            kLedMappingVersionKey,
+            0);
+
+    if (ledMapVersion != 0) {
+        LedMappingProfile storedMap;
+
+        const std::size_t storedBytes =
+            preferences_.getBytesLength(
+                kLedMappingProfileKey);
+
+        bool mapValid =
+            ledMapVersion ==
+                LedMappingProfile::kSchemaVersion &&
+            storedBytes ==
+                sizeof(LedMappingProfile);
+
+        if (mapValid) {
+            const std::size_t loaded =
+                preferences_.getBytes(
+                    kLedMappingProfileKey,
+                    &storedMap,
+                    sizeof(storedMap));
+
+            mapValid =
+                loaded == sizeof(storedMap) &&
+                storedMap.valid();
+        }
+
+        if (mapValid) {
+            ledMappingProfile_ = storedMap;
+            ledMappingProfileCustomized_ = true;
+            ledMappingProfilePersisted_ = true;
+        } else {
+            ++stats_.invalidStoredValues;
+            preferences_.remove(kLedMappingProfileKey);
+            preferences_.remove(kLedMappingVersionKey);
+        }
     }
 
     const std::uint16_t spatialVersion =
@@ -653,6 +698,81 @@ bool RuntimeSettings::resetTofSpatialProfile() {
 
     if (hadProfile ||
         hadVersion) {
+        ++stats_.writes;
+    }
+
+    return true;
+}
+
+bool RuntimeSettings::setLedMappingProfile(
+    const LedMappingProfile& profile) {
+
+    if (!profile.valid()) {
+        return false;
+    }
+
+    ledMappingProfile_ = profile;
+    ledMappingProfileCustomized_ = true;
+    ledMappingProfilePersisted_ = false;
+
+    if (!persistenceAvailable_) {
+        ++stats_.writeFailures;
+        return false;
+    }
+
+    const std::size_t profileBytes =
+        preferences_.putBytes(
+            kLedMappingProfileKey,
+            &profile,
+            sizeof(profile));
+
+    const std::size_t versionBytes =
+        preferences_.putUShort(
+            kLedMappingVersionKey,
+            LedMappingProfile::kSchemaVersion);
+
+    if (profileBytes != sizeof(profile) ||
+        versionBytes != sizeof(std::uint16_t)) {
+
+        ++stats_.writeFailures;
+        preferences_.remove(kLedMappingProfileKey);
+        preferences_.remove(kLedMappingVersionKey);
+        return false;
+    }
+
+    ledMappingProfilePersisted_ = true;
+    ++stats_.writes;
+    return true;
+}
+
+bool RuntimeSettings::resetLedMappingProfile() {
+    ledMappingProfile_ = {};
+    ledMappingProfileCustomized_ = false;
+    ledMappingProfilePersisted_ = false;
+
+    if (!persistenceAvailable_) {
+        ++stats_.writeFailures;
+        return false;
+    }
+
+    const bool hadProfile =
+        preferences_.isKey(kLedMappingProfileKey);
+    const bool hadVersion =
+        preferences_.isKey(kLedMappingVersionKey);
+
+    const bool profileOk =
+        !hadProfile ||
+        preferences_.remove(kLedMappingProfileKey);
+    const bool versionOk =
+        !hadVersion ||
+        preferences_.remove(kLedMappingVersionKey);
+
+    if (!profileOk || !versionOk) {
+        ++stats_.writeFailures;
+        return false;
+    }
+
+    if (hadProfile || hadVersion) {
         ++stats_.writes;
     }
 
