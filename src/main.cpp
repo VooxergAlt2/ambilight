@@ -155,9 +155,18 @@ bool ensureDdpRunning() {
         return false;
     }
 
+    const auto& socketStats =
+        ddp.stats();
+
     Serial.printf(
-        "DDP socket bound to UDP/%u. Waiting for HyperHDR.\n",
-        ambilight::DdpUdpService::kPort);
+        "DDP socket bound to UDP/%u. RXBUF requested=%d actual=%d set=%s query=%s option_warnings=%lu.\n",
+        ambilight::DdpUdpService::kPort,
+        socketStats.requestedRxBufferBytes,
+        socketStats.actualRxBufferBytes,
+        socketStats.rxBufferSetOk ? "ok" : "no",
+        socketStats.rxBufferQueryOk ? "ok" : "no",
+        static_cast<unsigned long>(
+            socketStats.socketOptionWarnings));
 
     return true;
 }
@@ -2146,7 +2155,8 @@ void printRuntimeStatus() {
 
     Serial.printf(
         "STAT corr=%s brightness=%u persist=%s wifi=%s wsrc=%s rssi=%d pkt=%lu asm=%lu pub=%lu collapse=%lu rej=%lu stale=%lu timeout=%lu "
-        "budget=%lu lim=%lu pollmax=%luus sender_lock=%s sender=%s:%u "
+        "budget=%lu lim=%lu pollmax=%luus rxreq=%d rxactual=%d rxset=%s rxget=%s optwarn=%lu "
+        "sender_lock=%s sender=%s:%u "
         "saccept=%lu sinvalid=%lu sforeign=%lu sacq=%lu srel=%lu render=%lu skip=%lu "
         "p50<=%luus p95<=%luus p99<=%luus ovf=%llu agemax=%lluus showmax=%luus "
         "tof=%s tofgen=%lu rawvalid=%u rawmed=%u tofage=%llums tofread=%luus tofreadmax=%luus "
@@ -2179,6 +2189,12 @@ void printRuntimeStatus() {
         static_cast<unsigned long>(udp.pollBudgetExhaustions),
         static_cast<unsigned long>(udp.pollDatagramLimitHits),
         static_cast<unsigned long>(udp.maxPollUs),
+        udp.requestedRxBufferBytes,
+        udp.actualRxBufferBytes,
+        udp.rxBufferSetOk ? "ok" : "no",
+        udp.rxBufferQueryOk ? "ok" : "no",
+        static_cast<unsigned long>(
+            udp.socketOptionWarnings),
         ddp.senderLocked() ? "yes" : "no",
         senderIp,
         ddp.activeSenderPort(),
@@ -2335,7 +2351,7 @@ void printRuntimeStatus() {
 void printConfiguration() {
     Serial.println();
     Serial.println(
-        "ESP32-C6 Ambilight Stage 25: DDP sender isolation + runtime calibration/settings");
+        "ESP32-C6 Ambilight Stage 26: DDP socket hardening + sender isolation");
 
     Serial.printf(
         "Logical LEDs=%u payload=%uB DDP=%u poll_budget=%uus max_datagrams=%u\n",
