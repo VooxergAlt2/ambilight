@@ -4,26 +4,27 @@ Custom ESP32-C6 Ambilight endpoint for HyperHDR.
 
 ## Current development line
 
-Stage 23 adds runtime/NVS ToF gain calibration.
+Stage 24 adds a persistent runtime spatial profile.
 
-The current software stack now includes:
+The firmware now supports without reflashing:
 
-- Wi-Fi/DDP runtime transport
-- NVS/serial Wi-Fi provisioning
-- 780-pixel logical renderer
-- 4 synchronized PARLIO outputs
-- slow VL53L5CX wall-plane geometry
-- cumulative plane deadband
-- exact per-LED wall-distance correction
-- persistent DISABLED / SHADOW / ACTIVE modes
-- persistent global output brightness
-- persistent runtime ToF calibration curve
+- Wi-Fi provisioning
+- output brightness
+- correction mode
+- ToF distance/gain curve
+- screen/sensor spatial geometry
+- sensor rotation/mirroring
+- plane deadband
+
+Active transport remains Wi-Fi/DDP from one PC.
 
 USB/AWA remains preserved separately in:
 
     stage/07-usb-awa
 
 ## LED layout
+
+Logical LEDs:
 
 - TOP: 230
 - RIGHT: 160
@@ -33,19 +34,39 @@ USB/AWA remains preserved separately in:
 
 ## Wi-Fi
 
-Startup priority:
-
-    NVS -> compile-time secrets.h -> disabled
-
-Commands:
-
     w<Enter>                 status
     wSSID|PASSWORD<Enter>    save + reconnect
     wclear<Enter>            clear NVS
 
+Startup priority:
+
+    NVS -> secrets.h fallback -> disabled
+
 DDP listens on UDP/4048.
 
-## ToF geometry
+## ToF spatial profile
+
+Show:
+
+    y<Enter>
+
+Set:
+
+    yWIDTH,HEIGHT,SENSOR_X,SENSOR_Y,LED_Z,ROT,MIRROR,DEADBAND<Enter>
+
+Default:
+
+    y1437.5,1000,0,0,0,0,0,10
+
+Reset:
+
+    yreset<Enter>
+
+All mounting-dependent ToF geometry is versioned and stored in NVS.
+
+A profile change is blocked in ACTIVE mode and fail-opens the old spatial correction until the next valid pose is rebuilt with the new profile.
+
+## ToF geometry model
 
 VL53L5CX:
 
@@ -53,32 +74,47 @@ VL53L5CX:
 - internal ranging 1 Hz
 - one processed pose about every 12 s
 
-Wall model:
+The sensor distance is perpendicular Z.
+
+A robust wall plane is fitted:
 
     z_wall = intercept + slope_x*x + slope_y*y
 
-Per LED:
+For every logical LED:
 
     distance_i = z_wall(x_i, y_i) - z_led_i
     gain_i = curve(distance_i)
 
 ## Plane deadband
 
-Current threshold:
+Default:
 
-    10 mm maximum wall-position change over screen corners
+    10 mm maximum wall-position change at screen corners
 
 Below threshold:
 
+- refresh freshness
 - no 780-value rebuild
-- freshness only
 
 At/above threshold:
 
-- accept plane
-- rebuild all 780 distances/gains
+- accept new plane
+- rebuild 780 distances/gains
 
-Skipped poses do not move the reference, so slow motion accumulates.
+The reference is cumulative against the last applied plane.
+
+## Runtime gain calibration
+
+    q<Enter>                                  status
+    q50:2048,500:3072,4000:4096<Enter>       set
+    qreset<Enter>                             default
+
+Edits are blocked in ACTIVE mode.
+
+Default remains neutral:
+
+    50:4096
+    4000:4096
 
 ## Correction modes
 
@@ -91,87 +127,44 @@ Default:
 
     SHADOW
 
-Entering ACTIVE starts at unity and slews toward the current valid target.
+ACTIVE starts from unity and slews toward the valid target.
 
-Debug probe `x` is allowed only in SHADOW.
+Fail-open resolves to original HyperHDR RGB.
 
-Fail-open always returns correction to original HyperHDR RGB.
+Synthetic probe `x` is SHADOW-only.
 
 ## Output brightness
 
-Persistent LiteLED group multiplier:
-
-    0..255
+    b<Enter>      status
+    b128<Enter>   set 0..255
 
 Default:
 
-    32
+    32/255
 
-Commands:
+This is an independent final LiteLED group multiplier.
 
-    b128<Enter>
-    b<Enter>
-
-This is independent from ToF gain.
-
-## Runtime ToF calibration
-
-Show:
-
-    q<Enter>
-
-Set:
-
-    q50:2048,500:3072,4000:4096<Enter>
-
-Reset:
-
-    qreset<Enter>
-
-Curve rules:
-
-- 2..8 points
-- increasing distance
-- non-decreasing gain
-- gain <= 4096
-
-Curve edits are blocked in ACTIVE.
-
-Changing the curve immediately fail-opens the old target and forces the next valid pose to rebuild all 780 values.
-
-Default curve is still neutral:
-
-    50:4096
-    4000:4096
-
-Real photometric values will be entered later without reflashing firmware.
-
-## Debug summary
+## Debug
 
     t  raw ToF map
     g  legacy band diagnostics
     p  robust wall plane
     k  legacy gain diagnostics
-    s  per-LED/perimeter gain diagnostics
+    s  per-LED/perimeter gains
     c  60 s pose capture
     r  render/candidate/physical diagnostics
-    x  synthetic gain probe, SHADOW only
+    x  synthetic probe, SHADOW only
     m  correction mode
-    b  output brightness
-    w  Wi-Fi
-    q  ToF calibration curve
+    b  global brightness
+    w  Wi-Fi provisioning
+    q  gain curve
+    y  spatial profile
 
 ## Development strategy
 
-Software is completed before physical validation.
+The firmware is being completed before physical validation.
 
-Hardware later supplies:
-
-- actual sensor orientation/mirroring
-- exact sensor offsets
-- exact LED geometry
-- real noise/deadband tuning
-- real distance-to-brightness curve
+Hardware later becomes commissioning/calibration rather than a prerequisite for coding.
 
 ## CI
 
