@@ -5,26 +5,26 @@
 namespace ambilight {
 
 struct RenderSchedulerConfig {
-    // Gain-only rerenders are rate-limited to about 60 Hz.
+    // Non-RGB state-only rerenders are rate-limited to about 60 Hz.
     // New RGB frames are never delayed by this limit.
-    std::uint32_t gainOnlyMinIntervalUs = 16667;
+    std::uint32_t stateOnlyMinIntervalUs = 16667;
 };
 
 struct RenderDecision {
     bool render = false;
     bool dueToRgb = false;
-    bool dueToGain = false;
-    bool gainDeferred = false;
+    bool dueToState = false;
+    bool stateDeferred = false;
 };
 
 struct RenderSchedulerStats {
     std::uint32_t decisions = 0;
 
     std::uint32_t rgbRenders = 0;
-    std::uint32_t gainOnlyRenders = 0;
+    std::uint32_t stateOnlyRenders = 0;
     std::uint32_t combinedRenders = 0;
 
-    std::uint32_t gainDeferrals = 0;
+    std::uint32_t stateDeferrals = 0;
     std::uint32_t noFrameSkips = 0;
     std::uint32_t cleanSkips = 0;
     std::uint32_t timeRollbacks = 0;
@@ -39,7 +39,7 @@ public:
     RenderDecision decide(
         bool hasRgbFrame,
         bool rgbDirty,
-        bool gainDirty,
+        bool stateDirty,
         std::uint64_t nowUs);
 
     void markRendered(std::uint64_t renderStartedUs);
