@@ -381,14 +381,42 @@ void printRenderSegmentGain(
     const auto endpoints =
         context.endpointsForSegment(segment);
 
+    std::uint16_t midpointQ12 =
+        ambilight::kGainUnityQ12;
+
+    for (const auto& segmentConfig :
+         ambilight::kSegments) {
+
+        if (segmentConfig.id != segment ||
+            segmentConfig.logicalLength == 0) {
+            continue;
+        }
+
+        const std::uint16_t midpoint =
+            static_cast<std::uint16_t>(
+                segmentConfig.logicalStart +
+                segmentConfig.logicalLength / 2U);
+
+        midpointQ12 =
+            context.gainForLogicalIndex(
+                midpoint);
+
+        break;
+    }
+
     Serial.printf(
-        "RENDER %s start=%u(%lu.%lu%%) end=%u(%lu.%lu%%)\n",
+        "RENDER %s start=%u(%lu.%lu%%) mid=%u(%lu.%lu%%) end=%u(%lu.%lu%%)\n",
         name,
         endpoints.startQ12,
         static_cast<unsigned long>(
             gainPercentX10(endpoints.startQ12) / 10U),
         static_cast<unsigned long>(
             gainPercentX10(endpoints.startQ12) % 10U),
+        midpointQ12,
+        static_cast<unsigned long>(
+            gainPercentX10(midpointQ12) / 10U),
+        static_cast<unsigned long>(
+            gainPercentX10(midpointQ12) % 10U),
         endpoints.endQ12,
         static_cast<unsigned long>(
             gainPercentX10(endpoints.endQ12) / 10U),
@@ -556,8 +584,27 @@ void printPerimeterSegmentGain(
     const auto& segment =
         gains.segment[index];
 
+    std::uint16_t midpointQ12 =
+        ambilight::kGainUnityQ12;
+
+    for (const auto& segmentConfig :
+         ambilight::kSegments) {
+
+        if (segmentConfig.id != segmentId ||
+            segmentConfig.logicalLength == 0) {
+            continue;
+        }
+
+        midpointQ12 =
+            gains.logicalGainQ12[
+                segmentConfig.logicalStart +
+                segmentConfig.logicalLength / 2U];
+
+        break;
+    }
+
     Serial.printf(
-        "TOF SPATIAL %s d=%u->%umm k=%u(%lu.%lu%%)->%u(%lu.%lu%%)\n",
+        "TOF SPATIAL %s d=%u->%umm k=%u(%lu.%lu%%) mid=%u(%lu.%lu%%) ->%u(%lu.%lu%%)\n",
         name,
         segment.startDistanceMm,
         segment.endDistanceMm,
@@ -566,6 +613,11 @@ void printPerimeterSegmentGain(
             gainPercentX10(segment.startQ12) / 10U),
         static_cast<unsigned long>(
             gainPercentX10(segment.startQ12) % 10U),
+        midpointQ12,
+        static_cast<unsigned long>(
+            gainPercentX10(midpointQ12) / 10U),
+        static_cast<unsigned long>(
+            gainPercentX10(midpointQ12) % 10U),
         segment.endQ12,
         static_cast<unsigned long>(
             gainPercentX10(segment.endQ12) / 10U),
@@ -970,7 +1022,7 @@ void printRuntimeStatus() {
 void printConfiguration() {
     Serial.println();
     Serial.println(
-        "ESP32-C6 Ambilight Stage 16: Wi-Fi/DDP + spatial confidence diagnostics");
+        "ESP32-C6 Ambilight Stage 17: Wi-Fi/DDP + exact per-pixel shadow gain field");
 
     Serial.printf(
         "Logical LEDs=%u payload=%uB DDP=%u poll_budget=%uus max_datagrams=%u\n",
