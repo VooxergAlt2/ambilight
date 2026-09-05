@@ -3,6 +3,8 @@
 #include "tof/TofCalibrationCapture.h"
 
 using ambilight::CalibrationCaptureSummary;
+using ambilight::PerimeterGainSnapshot;
+using ambilight::SegmentId;
 using ambilight::TofCalibrationCapture;
 using ambilight::TofGeometrySnapshot;
 
@@ -139,6 +141,107 @@ void test_percentile_summary_tracks_pose_jitter() {
     TEST_ASSERT_EQUAL_UINT8(20, summary.left.maxAccepted);
 }
 
+void test_plane_and_wall_distance_summary_are_captured() {
+    TofCalibrationCapture capture;
+    capture.start(1000);
+
+    for (std::uint32_t i = 0; i < 5; ++i) {
+        auto geometry =
+            makeGeometry(
+                i + 1,
+                500,
+                600,
+                700);
+
+        geometry.timestampUs =
+            1000000ULL +
+            i * 12000000ULL;
+
+        geometry.plane.valid = true;
+        geometry.plane.yawCentiDeg =
+            static_cast<std::int16_t>(500 + i * 10);
+        geometry.plane.pitchCentiDeg =
+            static_cast<std::int16_t>(-300 + i * 10);
+        geometry.plane.interceptMm =
+            600.0F + static_cast<float>(i);
+        geometry.plane.residualMadMm = 4;
+        geometry.plane.accepted = 60;
+
+        PerimeterGainSnapshot spatial;
+        spatial.generation = geometry.generation;
+        spatial.timestampUs = geometry.timestampUs;
+        spatial.planeUsable = true;
+        spatial.projectionUsable = true;
+        spatial.failOpen = false;
+        spatial.minDistanceMm =
+            static_cast<std::uint16_t>(500 + i);
+        spatial.maxDistanceMm =
+            static_cast<std::uint16_t>(700 + i);
+
+        for (std::size_t segmentIndex = 0;
+             segmentIndex < spatial.segment.size();
+             ++segmentIndex) {
+
+            spatial.segment[segmentIndex].startDistanceMm =
+                static_cast<std::uint16_t>(
+                    500 +
+                    segmentIndex * 20 +
+                    i);
+
+            spatial.segment[segmentIndex].endDistanceMm =
+                static_cast<std::uint16_t>(
+                    510 +
+                    segmentIndex * 20 +
+                    i);
+        }
+
+        TEST_ASSERT_TRUE(
+            capture.ingest(
+                geometry,
+                spatial));
+    }
+
+    const auto summary =
+        capture.finish();
+
+    TEST_ASSERT_TRUE(summary.plane.valid);
+    TEST_ASSERT_EQUAL_UINT32(
+        5,
+        summary.plane.validFrames);
+    TEST_ASSERT_EQUAL_INT16(
+        520,
+        summary.plane.yawCentiDeg.median);
+    TEST_ASSERT_EQUAL_INT16(
+        -280,
+        summary.plane.pitchCentiDeg.median);
+    TEST_ASSERT_EQUAL_UINT16(
+        602,
+        summary.plane.interceptMm.median);
+
+    TEST_ASSERT_TRUE(summary.spatial.valid);
+    TEST_ASSERT_EQUAL_UINT32(
+        5,
+        summary.spatial.validFrames);
+    TEST_ASSERT_EQUAL_UINT16(
+        502,
+        summary.spatial.minDistanceMm.median);
+    TEST_ASSERT_EQUAL_UINT16(
+        702,
+        summary.spatial.maxDistanceMm.median);
+
+    const auto& right =
+        summary.spatial.segment[
+            static_cast<std::size_t>(
+                SegmentId::Right)];
+
+    TEST_ASSERT_EQUAL_UINT16(
+        522,
+        right.startMm.median);
+    TEST_ASSERT_EQUAL_UINT16(
+        532,
+        right.endMm.median);
+}
+
 void test_capture_expiry() {
     TofCalibrationCapture capture;
     capture.start(1000, 5000);
@@ -184,6 +287,7 @@ int main(int, char**) {
     RUN_TEST(test_duplicate_generation_is_not_double_counted);
     RUN_TEST(test_invalid_geometry_counts_total_but_not_valid);
     RUN_TEST(test_percentile_summary_tracks_pose_jitter);
+    RUN_TEST(test_plane_and_wall_distance_summary_are_captured);
     RUN_TEST(test_capture_expiry);
     RUN_TEST(test_capacity_is_bounded);
 
