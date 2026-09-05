@@ -4,7 +4,7 @@ Custom ESP32-C6 Ambilight endpoint for HyperHDR.
 
 ## Current development line
 
-Stage 25 adds DDP sender isolation for the current one-PC runtime scope.
+Stage 26 adds UDP socket receive-buffer observability on top of Stage 25 DDP sender isolation.
 
 The firmware stack now includes:
 
