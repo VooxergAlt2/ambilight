@@ -41,11 +41,8 @@ void test_fail_open_context_is_always_unity() {
     context.sourceUsable = false;
     context.failOpen = true;
 
-    context.segmentGain[
-        static_cast<std::size_t>(SegmentId::Top)] = {
-            1000,
-            2000
-        };
+    context.logicalGainQ12[0] = 1000;
+    context.logicalGainQ12[229] = 2000;
 
     TEST_ASSERT_EQUAL_UINT16(
         kGainUnityQ12,
@@ -58,52 +55,42 @@ void test_fail_open_context_is_always_unity() {
         context.hasNonUnityGain());
 }
 
-void test_segment_gradient_interpolates_in_logical_order() {
+void test_logical_gain_field_is_authoritative() {
     RenderGainContext context;
     context.sourcePresent = true;
     context.sourceUsable = true;
     context.failOpen = false;
 
-    context.segmentGain[
-        static_cast<std::size_t>(SegmentId::Top)] = {
-            4096,
-            2048
-        };
+    context.logicalGainQ12[0] = 4096;
+    context.logicalGainQ12[1] = 3584;
+    context.logicalGainQ12[2] = 3072;
+    context.logicalGainQ12[3] = 2560;
+    context.logicalGainQ12[4] = 2048;
 
     TEST_ASSERT_EQUAL_UINT16(
         4096,
         context.gainForPosition(
             SegmentId::Top,
             0,
-            5));
+            230));
 
     TEST_ASSERT_EQUAL_UINT16(
         3584,
         context.gainForPosition(
             SegmentId::Top,
             1,
-            5));
+            230));
 
     TEST_ASSERT_EQUAL_UINT16(
         3072,
-        context.gainForPosition(
-            SegmentId::Top,
-            2,
-            5));
-
-    TEST_ASSERT_EQUAL_UINT16(
-        2560,
-        context.gainForPosition(
-            SegmentId::Top,
-            3,
-            5));
+        context.gainForLogicalIndex(2));
 
     TEST_ASSERT_EQUAL_UINT16(
         2048,
         context.gainForPosition(
             SegmentId::Top,
             4,
-            5));
+            230));
 }
 
 void test_shadow_preview_changes_rgb_but_not_original_value() {
@@ -112,20 +99,17 @@ void test_shadow_preview_changes_rgb_but_not_original_value() {
     context.sourceUsable = true;
     context.failOpen = false;
 
-    context.segmentGain[
-        static_cast<std::size_t>(SegmentId::Left)] = {
-            2048,
-            2048
-        };
+    context.setSegmentUniform(
+        SegmentId::Left,
+        2048);
 
     constexpr Rgb8 input{200, 100, 50};
 
     const auto preview =
         RenderGainMath::preview(
             input,
+            620,
             SegmentId::Left,
-            0,
-            160,
             context);
 
     TEST_ASSERT_TRUE(preview.wouldChange);
@@ -194,11 +178,8 @@ void test_render_profile_comparison_ignores_metadata_but_not_usability() {
     RenderGainContext failA;
     RenderGainContext failB;
 
-    failA.segmentGain[
-        static_cast<std::size_t>(SegmentId::Left)] = {
-            1000,
-            2000
-        };
+    failA.logicalGainQ12[620] = 1000;
+    failA.logicalGainQ12[779] = 2000;
 
     // Both are fail-open, so hidden endpoint contents cannot make RGB dirty.
     TEST_ASSERT_TRUE(
@@ -245,6 +226,18 @@ void test_spatial_bridge_preserves_segment_endpoints() {
             2048
         };
 
+    gains.logicalGainQ12.fill(
+        kGainUnityQ12);
+
+    gains.logicalGainQ12[0] = 2048;
+    gains.logicalGainQ12[229] = 3072;
+    gains.logicalGainQ12[230] = 3072;
+    gains.logicalGainQ12[389] = 2304;
+    gains.logicalGainQ12[390] = 2304;
+    gains.logicalGainQ12[619] = 1792;
+    gains.logicalGainQ12[620] = 1792;
+    gains.logicalGainQ12[779] = 2048;
+
     const auto context =
         TofRenderGainBridge::make(
             gains,
@@ -287,9 +280,9 @@ void test_spatial_bridge_stale_snapshot_fails_open() {
     gains.projectionUsable = true;
     gains.failOpen = false;
 
-    gains.segment[
-        static_cast<std::size_t>(SegmentId::Left)].startQ12 =
-            1000;
+    gains.logicalGainQ12.fill(
+        kGainUnityQ12);
+    gains.logicalGainQ12[620] = 1000;
 
     const auto context =
         TofRenderGainBridge::make(
@@ -453,7 +446,7 @@ int main(int, char**) {
 
     RUN_TEST(test_q12_channel_scaling_rounds_and_clamps);
     RUN_TEST(test_fail_open_context_is_always_unity);
-    RUN_TEST(test_segment_gradient_interpolates_in_logical_order);
+    RUN_TEST(test_logical_gain_field_is_authoritative);
     RUN_TEST(test_shadow_preview_changes_rgb_but_not_original_value);
     RUN_TEST(test_shadow_policy_never_applies_candidate);
     RUN_TEST(test_render_profile_comparison_ignores_metadata_but_not_usability);
