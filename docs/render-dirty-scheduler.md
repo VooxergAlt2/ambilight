@@ -28,19 +28,19 @@ This is intentionally much faster than the normal ~12-second pose update while a
 
 Metadata-only changes do not dirty the render profile.
 
-Therefore a fresh ToF measurement that falls inside the plane deadband can refresh generation/timestamp without causing a gain-only rerender.
+Therefore a fresh ToF measurement that falls inside the plane deadband can refresh generation/timestamp without causing a state-only rerender.
 
-## Gain-only render rate
+## State-only render rate
 
 Accepted gain changes slew at up to approximately:
 
     60 Hz
 
-Fresh RGB frames bypass the gain-only limiter and render immediately.
+Fresh RGB frames bypass the state-only limiter and render immediately.
 
 ## Network latency isolation
 
-Gain-only rerenders reuse cached RGB and do not enter DDP frame-age statistics.
+State-only rerenders reuse cached RGB and do not enter DDP frame-age statistics.
 
 ## Fail-open
 
@@ -54,7 +54,7 @@ Scheduler tests cover:
 
 - no frame
 - new RGB
-- gain-only rate limiting
+- state-only rate limiting
 - RGB + gain combined
 - clean static frame
 - time rollback
