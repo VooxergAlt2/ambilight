@@ -16,6 +16,15 @@ void TofProcessor::reset() {
     latest_ = {};
 }
 
+void TofProcessor::setTransform(
+    const TofGridTransform& transform) {
+
+    config_.transform =
+        transform;
+
+    reset();
+}
+
 bool TofProcessor::statusUsable(std::uint8_t status) {
     return status == 5 || status == 6 || status == 9;
 }
