@@ -219,6 +219,58 @@ void test_rotation_and_mirror_normalize_physical_grid() {
     TEST_ASSERT_EQUAL_UINT16(800, result.right.filteredMm);
 }
 
+
+void test_runtime_transform_change_resets_temporal_state() {
+    TofProcessorConfig config;
+    config.filterTimeConstantMs = 600;
+    config.deadbandMm = 0;
+
+    TofProcessor processor(config);
+
+    processor.process(
+        makeFlat(
+            400,
+            1000000));
+
+    TofGridTransform transform;
+    transform.rotation =
+        TofRotation::Deg90;
+    transform.mirrorX = true;
+
+    processor.setTransform(
+        transform);
+
+    const auto result =
+        processor.process(
+            makeFlat(
+                900,
+                1100000,
+                transform));
+
+    // setTransform() must reset the old 400 mm temporal state. The first
+    // sample in the new coordinate system initializes immediately at 900.
+    TEST_ASSERT_EQUAL_UINT16(
+        900,
+        result.left.filteredMm);
+
+    TEST_ASSERT_EQUAL_UINT16(
+        900,
+        result.center.filteredMm);
+
+    TEST_ASSERT_EQUAL_UINT16(
+        900,
+        result.right.filteredMm);
+
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(
+            TofRotation::Deg90),
+        static_cast<int>(
+            processor.transform().rotation));
+
+    TEST_ASSERT_TRUE(
+        processor.transform().mirrorX);
+}
+
 void test_temporal_filter_smooths_step_change_both_directions() {
     TofProcessorConfig config;
     config.filterTimeConstantMs = 600;
@@ -288,6 +340,7 @@ int main(int, char**) {
     RUN_TEST(test_invalid_statuses_and_ranges_are_ignored);
     RUN_TEST(test_insufficient_valid_side_marks_geometry_invalid);
     RUN_TEST(test_rotation_and_mirror_normalize_physical_grid);
+    RUN_TEST(test_runtime_transform_change_resets_temporal_state);
     RUN_TEST(test_temporal_filter_smooths_step_change_both_directions);
     RUN_TEST(test_deadband_holds_small_jitter);
     RUN_TEST(test_status_9_is_accepted);
