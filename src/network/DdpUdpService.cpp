@@ -8,11 +8,6 @@
 #include <lwip/sockets.h>
 
 namespace ambilight {
-namespace {
-
-constexpr int kRequestedSocketRxBuffer = 32768;
-
-} // namespace
 
 DdpUdpService::~DdpUdpService() {
     stop();
@@ -32,22 +27,65 @@ bool DdpUdpService::begin() {
 
 #ifdef SO_REUSEADDR
     const int reuse = 1;
-    setsockopt(
-        socket_,
-        SOL_SOCKET,
-        SO_REUSEADDR,
-        &reuse,
-        sizeof(reuse));
+
+    if (setsockopt(
+            socket_,
+            SOL_SOCKET,
+            SO_REUSEADDR,
+            &reuse,
+            sizeof(reuse)) != 0) {
+
+        ++stats_.socketOptionWarnings;
+        ++stats_.reuseAddrSetFailures;
+        stats_.lastSocketOptionErrno = errno;
+    }
 #endif
 
+    stats_.requestedRxBufferBytes =
+        kRequestedSocketRxBufferBytes;
+
 #ifdef SO_RCVBUF
-    const int rxBufferBytes = kRequestedSocketRxBuffer;
-    setsockopt(
-        socket_,
-        SOL_SOCKET,
-        SO_RCVBUF,
-        &rxBufferBytes,
-        sizeof(rxBufferBytes));
+    const int rxBufferBytes =
+        kRequestedSocketRxBufferBytes;
+
+    if (setsockopt(
+            socket_,
+            SOL_SOCKET,
+            SO_RCVBUF,
+            &rxBufferBytes,
+            sizeof(rxBufferBytes)) == 0) {
+
+        stats_.rxBufferSetOk = true;
+    } else {
+        ++stats_.socketOptionWarnings;
+        ++stats_.rxBufferSetFailures;
+        stats_.lastSocketOptionErrno = errno;
+    }
+
+    int actualRxBufferBytes = 0;
+    socklen_t actualRxBufferLength =
+        sizeof(actualRxBufferBytes);
+
+    if (getsockopt(
+            socket_,
+            SOL_SOCKET,
+            SO_RCVBUF,
+            &actualRxBufferBytes,
+            &actualRxBufferLength) == 0) {
+
+        stats_.actualRxBufferBytes =
+            actualRxBufferBytes;
+
+        stats_.rxBufferQueryOk = true;
+    } else {
+        ++stats_.socketOptionWarnings;
+        ++stats_.rxBufferQueryFailures;
+        stats_.lastSocketOptionErrno = errno;
+    }
+#else
+    ++stats_.socketOptionWarnings;
+    ++stats_.rxBufferSetFailures;
+    ++stats_.rxBufferQueryFailures;
 #endif
 
     sockaddr_in localAddress{};
