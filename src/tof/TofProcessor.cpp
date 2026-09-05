@@ -6,7 +6,8 @@
 namespace ambilight {
 
 TofProcessor::TofProcessor(TofProcessorConfig config)
-    : config_(config) {}
+    : config_(config),
+      planeEstimator_(config.plane) {}
 
 void TofProcessor::reset() {
     leftFilter_ = {};
@@ -250,6 +251,11 @@ TofGeometrySnapshot TofProcessor::process(
         7,
         config_.minSideZones,
         rightFilter_);
+
+    next.plane =
+        planeEstimator_.estimate(
+            raw,
+            config_.transform);
 
     next.acceptedZones = static_cast<std::uint8_t>(
         next.left.accepted +
