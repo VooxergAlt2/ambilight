@@ -125,12 +125,12 @@ TofGainModel::TofGainModel(
 
 GainSnapshot TofGainModel::unitySnapshot(
     std::uint32_t generation,
-    std::uint64_t nowUs,
+    std::uint64_t sourceTimestampUs,
     bool geometryUsable) {
 
     GainSnapshot snapshot;
     snapshot.generation = generation;
-    snapshot.timestampUs = nowUs;
+    snapshot.timestampUs = sourceTimestampUs;
 
     snapshot.topQ12 = kGainUnityQ12;
     snapshot.bottomQ12 = kGainUnityQ12;
@@ -148,7 +148,7 @@ GainSnapshot TofGainModel::evaluate(
     std::uint64_t nowUs) {
 
     const std::uint32_t generation =
-        latest_.generation + 1;
+        geometry.generation;
 
     const bool timestampUsable =
         geometry.timestampUs != 0 &&
@@ -166,7 +166,7 @@ GainSnapshot TofGainModel::evaluate(
     if (!geometryUsable || !config_.curve.valid()) {
         latest_ = unitySnapshot(
             generation,
-            nowUs,
+            geometry.timestampUs,
             geometryUsable);
 
         return latest_;
@@ -174,7 +174,7 @@ GainSnapshot TofGainModel::evaluate(
 
     GainSnapshot next;
     next.generation = generation;
-    next.timestampUs = nowUs;
+    next.timestampUs = geometry.timestampUs;
 
     next.leftQ12 =
         config_.curve.evaluate(
