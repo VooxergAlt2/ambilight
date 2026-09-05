@@ -4,7 +4,7 @@ Custom ESP32-C6 Ambilight endpoint for HyperHDR.
 
 ## Current development line
 
-Stage 32 moves serial command framing out of main.cpp into a pure, native-testable event parser while preserving the existing command syntax.
+Stage 33 moves runtime payload grammar for brightness, LED mapping, ToF spatial geometry and gain curves out of main.cpp into a pure typed parser.
 
 The firmware stack now includes:
 
@@ -279,3 +279,17 @@ If a line contains an unsupported control byte or overflows its buffer, the rema
 Framing contracts live in:
 
     test/test_serial_command_parser
+
+
+## Typed runtime payload parsing
+
+After serial framing, configuration payloads are parsed into existing domain objects:
+
+    b -> uint8_t brightness
+    l -> LedMappingProfile
+    y -> TofSpatialProfile
+    q -> GainPoint[] + DistanceGainCurve validation
+
+The parser is pure C++ and covered by native contracts.
+
+main.cpp now owns orchestration and subsystem actions rather than numeric command grammar.
