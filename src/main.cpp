@@ -12,6 +12,7 @@
 #include "led/LedRenderer.h"
 #include "network/DdpUdpService.h"
 #include "network/WifiService.h"
+#include "tof/TofService.h"
 
 namespace {
 
@@ -25,6 +26,7 @@ ambilight::FrameMailbox mailbox;
 ambilight::WifiService wifi;
 ambilight::DdpUdpService ddp(mailbox);
 ambilight::LatencyHistogram frameAgeHistogram;
+ambilight::TofService tof;
 
 ambilight::RgbFrame renderSnapshot;
 
@@ -48,6 +50,21 @@ std::uint64_t maxFrameAgeUs = 0;
     }
 }
 
+const char* tofStateName(ambilight::TofState state) {
+    switch (state) {
+    case ambilight::TofState::NotStarted:
+        return "not-started";
+    case ambilight::TofState::Initializing:
+        return "initializing";
+    case ambilight::TofState::Ranging:
+        return "ranging";
+    case ambilight::TofState::Error:
+        return "error";
+    }
+
+    return "unknown";
+}
+
 bool renderLatestFrame() {
     if (!mailbox.copyLatest(
             renderSnapshot,
@@ -67,8 +84,6 @@ bool renderLatestFrame() {
         maxFrameAgeUs = lastFrameAgeUs;
     }
 
-    // Synthetic idle-black frames are stamped after the most recent DDP
-    // completion, so only actual network frames enter latency percentiles.
     if (renderSnapshot.receivedUs != 0 &&
         renderSnapshot.receivedUs == ddp.lastCompleteFrameUs()) {
         frameAgeHistogram.observe(lastFrameAgeUs);
@@ -114,6 +129,59 @@ void updateDdpActivityState() {
     }
 }
 
+void dumpTofMap() {
+    ambilight::TofSnapshot snapshot;
+
+    if (!tof.copySnapshot(snapshot)) {
+        Serial.println("TOF dump unavailable: snapshot mutex busy/not initialized.");
+        return;
+    }
+
+    Serial.printf(
+        "TOF MAP state=%s gen=%lu age_ms=%llu valid=%u median=%umm "
+        "frames=%lu read=%luus max_read=%luus\n",
+        tofStateName(snapshot.state),
+        static_cast<unsigned long>(snapshot.generation),
+        snapshot.timestampUs == 0
+            ? 0ULL
+            : static_cast<unsigned long long>(
+                  (static_cast<std::uint64_t>(esp_timer_get_time()) -
+                   snapshot.timestampUs) / 1000ULL),
+        static_cast<unsigned>(snapshot.validZones),
+        snapshot.medianMm,
+        static_cast<unsigned long>(snapshot.frames),
+        static_cast<unsigned long>(snapshot.lastReadUs),
+        static_cast<unsigned long>(snapshot.maxReadUs));
+
+    Serial.println("distance_mm/status, raw ST zone order:");
+
+    for (std::size_t row = 0; row < 8; ++row) {
+        for (std::size_t col = 0; col < 8; ++col) {
+            const std::size_t index = row * 8 + col;
+
+            Serial.printf(
+                "%5d/%02u%s",
+                static_cast<int>(snapshot.distanceMm[index]),
+                static_cast<unsigned>(snapshot.targetStatus[index]),
+                col == 7 ? "" : " ");
+        }
+
+        Serial.println();
+    }
+
+    Serial.println();
+}
+
+void serviceDebugCommands() {
+    while (Serial.available() > 0) {
+        const int input = Serial.read();
+
+        if (input == 't' || input == 'T') {
+            dumpTofMap();
+        }
+    }
+}
+
 void printRuntimeStatus() {
     char senderIp[INET_ADDRSTRLEN] = "none";
 
@@ -129,11 +197,23 @@ void printRuntimeStatus() {
     const auto& udp = ddp.stats();
     const auto& asmStats = ddp.assemblerStats();
 
+    ambilight::TofSnapshot tofSnapshot;
+    const bool haveTof = tof.copySnapshot(tofSnapshot);
+
+    const std::uint64_t nowUs =
+        static_cast<std::uint64_t>(esp_timer_get_time());
+
+    const std::uint64_t tofAgeMs =
+        haveTof && tofSnapshot.timestampUs != 0
+            ? (nowUs - tofSnapshot.timestampUs) / 1000ULL
+            : 0;
+
     Serial.printf(
         "STAT wifi=%s rssi=%d pkt=%lu asm=%lu pub=%lu collapse=%lu rej=%lu stale=%lu timeout=%lu "
         "budget=%lu lim=%lu pollmax=%luus sender=%s:%u render=%lu skip=%lu "
         "p50<=%luus p95<=%luus p99<=%luus ovf=%llu agemax=%lluus showmax=%luus "
-        "black=%lu heap=%u minheap=%u\n",
+        "tof=%s tofgen=%lu tofvalid=%u tofmed=%u tofage=%llums tofread=%luus tofreadmax=%luus "
+        "tofinit=%lu toffail=%lu tofreadfail=%lu black=%lu heap=%u minheap=%u\n",
         wifi.connected() ? "up" : "down",
         wifi.connected() ? WiFi.RSSI() : 0,
         static_cast<unsigned long>(udp.datagramsReceived),
@@ -159,6 +239,32 @@ void printRuntimeStatus() {
         static_cast<unsigned long long>(frameAgeHistogram.overflow()),
         static_cast<unsigned long long>(maxFrameAgeUs),
         static_cast<unsigned long>(ledEngine.maxShowTimeUs()),
+        haveTof ? tofStateName(tofSnapshot.state) : "unavailable",
+        haveTof
+            ? static_cast<unsigned long>(tofSnapshot.generation)
+            : 0UL,
+        haveTof
+            ? static_cast<unsigned>(tofSnapshot.validZones)
+            : 0U,
+        haveTof
+            ? tofSnapshot.medianMm
+            : 0U,
+        static_cast<unsigned long long>(tofAgeMs),
+        haveTof
+            ? static_cast<unsigned long>(tofSnapshot.lastReadUs)
+            : 0UL,
+        haveTof
+            ? static_cast<unsigned long>(tofSnapshot.maxReadUs)
+            : 0UL,
+        haveTof
+            ? static_cast<unsigned long>(tofSnapshot.initAttempts)
+            : 0UL,
+        haveTof
+            ? static_cast<unsigned long>(tofSnapshot.initFailures)
+            : 0UL,
+        haveTof
+            ? static_cast<unsigned long>(tofSnapshot.rangingReadFailures)
+            : 0UL,
         static_cast<unsigned long>(idleBlackouts),
         ESP.getFreeHeap(),
         ESP.getMinFreeHeap());
@@ -166,7 +272,7 @@ void printRuntimeStatus() {
 
 void printConfiguration() {
     Serial.println();
-    Serial.println("ESP32-C6 Ambilight Stage 6: DDP realtime hardening");
+    Serial.println("ESP32-C6 Ambilight Stage 7: Wi-Fi/DDP + raw VL53L5CX");
     Serial.printf(
         "Logical LEDs=%u payload=%uB DDP=%u poll_budget=%uus max_datagrams=%u\n",
         static_cast<unsigned>(ambilight::config::kLogicalLedCount),
@@ -184,9 +290,17 @@ void printConfiguration() {
         static_cast<unsigned>(ambilight::config::kPhysicalLaneLength),
         static_cast<unsigned>(ambilight::config::kTestBrightness));
 
+    Serial.printf(
+        "VL53L5CX raw bring-up: SDA=%u SCL=%u 8x8 @ 10Hz; "
+        "sensor does NOT modify LED frames in this stage.\n",
+        ambilight::config::kTofSdaGpio,
+        ambilight::config::kTofSclGpio);
+
     Serial.println(
-        "Runtime source remains one HyperHDR DDP sender. "
-        "No USB/AWA, ToF, arbitration, or multi-PC code.");
+        "Type 't' in the debug serial terminal for a one-shot 8x8 raw ToF dump.");
+    Serial.println(
+        "Active frame transport remains Wi-Fi/DDP only. "
+        "USB/AWA is preserved separately as WIP.");
     Serial.println();
 }
 
@@ -223,10 +337,19 @@ void setup() {
         Serial.println(
             "DDP runtime inactive because Wi-Fi credentials are absent.");
     }
+
+    if (!tof.begin()) {
+        Serial.println(
+            "VL53L5CX task creation failed; Ambilight continues without ToF.");
+    } else {
+        Serial.println(
+            "VL53L5CX background initialization started; DDP remains available during sensor firmware upload.");
+    }
 }
 
 void loop() {
     wifi.tick(millis());
+    serviceDebugCommands();
 
     ambilight::DdpPollResult pollResult;
     if (ddp.running()) {
@@ -234,10 +357,6 @@ void loop() {
         updateDdpActivityState();
     }
 
-    // If the UDP drain hit its bounded budget, there is probably old network
-    // data still queued. For a few iterations, spend time catching up instead
-    // of rendering a frame we already know is stale. The skip streak is capped
-    // so a pathological continuous backlog cannot starve LED output forever.
     if (pollResult.backlogLikely &&
         consecutiveBacklogRenderSkips <
             kMaxConsecutiveBacklogRenderSkips) {

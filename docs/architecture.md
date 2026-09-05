@@ -1,114 +1,93 @@
-# Architecture
+# Stage 7 architecture
 
-## Stage 6 scope
+## Scope
 
-Stage 6 hardens the one-PC DDP runtime against temporary receive backlog and adds allocation-free latency observability.
+Stage 7 keeps the existing one-PC Wi-Fi/DDP renderer unchanged and adds raw VL53L5CX acquisition only.
 
-The feature set is intentionally unchanged:
+No ToF-derived brightness correction exists yet.
 
-- one PC
-- Wi-Fi / DDP only
-- 780 RGB logical LEDs
-- four PARLIO outputs
-- no USB/AWA
-- no VL53L5CX
-- no source arbitration
-- no Web UI/OTA
+USB/AWA is preserved on a separate WIP branch and is not part of this active line.
 
-## Realtime receive policy
+## Scheduling
 
-A normal HyperHDR frame is two DDP datagrams, but temporary scheduler or radio stalls can leave several frames queued in the UDP socket.
+ESP32-C6 is single-core, so the VL53L5CX must not become a blocking dependency of the renderer.
 
-Rendering every completed historical frame would convert a temporary stall into persistent visible latency.
+The application therefore has two independent paths.
 
-Stage 6 therefore collapses backlog in two places.
+Realtime frame path:
 
-### 1. Inside one UDP poll
+    Wi-Fi/lwIP
+      -> DdpUdpService
+      -> DdpAssembler
+      -> FrameMailbox
+      -> LedRenderer
+      -> PARLIO x4
 
-DdpUdpService drains datagrams until one of three conditions:
+Sensor path:
 
-- socket reaches EWOULDBLOCK/EAGAIN
-- 128 datagrams were parsed
-- 3 ms polling budget was consumed
+    low-priority FreeRTOS task
+      -> I2C
+      -> Adafruit VL53L5CX / ST ULD
+      -> 8x8 results
+      -> TofSnapshot
 
-If several complete DDP frames are assembled during that drain, only the newest complete frame is published to FrameMailbox.
+Renderer never calls I2C and never waits for the sensor.
 
-Intermediate complete frames never take the mailbox mutex and never reach the renderer.
+## Initialization
 
-### 2. Across successive polls
+VL53L5CX initialization uploads sensor firmware and can take seconds.
 
-If a poll stops because of its time/packet budget instead of reaching an empty socket, backlogLikely is returned.
+Order:
 
-The main loop may skip LED rendering for up to four consecutive backlog polls so parsing can catch up faster than PARLIO rendering.
+1. FrameMailbox
+2. PARLIO LED engine
+3. Wi-Fi
+4. DDP socket
+5. ToF background task
 
-After four skips it renders anyway, preventing pathological network load from starving LEDs indefinitely.
+Therefore sensor startup cannot delay DDP availability.
 
-This encodes the system rule:
+If sensor init fails, the task waits 5 seconds and retries while Ambilight continues normally.
 
-    newest frame > historical frame completeness
+## I2C
 
-## Why this matters
+Development mapping:
 
-At 60 FPS a frame arrives every 16.7 ms while a 230-pixel WS2812 lane takes about 6.9 ms to transmit.
+- GPIO6 SDA
+- GPIO7 SCL
+- INT unused
 
-The receiver normally has ample time.
+Initial I2C frequency is 1 MHz to reduce firmware-upload and result-read occupancy.
 
-Backlog handling is therefore primarily a recovery mechanism for temporary stalls, not normal scheduling.
+This is explicitly subject to hardware acceptance. If the actual module/cable/pull-ups are marginal, repeat at 400 kHz.
 
-## Latency histogram
+## Snapshot contract
 
-The main loop measures internal age:
+TofSnapshot contains:
 
-    last DDP packet completing frame
-        ->
-    renderer starts consuming published frame
+- state
+- generation/timestamp
+- 64 raw distance values
+- 64 raw target statuses
+- valid-zone count
+- diagnostic median
+- init/read failure counters
+- last/max sensor read duration
 
-A fixed-memory histogram records buckets:
+Only the ToF task touches the Adafruit/ST driver.
 
-- <=0.25 ms
-- <=0.5 ms
-- <=1 ms
-- <=2 ms
-- <=4 ms
-- <=8 ms
-- <=16 ms
-- <=32 ms
-- <=64 ms
-- <=128 ms
-- overflow
+Main receives a copied snapshot through a short task mutex.
 
-Runtime diagnostics expose approximate p50/p95/p99 upper bounds plus overflow count and absolute max age.
+## Logging policy
 
-This does not measure PC-to-ESP network latency. It measures queue/scheduling delay inside the controller, which is the part firmware can actually control.
+A full 8x8 map is intentionally not streamed periodically because serial logging can distort DDP timing.
 
-## Heap policy
+Periodic status includes only compact ToF metrics.
 
-The packet path uses:
+A one-shot raw map is printed only after the operator sends `t` over debug serial.
 
-- one static 1536-byte UDP RX buffer
-- one fixed DDP staging frame
-- one 293-byte coverage bitmap
-- fixed RgbFrame objects
-- no application malloc/free per frame or datagram
+## Stage boundary
 
-The Wi-Fi/lwIP stack itself still owns normal network buffers internally.
+Stage 7 must not change RGB values.
 
-## Stress acceptance
-
-The one-PC Wi-Fi runtime should pass:
-
-- >=2 hours at 60 FPS before first field use
-- 24-hour soak before calling the DDP path stable
-- no progressive frame-age growth
-- no progressive heap loss
-- mappingErrors = 0
-- no watchdog/reset
-- HyperHDR stop -> black within ~1 s
-- HyperHDR restart -> immediate sequence resync
-- AP restart -> automatic recovery
-- temporary CPU/network stall -> backlog collapses rather than accumulating
-- p95 internal frame age stays comfortably below one 16.7 ms video frame under normal conditions
-
-## Next stage
-
-After this DDP path is demonstrated on real hardware, USB/AWA can be implemented as a completely independent producer of the same RgbFrame contract.
+The next ToF stage is allowed to analyze captured maps and build filtering/geometry logic, but brightness correction remains a later integration step.

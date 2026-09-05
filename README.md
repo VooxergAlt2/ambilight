@@ -2,22 +2,21 @@
 
 Custom ESP32-C6 Ambilight endpoint for HyperHDR.
 
-## Current development stage
+## Active development path
 
-Stage 6 hardens the first one-PC Wi-Fi/DDP MVP.
+The active firmware path is currently **Wi-Fi/DDP only**.
 
-Runtime path:
+Stage 7 keeps the proven one-PC DDP renderer and adds raw VL53L5CX acquisition in the background.
 
-    HyperHDR 22
+    HyperHDR
         |
-        | DDP / UDP 4048
+        | Wi-Fi / DDP / UDP 4048
         v
-    static UDP RX buffer
+    ESP32-C6
         |
         v
     DdpAssembler
         |
-        | newest complete frame
         v
     FrameMailbox
         |
@@ -27,73 +26,61 @@ Runtime path:
         v
     PARLIO x4
 
-## Current hardware target
+In parallel:
 
-- ESP32-C6
-- 780 logical RGB LEDs
-- TOP 230
-- RIGHT 160
-- BOTTOM 230
-- LEFT 160
-- four synchronized PARLIO lanes
+    VL53L5CX 8x8 @ 10 Hz
+        |
+        | I2C
+        v
+    low-priority ToF task
+        |
+        v
+    immutable TofSnapshot
 
-## DDP runtime
+The ToF snapshot does **not** modify LED brightness yet.
 
-Supported subset:
+## Why ToF initialization is backgrounded
 
-- DDP v1
-- UDP port 4048
-- RGB type 0x0B
-- destination 1
-- sequence 1..15
-- exactly 2340 RGB bytes per complete frame
-- one HyperHDR sender
+VL53L5CX uploads firmware to the sensor during initialization and can take several seconds.
 
-No application heap allocation is performed per UDP datagram.
+The sensor therefore runs in a low-priority FreeRTOS task started only after the DDP/LED runtime is initialized.
 
-## Backlog handling
+Ambilight remains available while the sensor starts or while the sensor is absent.
 
-A temporary queue of old UDP frames is actively collapsed.
+## ToF development settings
 
-- up to 128 datagrams can be drained in one poll
-- each poll has a 3 ms CPU budget
-- multiple complete frames in one poll collapse to the newest frame
-- if the socket still appears backlogged, up to four LED renders may be skipped while the receiver catches up
-- render starvation is bounded
+Provisional pins:
 
-The goal is to drop historical frames instead of converting a short stall into growing Ambilight latency.
+- SDA GPIO6
+- SCL GPIO7
+- INT unused
 
-## Latency metrics
+Initial mode:
 
-The controller tracks allocation-free internal frame-age percentiles:
+- 8x8 / 64 zones
+- 10 Hz
+- 1 MHz I2C
+- target status 5 or 9 counted as valid for diagnostics
 
-- p50
-- p95
-- p99
-- overflow above 128 ms
-- maximum observed age
+If the actual breakout/wiring is unstable at 1 MHz, hardware acceptance should repeat at 400 kHz.
 
-This measures DDP completion inside C6 to renderer consumption. It is not network RTT.
+## Raw map inspection
 
-## HyperHDR setup
+Normal logging stays compact to avoid injecting UART stalls into realtime DDP operation.
 
-Use one DDP device:
+Send:
 
-- target: ESP32-C6 IPv4 address
-- port: 4048
-- LED count: 780
-- continuous output: enabled
+    t
 
-Keep only one sender active during this stage.
+to the debug serial terminal to print one raw 8x8 distance/status map.
 
-## Wi-Fi credentials
+## USB/AWA
 
-Copy include/secrets.example.h to include/secrets.h and set:
+USB/AWA work is preserved separately in branch:
 
-    AMBILIGHT_WIFI_SSID
-    AMBILIGHT_WIFI_PASSWORD
+    stage/07-usb-awa
 
-Wi-Fi power saving is disabled for lower latency/jitter.
+It is intentionally not part of the active Wi-Fi firmware line yet.
 
 ## Build
 
@@ -105,16 +92,16 @@ Native tests:
 
     pio test -e native
 
-## Acceptance before USB work
+## Stage 7 acceptance
 
-At minimum:
+- DDP 60 FPS behavior remains unchanged with ToF task enabled
+- DDP starts before VL53L5CX initialization finishes
+- missing VL53L5CX does not break Ambilight
+- sensor reaches 8x8 @ 10 Hz when connected
+- raw maps react plausibly to TV/wall position
+- ToF read time and max read time are visible
+- DDP p95/p99 internal frame age does not regress materially
+- no progressive heap loss
+- no watchdog/reset
 
-- 60 FPS DDP works on all four lanes
-- 2-hour interactive test passes
-- 24-hour soak shows no progressive heap or latency growth
-- p95 internal age stays below one 60 FPS frame under normal conditions
-- HyperHDR/AP restart recovery works
-- no partial/malformed frame is rendered
-- mapping errors remain zero
-
-USB/AWA is intentionally the next major transport only after this path is proven on hardware.
+Adaptive brightness comes only after real raw maps are captured and reviewed.
