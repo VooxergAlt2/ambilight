@@ -6,6 +6,7 @@
 
 #include <Preferences.h>
 
+#include "led/LedMappingProfile.h"
 #include "render/CorrectionMode.h"
 #include "tof/TofGainModel.h"
 #include "tof/TofSpatialProfile.h"
@@ -75,6 +76,18 @@ public:
             tofGainPointCount_);
     }
 
+    const LedMappingProfile& ledMappingProfile() const {
+        return ledMappingProfile_;
+    }
+
+    bool ledMappingProfileCustomized() const {
+        return ledMappingProfileCustomized_;
+    }
+
+    bool ledMappingProfilePersisted() const {
+        return ledMappingProfilePersisted_;
+    }
+
     const TofSpatialProfile& tofSpatialProfile() const {
         return tofSpatialProfile_;
     }
@@ -114,6 +127,11 @@ public:
 
     bool resetTofSpatialProfile();
 
+    bool setLedMappingProfile(
+        const LedMappingProfile& profile);
+
+    bool resetLedMappingProfile();
+
     bool persistenceAvailable() const {
         return persistenceAvailable_;
     }
@@ -141,6 +159,10 @@ private:
         "spatial";
     static constexpr const char* kTofSpatialVersionKey =
         "spatial_ver";
+    static constexpr const char* kLedMappingProfileKey =
+        "led_map";
+    static constexpr const char* kLedMappingVersionKey =
+        "led_map_ver";
 
     Preferences preferences_;
 
@@ -167,6 +189,10 @@ private:
     std::size_t tofGainPointCount_ = 0;
     bool tofGainCurveCustomized_ = false;
     bool tofGainCurvePersisted_ = false;
+
+    LedMappingProfile ledMappingProfile_{};
+    bool ledMappingProfileCustomized_ = false;
+    bool ledMappingProfilePersisted_ = false;
 
     TofSpatialProfile tofSpatialProfile_{};
     bool tofSpatialProfileCustomized_ = false;
