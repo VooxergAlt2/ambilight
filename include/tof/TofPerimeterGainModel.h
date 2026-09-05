@@ -19,6 +19,7 @@ struct PerimeterSegmentGain {
 };
 
 struct PerimeterGainSnapshot {
+    // Generation/timestamp belong to the source ToF geometry frame.
     std::uint32_t generation = 0;
     std::uint64_t timestampUs = 0;
 
@@ -27,8 +28,8 @@ struct PerimeterGainSnapshot {
         static_cast<std::size_t>(SegmentId::Count)>
         segment{};
 
-    // Exact target Q12 for every logical LED, calculated from that LED's
-    // wall distance and the calibrated distance curve.
+    // Exact target Q12 for every logical LED. Each LED position is projected
+    // along screen +Z onto the fitted wall plane and evaluated independently.
     std::array<
         std::uint16_t,
         config::kLogicalLedCount>
@@ -37,19 +38,8 @@ struct PerimeterGainSnapshot {
     std::uint16_t minDistanceMm = 0;
     std::uint16_t maxDistanceMm = 0;
 
-    std::uint16_t observedHalfSpanXmm = 0;
-    std::uint16_t observedHalfSpanYmm = 0;
-
-    std::uint16_t screenHalfSpanXmm = 0;
-    std::uint16_t screenHalfSpanYmm = 0;
-
-    // 1000 = 1.0x, 4000 = 4.0x.
-    std::uint16_t extrapolationXPermille = 0;
-    std::uint16_t extrapolationYPermille = 0;
-
     bool planeUsable = false;
     bool projectionUsable = false;
-    bool extrapolationWarning = false;
     bool failOpen = true;
 };
 
@@ -60,10 +50,8 @@ struct TofPerimeterGainModelConfig {
     std::uint16_t minDistanceMm = 30;
     std::uint16_t maxDistanceMm = 4000;
 
-    std::uint64_t staleTimeoutUs = 1500000;
-
-    // Diagnostic only in Stage 16. Exceeding this does NOT fail open.
-    std::uint16_t maxRecommendedExtrapolationPermille = 4000;
+    // Normal runtime samples the TV pose roughly every 12 seconds.
+    std::uint64_t staleTimeoutUs = 30000000;
 };
 
 class TofPerimeterGainModel {
@@ -83,13 +71,19 @@ public:
 private:
     static PerimeterGainSnapshot unitySnapshot(
         std::uint32_t generation,
-        std::uint64_t nowUs,
+        std::uint64_t sourceTimestampUs,
         bool planeUsable);
 
     bool distanceAt(
         const TofPlaneEstimate& plane,
-        const ScreenPointMm& point,
+        const ScreenPointMm& ledPoint,
         std::uint16_t& distanceMm) const;
+
+    static ScreenPointMm interpolatePoint(
+        const ScreenPointMm& start,
+        const ScreenPointMm& end,
+        std::uint16_t offset,
+        std::uint16_t length);
 
     TofPerimeterGainModelConfig config_{};
     PerimeterGainSnapshot latest_{};
