@@ -2,7 +2,7 @@
 
 ## Current stage
 
-Stage 32 is the current software-integration line.
+Stage 33 is the current software-integration line.
 
 The active firmware now combines:
 
@@ -21,6 +21,7 @@ The active firmware now combines:
 - guarded NVS factory recovery
 - generic non-RGB render-state scheduling
 - typed pure-C++ serial command framing
+- typed pure-C++ runtime payload parsing
 
 USB/AWA work remains preserved separately in:
 
@@ -333,3 +334,15 @@ Physical commissioning remains a later stage for:
 The parser is pure C++ and participates in native tests.
 
 Framing errors discard the rest of the damaged line before returning to idle parsing. Subsystem validation stays outside the parser.
+
+
+## Runtime payload path
+
+For typed configuration commands:
+
+    SerialCommandEvent payload
+      -> RuntimePayloadParser
+      -> domain object
+      -> runtime apply/persist handler
+
+The parser directly produces existing validated domain types instead of parallel DTO layers.
