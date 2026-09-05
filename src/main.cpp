@@ -256,47 +256,39 @@ void clearRuntimeWifiCredentials() {
         cleared ? "persisted" : "volatile-only");
 }
 
-void resetWifiCommand() {
-    wifiCommandPending = false;
-    wifiCommandLength = 0;
-    wifiCommandBuffer.fill('\0');
-}
+void handleWifiCommand(
+    char* command) {
 
-void finishWifiCommand() {
-    wifiCommandBuffer[
-        wifiCommandLength] = '\0';
+    if (command == nullptr ||
+        command[0] == '\0') {
 
-    if (wifiCommandLength == 0) {
         printWifiProvisioningStatus();
-        resetWifiCommand();
         return;
     }
 
     if (std::strcmp(
-            wifiCommandBuffer.data(),
+            command,
             "clear") == 0) {
 
         clearRuntimeWifiCredentials();
-        resetWifiCommand();
         return;
     }
 
     char* separator =
         std::strchr(
-            wifiCommandBuffer.data(),
+            command,
             '|');
 
     if (separator == nullptr) {
         Serial.println(
             "Wi-Fi command invalid. Use wSSID|PASSWORD or wclear.");
-        resetWifiCommand();
         return;
     }
 
     *separator = '\0';
 
     const char* ssid =
-        wifiCommandBuffer.data();
+        command;
 
     const char* password =
         separator + 1;
@@ -305,27 +297,18 @@ void finishWifiCommand() {
         ssid,
         password,
         true);
-
-    resetWifiCommand();
 }
 
-void resetFactoryCommand() {
-    factoryCommandPending = false;
-    factoryCommandLength = 0;
-    factoryCommandBuffer.fill('\0');
-}
+void handleFactoryCommand(
+    const char* command) {
 
-void finishFactoryCommand() {
-    factoryCommandBuffer[
-        factoryCommandLength] = '\0';
-
-    if (std::strcmp(
-            factoryCommandBuffer.data(),
+    if (command == nullptr ||
+        std::strcmp(
+            command,
             "reset") != 0) {
 
         Serial.println(
             "FACTORY RESET not executed. Use freset + Enter with brightness=0.");
-        resetFactoryCommand();
         return;
     }
 
@@ -335,7 +318,6 @@ void finishFactoryCommand() {
             static_cast<unsigned>(
                 ledEngine.brightness()));
 
-        resetFactoryCommand();
         return;
     }
 
@@ -355,7 +337,6 @@ void finishFactoryCommand() {
     if (!runtimeSettings.factoryReset()) {
         Serial.println(
             "FACTORY RESET failed: NVS namespace was not cleared. Runtime continues unchanged.");
-        resetFactoryCommand();
         return;
     }
 
