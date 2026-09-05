@@ -49,6 +49,7 @@ public:
         context.sourceUsable =
             fresh &&
             gains.planeUsable &&
+            gains.projectionUsable &&
             !gains.failOpen;
 
         context.failOpen =
