@@ -22,6 +22,13 @@ public:
     esp_err_t begin();
     esp_err_t show();
 
+    void setBrightness(
+        std::uint8_t brightness);
+
+    std::uint8_t brightness() const {
+        return brightness_;
+    }
+
     void clear();
     bool setPhysicalPixel(
         std::uint8_t lane,
@@ -34,6 +41,11 @@ public:
 private:
     LiteLEDpioGroup group_;
     std::array<LiteLEDpioLane*, config::kParlioLaneCount> lanes_{};
+
+    std::uint8_t brightness_ =
+        config::kDefaultOutputBrightness;
+
+    bool begun_ = false;
 
     std::uint32_t lastShowTimeUs_ = 0;
     std::uint32_t maxShowTimeUs_ = 0;
