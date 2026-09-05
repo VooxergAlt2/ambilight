@@ -24,7 +24,6 @@ constexpr std::uint32_t kPollDelayMs = 100;
 constexpr std::uint32_t kRangingStaleMs = 30000;
 constexpr std::uint32_t kMeasurementIntervalMs = 12000;
 constexpr std::uint64_t kGainStaleTimeoutUs = 30000000ULL;
-constexpr float kPlaneWallDeadbandMm = 10.0F;
 constexpr std::uint8_t kMaxConsecutiveReadFailures = 5;
 
 constexpr std::uint32_t kI2cClockHz = 1000000;
@@ -60,7 +59,7 @@ TofPlaneChangeGateConfig makePlaneChangeGateConfig() {
     gateConfig.geometry =
         config::kPerimeterScreenGeometry;
     gateConfig.wallDeltaDeadbandMm =
-        kPlaneWallDeadbandMm;
+        config::kTofPlaneWallDeadbandMm;
     return gateConfig;
 }
 
