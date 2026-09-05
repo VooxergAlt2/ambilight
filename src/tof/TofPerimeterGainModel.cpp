@@ -5,53 +5,15 @@
 #include <limits>
 
 namespace ambilight {
-namespace {
-
-std::uint16_t clampUnsignedMm(double value) {
-    if (value <= 0.0) {
-        return 0;
-    }
-
-    if (value >= 65535.0) {
-        return 65535;
-    }
-
-    return static_cast<std::uint16_t>(
-        std::lround(value));
-}
-
-std::uint16_t ratioPermille(
-    double requestedHalfSpanMm,
-    std::uint16_t observedHalfSpanMm) {
-
-    if (observedHalfSpanMm == 0) {
-        return 65535;
-    }
-
-    const double ratio =
-        std::abs(requestedHalfSpanMm) /
-        static_cast<double>(
-            observedHalfSpanMm) *
-        1000.0;
-
-    if (ratio >= 65535.0) {
-        return 65535;
-    }
-
-    return static_cast<std::uint16_t>(
-        std::lround(ratio));
-}
-
-} // namespace
 
 PerimeterGainSnapshot TofPerimeterGainModel::unitySnapshot(
     std::uint32_t generation,
-    std::uint64_t nowUs,
+    std::uint64_t sourceTimestampUs,
     bool planeUsable) {
 
     PerimeterGainSnapshot snapshot;
     snapshot.generation = generation;
-    snapshot.timestampUs = nowUs;
+    snapshot.timestampUs = sourceTimestampUs;
     snapshot.planeUsable = planeUsable;
     snapshot.failOpen = true;
 
@@ -66,28 +28,53 @@ PerimeterGainSnapshot TofPerimeterGainModel::unitySnapshot(
     return snapshot;
 }
 
+ScreenPointMm TofPerimeterGainModel::interpolatePoint(
+    const ScreenPointMm& start,
+    const ScreenPointMm& end,
+    std::uint16_t offset,
+    std::uint16_t length) {
+
+    if (length <= 1) {
+        return start;
+    }
+
+    const float t =
+        static_cast<float>(offset) /
+        static_cast<float>(length - 1);
+
+    return ScreenPointMm{
+        start.xMm + (end.xMm - start.xMm) * t,
+        start.yMm + (end.yMm - start.yMm) * t,
+        start.zMm + (end.zMm - start.zMm) * t
+    };
+}
+
 bool TofPerimeterGainModel::distanceAt(
     const TofPlaneEstimate& plane,
-    const ScreenPointMm& point,
+    const ScreenPointMm& ledPoint,
     std::uint16_t& distanceMm) const {
 
     if (!plane.valid) {
         return false;
     }
 
+    // Fitted wall:
+    //   z_wall = intercept + slopeX*x + slopeY*y
+    //
+    // The light spot for one LED is defined by the intersection of a ray
+    // starting at that LED and travelling along screen/sensor +Z with this
+    // plane. Therefore x/y stay equal to the LED coordinates and the required
+    // throw distance is simply z_wall - z_led.
     const double wallZ =
         static_cast<double>(plane.interceptMm) +
         static_cast<double>(plane.slopeX) *
-            static_cast<double>(point.xMm) +
+            static_cast<double>(ledPoint.xMm) +
         static_cast<double>(plane.slopeY) *
-            static_cast<double>(point.yMm);
+            static_cast<double>(ledPoint.yMm);
 
-    // Point Z is the LED emitter plane relative to the ToF optical origin.
-    // We intentionally use separation along TV/sensor +Z, not the shortest
-    // orthogonal distance to the wall plane.
     const double gapMm =
         wallZ -
-        static_cast<double>(point.zMm);
+        static_cast<double>(ledPoint.zMm);
 
     if (!std::isfinite(gapMm) ||
         gapMm <
@@ -111,7 +98,7 @@ PerimeterGainSnapshot TofPerimeterGainModel::evaluate(
     std::uint64_t nowUs) {
 
     const std::uint32_t generation =
-        latest_.generation + 1;
+        geometry.generation;
 
     const bool timestampUsable =
         geometry.timestampUs != 0 &&
@@ -129,7 +116,7 @@ PerimeterGainSnapshot TofPerimeterGainModel::evaluate(
         latest_ =
             unitySnapshot(
                 generation,
-                nowUs,
+                geometry.timestampUs,
                 planeUsable);
 
         return latest_;
@@ -137,69 +124,10 @@ PerimeterGainSnapshot TofPerimeterGainModel::evaluate(
 
     PerimeterGainSnapshot next;
     next.generation = generation;
-    next.timestampUs = nowUs;
+    next.timestampUs = geometry.timestampUs;
     next.planeUsable = true;
     next.projectionUsable = true;
     next.failOpen = false;
-
-    next.observedHalfSpanXmm =
-        geometry.plane.observedHalfSpanXmm;
-
-    next.observedHalfSpanYmm =
-        geometry.plane.observedHalfSpanYmm;
-
-    double maxAbsScreenX = 0.0;
-    double maxAbsScreenY = 0.0;
-
-    for (const auto& segmentGeometry :
-         config_.geometry) {
-
-        maxAbsScreenX =
-            std::max(
-                maxAbsScreenX,
-                std::max(
-                    std::abs(
-                        static_cast<double>(
-                            segmentGeometry.logicalStart.xMm)),
-                    std::abs(
-                        static_cast<double>(
-                            segmentGeometry.logicalEnd.xMm))));
-
-        maxAbsScreenY =
-            std::max(
-                maxAbsScreenY,
-                std::max(
-                    std::abs(
-                        static_cast<double>(
-                            segmentGeometry.logicalStart.yMm)),
-                    std::abs(
-                        static_cast<double>(
-                            segmentGeometry.logicalEnd.yMm))));
-    }
-
-    next.screenHalfSpanXmm =
-        clampUnsignedMm(
-            maxAbsScreenX);
-
-    next.screenHalfSpanYmm =
-        clampUnsignedMm(
-            maxAbsScreenY);
-
-    next.extrapolationXPermille =
-        ratioPermille(
-            maxAbsScreenX,
-            next.observedHalfSpanXmm);
-
-    next.extrapolationYPermille =
-        ratioPermille(
-            maxAbsScreenY,
-            next.observedHalfSpanYmm);
-
-    next.extrapolationWarning =
-        next.extrapolationXPermille >
-            config_.maxRecommendedExtrapolationPermille ||
-        next.extrapolationYPermille >
-            config_.maxRecommendedExtrapolationPermille;
 
     std::uint16_t minDistance =
         std::numeric_limits<std::uint16_t>::max();
@@ -217,28 +145,7 @@ PerimeterGainSnapshot TofPerimeterGainModel::evaluate(
             latest_ =
                 unitySnapshot(
                     generation,
-                    nowUs,
-                    true);
-
-            return latest_;
-        }
-
-        auto& segment =
-            next.segment[index];
-
-        if (!distanceAt(
-                geometry.plane,
-                segmentGeometry.logicalStart,
-                segment.startDistanceMm) ||
-            !distanceAt(
-                geometry.plane,
-                segmentGeometry.logicalEnd,
-                segment.endDistanceMm)) {
-
-            latest_ =
-                unitySnapshot(
-                    generation,
-                    nowUs,
+                    geometry.timestampUs,
                     true);
 
             return latest_;
@@ -254,59 +161,37 @@ PerimeterGainSnapshot TofPerimeterGainModel::evaluate(
             latest_ =
                 unitySnapshot(
                     generation,
-                    nowUs,
+                    geometry.timestampUs,
                     true);
 
             return latest_;
         }
 
-        const std::int32_t distanceSpan =
-            static_cast<std::int32_t>(
-                segment.endDistanceMm) -
-            static_cast<std::int32_t>(
-                segment.startDistanceMm);
-
-        const std::uint32_t denominator =
-            logicalSegment.logicalLength > 1
-                ? logicalSegment.logicalLength - 1
-                : 1;
+        auto& segment =
+            next.segment[index];
 
         for (std::uint16_t offset = 0;
-             offset <
-                logicalSegment.logicalLength;
+             offset < logicalSegment.logicalLength;
              ++offset) {
 
-            const std::int64_t numerator =
-                static_cast<std::int64_t>(
-                    distanceSpan) *
-                offset;
+            const ScreenPointMm ledPoint =
+                interpolatePoint(
+                    segmentGeometry.logicalStart,
+                    segmentGeometry.logicalEnd,
+                    offset,
+                    logicalSegment.logicalLength);
 
-            const std::int64_t rounded =
-                numerator >= 0
-                    ? numerator +
-                        static_cast<std::int64_t>(
-                            denominator / 2U)
-                    : numerator -
-                        static_cast<std::int64_t>(
-                            denominator / 2U);
+            std::uint16_t distanceMm = 0;
 
-            const std::int32_t distance =
-                static_cast<std::int32_t>(
-                    segment.startDistanceMm) +
-                static_cast<std::int32_t>(
-                    rounded /
-                    static_cast<std::int64_t>(
-                        denominator));
-
-            if (distance <
-                    config_.minDistanceMm ||
-                distance >
-                    config_.maxDistanceMm) {
+            if (!distanceAt(
+                    geometry.plane,
+                    ledPoint,
+                    distanceMm)) {
 
                 latest_ =
                     unitySnapshot(
                         generation,
-                        nowUs,
+                        geometry.timestampUs,
                         true);
 
                 return latest_;
@@ -320,8 +205,29 @@ PerimeterGainSnapshot TofPerimeterGainModel::evaluate(
             next.logicalGainQ12[
                 logicalIndex] =
                 config_.curve.evaluate(
-                    static_cast<std::uint16_t>(
-                        distance));
+                    distanceMm);
+
+            minDistance =
+                std::min(
+                    minDistance,
+                    distanceMm);
+
+            maxDistance =
+                std::max(
+                    maxDistance,
+                    distanceMm);
+
+            if (offset == 0) {
+                segment.startDistanceMm =
+                    distanceMm;
+            }
+
+            if (offset + 1 ==
+                logicalSegment.logicalLength) {
+
+                segment.endDistanceMm =
+                    distanceMm;
+            }
         }
 
         segment.startQ12 =
@@ -333,20 +239,6 @@ PerimeterGainSnapshot TofPerimeterGainModel::evaluate(
                 logicalSegment.logicalStart +
                 logicalSegment.logicalLength -
                 1];
-
-        minDistance =
-            std::min(
-                minDistance,
-                std::min(
-                    segment.startDistanceMm,
-                    segment.endDistanceMm));
-
-        maxDistance =
-            std::max(
-                maxDistance,
-                std::max(
-                    segment.startDistanceMm,
-                    segment.endDistanceMm));
     }
 
     next.minDistanceMm =
