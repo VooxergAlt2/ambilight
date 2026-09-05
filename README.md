@@ -4,7 +4,7 @@ Custom ESP32-C6 Ambilight endpoint for HyperHDR.
 
 ## Current stage
 
-Stage 13 keeps one-PC Wi-Fi/DDP transport and adds an independent render dirty scheduler for ToF gain changes.
+Stage 14 keeps one-PC Wi-Fi/DDP transport and adds a robust 2D VL53L5CX wall-plane fit for yaw and pitch. The existing LEFT/CENTER/RIGHT diagnostics remain available, and physical ToF gain application is still disabled.
 
 Physical LEDs still receive original HyperHDR RGB.
 
@@ -44,7 +44,10 @@ Gain-only rerenders of an old cached frame do not contaminate network p50/p95/p9
 raw ToF map
 
     g
-processed geometry
+processed LEFT/CENTER/RIGHT geometry
+
+    p
+robust 2D wall plane, yaw/pitch and residual quality
 
     k
 ToF gain snapshot
