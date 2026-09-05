@@ -42,7 +42,7 @@ private:
 struct TofGainModelConfig {
     DistanceGainCurve curve{};
 
-    std::uint64_t staleTimeoutUs = 1500000;
+    std::uint64_t staleTimeoutUs = 30000000;
 };
 
 struct GainSnapshot {
