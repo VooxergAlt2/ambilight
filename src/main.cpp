@@ -45,6 +45,7 @@ constexpr std::size_t kWifiCommandBufferSize =
 constexpr std::size_t kGainCurveCommandBufferSize = 128;
 constexpr std::size_t kSpatialCommandBufferSize = 128;
 constexpr std::size_t kLedMapCommandBufferSize = 64;
+constexpr std::size_t kFactoryCommandBufferSize = 16;
 
 ambilight::LedEngine ledEngine;
 ambilight::LedRenderer renderer(ledEngine);
@@ -78,6 +79,7 @@ bool gainCurveCommandPending = false;
 bool spatialCommandPending = false;
 bool ledMapCommandPending = false;
 bool commissioningCommandPending = false;
+bool factoryCommandPending = false;
 
 std::uint16_t brightnessCommandValue = 0;
 std::uint8_t brightnessCommandDigits = 0;
@@ -97,6 +99,10 @@ std::size_t spatialCommandLength = 0;
 std::array<char, kLedMapCommandBufferSize>
     ledMapCommandBuffer{};
 std::size_t ledMapCommandLength = 0;
+
+std::array<char, kFactoryCommandBufferSize>
+    factoryCommandBuffer{};
+std::size_t factoryCommandLength = 0;
 
 enum class WifiCredentialSource : std::uint8_t {
     None = 0,
@@ -341,6 +347,64 @@ void finishWifiCommand() {
         true);
 
     resetWifiCommand();
+}
+
+void resetFactoryCommand() {
+    factoryCommandPending = false;
+    factoryCommandLength = 0;
+    factoryCommandBuffer.fill('\0');
+}
+
+void finishFactoryCommand() {
+    factoryCommandBuffer[
+        factoryCommandLength] = '\0';
+
+    if (std::strcmp(
+            factoryCommandBuffer.data(),
+            "reset") != 0) {
+
+        Serial.println(
+            "FACTORY RESET not executed. Use freset + Enter with brightness=0.");
+        resetFactoryCommand();
+        return;
+    }
+
+    if (ledEngine.brightness() != 0) {
+        Serial.printf(
+            "FACTORY RESET refused: brightness must be 0. Current=%u.\n",
+            static_cast<unsigned>(
+                ledEngine.brightness()));
+
+        resetFactoryCommand();
+        return;
+    }
+
+    // Best-effort physical blackout before clearing persistent configuration.
+    ledEngine.clear();
+
+    const esp_err_t blackoutResult =
+        ledEngine.show();
+
+    if (blackoutResult != ESP_OK) {
+        Serial.printf(
+            "FACTORY RESET warning: pre-reset LED blackout failed: %s\n",
+            esp_err_to_name(
+                blackoutResult));
+    }
+
+    if (!runtimeSettings.factoryReset()) {
+        Serial.println(
+            "FACTORY RESET failed: NVS namespace was not cleared. Runtime continues unchanged.");
+        resetFactoryCommand();
+        return;
+    }
+
+    Serial.println(
+        "FACTORY RESET complete. Restarting with firmware defaults.");
+    Serial.flush();
+
+    delay(100);
+    ESP.restart();
 }
 
 const char* ledMappingSourceName() {
@@ -2348,6 +2412,29 @@ void serviceDebugCommands() {
     while (Serial.available() > 0) {
         const int input = Serial.read();
 
+        if (factoryCommandPending) {
+            if (input == '\r' || input == '\n') {
+                finishFactoryCommand();
+                continue;
+            }
+
+            if (input < 32 || input > 126 ||
+                factoryCommandLength + 1 >=
+                    factoryCommandBuffer.size()) {
+
+                Serial.println(
+                    "FACTORY RESET command invalid/too long.");
+                resetFactoryCommand();
+                continue;
+            }
+
+            factoryCommandBuffer[
+                factoryCommandLength++] =
+                static_cast<char>(input);
+
+            continue;
+        }
+
         if (commissioningCommandPending) {
             commissioningCommandPending = false;
 
@@ -2565,6 +2652,10 @@ void serviceDebugCommands() {
 
         if (input == '!') {
             correctionCommandPending = true;
+        } else if (input == 'f' || input == 'F') {
+            factoryCommandPending = true;
+            factoryCommandLength = 0;
+            factoryCommandBuffer.fill('\0');
         } else if (input == 'i' || input == 'I') {
             commissioningCommandPending = true;
         } else if (input == 'l' || input == 'L') {
@@ -2840,7 +2931,7 @@ void printRuntimeStatus() {
 void printConfiguration() {
     Serial.println();
     Serial.println(
-        "ESP32-C6 Ambilight Stage 28: LED commissioning patterns + runtime mapping");
+        "ESP32-C6 Ambilight Stage 29: runtime config recovery + commissioning");
 
     Serial.printf(
         "Logical LEDs=%u payload=%uB DDP=%u poll_budget=%uus max_datagrams=%u\n",
@@ -2915,6 +3006,8 @@ void printConfiguration() {
         "LED map: l + Enter=status, lreset, or lTlane:Trev,Rlane:Rrev,Blane:Brev,Llane:Lrev; brightness must be 0.");
     Serial.println(
         "LED test: i1=segment colors, i2=direction markers, i0=stop, i + Enter=status; brightness 1..64.");
+    Serial.println(
+        "Factory recovery: freset + Enter clears ambilight NVS and restarts; brightness must be 0.");
 
     printLedMappingProfile();
 
