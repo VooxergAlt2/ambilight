@@ -134,6 +134,102 @@ void test_valid_geometry_maps_to_four_side_gains() {
     TEST_ASSERT_EQUAL_UINT16(4096, gains.rightQ12);
 }
 
+
+void test_runtime_curve_replacement_changes_output() {
+    TofGainModelConfig config;
+    config.curve = makeTestCurve();
+
+    TofGainModel model(config);
+
+    const auto geometry =
+        makeGeometry(
+            300,
+            300,
+            300,
+            1000000);
+
+    const auto before =
+        model.evaluate(
+            geometry,
+            1100000);
+
+    TEST_ASSERT_EQUAL_UINT16(
+        2560,
+        before.leftQ12);
+
+    std::array<
+        GainPoint,
+        DistanceGainCurve::kMaxPoints>
+        points{};
+
+    points[0] = {200, 1024};
+    points[1] = {400, 2048};
+    points[2] = {800, 4096};
+
+    const DistanceGainCurve replacement(
+        points,
+        3);
+
+    TEST_ASSERT_TRUE(
+        model.setCurve(
+            replacement));
+
+    const auto after =
+        model.evaluate(
+            geometry,
+            1200000);
+
+    TEST_ASSERT_EQUAL_UINT16(
+        1536,
+        after.leftQ12);
+
+    TEST_ASSERT_EQUAL_UINT16(
+        1536,
+        after.topQ12);
+
+    TEST_ASSERT_FALSE(
+        after.failOpen);
+}
+
+void test_invalid_runtime_curve_is_rejected_and_previous_curve_is_retained() {
+    TofGainModelConfig config;
+    config.curve = makeTestCurve();
+
+    TofGainModel model(config);
+
+    std::array<
+        GainPoint,
+        DistanceGainCurve::kMaxPoints>
+        invalidPoints{};
+
+    invalidPoints[0] = {400, 3072};
+    invalidPoints[1] = {300, 4096};
+
+    const DistanceGainCurve invalidCurve(
+        invalidPoints,
+        2);
+
+    TEST_ASSERT_FALSE(
+        invalidCurve.valid());
+
+    TEST_ASSERT_FALSE(
+        model.setCurve(
+            invalidCurve));
+
+    const auto gains =
+        model.evaluate(
+            makeGeometry(
+                300,
+                300,
+                300,
+                1000000),
+            1100000);
+
+    TEST_ASSERT_EQUAL_UINT16(
+        2560,
+        gains.leftQ12);
+}
+
 void test_invalid_geometry_fails_open() {
     TofGainModelConfig config;
     config.curve = makeTestCurve();
@@ -201,6 +297,8 @@ int main(int, char**) {
     RUN_TEST(test_invalid_curve_rejects_non_monotonic_distance);
     RUN_TEST(test_invalid_curve_rejects_decreasing_gain);
     RUN_TEST(test_valid_geometry_maps_to_four_side_gains);
+    RUN_TEST(test_runtime_curve_replacement_changes_output);
+    RUN_TEST(test_invalid_runtime_curve_is_rejected_and_previous_curve_is_retained);
     RUN_TEST(test_invalid_geometry_fails_open);
     RUN_TEST(test_stale_geometry_fails_open);
     RUN_TEST(test_future_timestamp_fails_open);
