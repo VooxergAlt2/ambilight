@@ -1833,8 +1833,14 @@ void dumpTofGeometry() {
         static_cast<unsigned>(geometry.acceptedZones),
         static_cast<int>(geometry.rightMinusLeftMm),
         static_cast<unsigned>(
-            ambilight::config::kTofRotationQuarterTurns % 4U),
-        ambilight::config::kTofMirrorX ? "yes" : "no");
+            runtimeSettings
+                .tofSpatialProfile()
+                .rotationQuarterTurns),
+        runtimeSettings
+                .tofSpatialProfile()
+                .mirrorX
+            ? "yes"
+            : "no");
 
     printBand("LEFT  ", geometry.left);
     printBand("CENTER", geometry.center);
