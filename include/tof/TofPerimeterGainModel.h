@@ -5,6 +5,7 @@
 #include <cstdint>
 
 #include "core/ScreenGeometry.h"
+#include "led/LedMappingProfile.h"
 #include "tof/TofGainModel.h"
 #include "tof/TofTypes.h"
 
@@ -32,8 +33,10 @@ struct PerimeterGainSnapshot {
     // along screen +Z onto the fitted wall plane and evaluated independently.
     std::array<
         std::uint16_t,
-        config::kLogicalLedCount>
+        config::kLogicalLedCapacity>
         logicalGainQ12{};
+
+    LedMappingProfile topology{};
 
     std::uint16_t minDistanceMm = 0;
     std::uint16_t maxDistanceMm = 0;
@@ -46,6 +49,7 @@ struct PerimeterGainSnapshot {
 struct TofPerimeterGainModelConfig {
     DistanceGainCurve curve{};
     PerimeterScreenGeometry geometry{};
+    LedMappingProfile topology{};
 
     std::uint16_t minDistanceMm = 30;
     std::uint16_t maxDistanceMm = 4000;
@@ -64,6 +68,17 @@ public:
         const PerimeterScreenGeometry& geometry) {
 
         config_.geometry = geometry;
+        return true;
+    }
+
+    bool setTopology(
+        const LedMappingProfile& topology) {
+
+        if (!topology.valid()) {
+            return false;
+        }
+
+        config_.topology = topology;
         return true;
     }
 
