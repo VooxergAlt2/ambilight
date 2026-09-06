@@ -419,8 +419,13 @@ public:
             static constexpr char kHex[] =
                 "0123456789ABCDEF";
 
-            for (const unsigned char value :
-                 std::string_view(text)) {
+            for (std::size_t index = 0;
+                 text[index] != '\0';
+                 ++index) {
+
+                const unsigned char value =
+                    static_cast<unsigned char>(
+                        text[index]);
 
                 if (value == '\"' ||
                     value == '\\') {
