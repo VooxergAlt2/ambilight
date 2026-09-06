@@ -20,7 +20,7 @@ Behavior:
 
 - HyperHDR RGB goes to LEDs unchanged
 - ToF service may continue collecting geometry/diagnostics
-- main does not poll/apply the 780-value gain target
+- main does not poll/apply the active per-LED gain target
 - gain-only rerenders are suppressed
 - switching into DISABLED forces one render of cached RGB when available
 
@@ -33,7 +33,7 @@ Use this to remove correction overhead from the render path without disabling Am
 Behavior:
 
 - ToF plane/gain pipeline is active
-- 780-value target is copied into render state
+- active per-LED target is copied into render state
 - gain slew and candidate RGB are calculated
 - physical LEDs still receive original HyperHDR RGB
 
