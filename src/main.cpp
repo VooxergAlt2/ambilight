@@ -415,8 +415,13 @@ void printLedMappingProfile() {
     };
 
     Serial.printf(
-        "LED MAP source=%s",
-        ledMappingSourceName());
+        "LED TOPOLOGY source=%s total=%u ddp_bytes=%u",
+        ledMappingSourceName(),
+        static_cast<unsigned>(
+            profile.totalLedCount()),
+        static_cast<unsigned>(
+            profile.totalLedCount() *
+            sizeof(ambilight::Rgb8)));
 
     for (std::size_t index = 0;
          index < profile.segment.size();
@@ -426,16 +431,53 @@ void printLedMappingProfile() {
             profile.segment[index];
 
         Serial.printf(
-            " %s=lane%u%s",
+            " %s=count%u:GPIO%u:%s",
             kNames[index],
             static_cast<unsigned>(
-                mapping.lane),
+                mapping.logicalLength),
+            static_cast<unsigned>(
+                ambilight::config::kLedGpios[
+                    mapping.lane]),
             mapping.reversed
-                ? ":REV"
-                : ":FWD");
+                ? "REV"
+                : "FWD");
     }
 
     Serial.println();
+}
+
+void invalidateRuntimeAfterTopologyChange(
+    const ambilight::LedMappingProfile& profile) {
+
+    cachedPerimeterGainSnapshot = {};
+    haveCachedPerimeterGainSnapshot = false;
+
+    cachedTargetGainContext =
+        ambilight::RenderGainContext::unity(
+            profile);
+
+    renderGainController.reset();
+    correctionModeDirty = true;
+    ledMappingDirty = true;
+    nextGainTargetPollUs = 0;
+
+    ambilight::RgbFrame black;
+    black.clear();
+    black.pixelCount =
+        profile.totalLedCount();
+
+    black.receivedUs =
+        static_cast<std::uint64_t>(
+            esp_timer_get_time());
+
+    if (!mailbox.publish(
+            black)) {
+
+        Serial.println(
+            "LED TOPOLOGY warning: could not publish topology blackout frame.");
+    } else {
+        refreshRgbCache();
+    }
 }
 
 bool applyLedMappingProfile(
@@ -443,25 +485,80 @@ bool applyLedMappingProfile(
 
     if (ledEngine.brightness() != 0) {
         Serial.println(
-            "LED MAP change refused: set output brightness to 0 first.");
+            "LED TOPOLOGY change refused: set output brightness to 0 first.");
+        return false;
+    }
+
+    if (!profile.valid()) {
+        Serial.println(
+            "LED TOPOLOGY profile is invalid.");
+        return false;
+    }
+
+    if (!tof.setLedTopology(
+            profile)) {
+
+        Serial.println(
+            "LED TOPOLOGY change refused: ToF service could not queue topology.");
+        return false;
+    }
+
+    if (!ddp.setLogicalLedCount(
+            profile.totalLedCount())) {
+
+        Serial.println(
+            "LED TOPOLOGY change refused: DDP frame size rejected.");
         return false;
     }
 
     if (!renderer.setMappingProfile(
             profile)) {
+
         Serial.println(
-            "LED MAP profile is invalid.");
+            "LED TOPOLOGY profile could not be applied to renderer.");
         return false;
+    }
+
+    ambilight::LedPixelMaskProfile mask =
+        runtimeSettings.
+            ledPixelMaskProfile();
+
+    const auto originalMask =
+        mask.disabledOffset;
+
+    mask.sanitizeFor(
+        profile);
+
+    if (mask.disabledOffset !=
+        originalMask) {
+
+        renderer.setPixelMaskProfile(
+            mask);
+
+        runtimeSettings.
+            setLedPixelMaskProfile(
+                mask);
+
+        ledPixelMaskDirty = true;
+
+        Serial.println(
+            "LED TOPOLOGY shortened a side; out-of-range disabled-pixel entries were cleared.");
     }
 
     const bool persisted =
         runtimeSettings.setLedMappingProfile(
             profile);
 
-    ledMappingDirty = true;
+    invalidateRuntimeAfterTopologyChange(
+        profile);
 
     Serial.printf(
-        "LED MAP applied; persisted=%s.\n",
+        "LED TOPOLOGY applied; total=%u ddp_bytes=%u persisted=%s. DDP sender lease reset; HyperHDR must use the same LED count.\n",
+        static_cast<unsigned>(
+            profile.totalLedCount()),
+        static_cast<unsigned>(
+            profile.totalLedCount() *
+            sizeof(ambilight::Rgb8)),
         persisted ? "yes" : "no");
 
     printLedMappingProfile();
@@ -471,27 +568,25 @@ bool applyLedMappingProfile(
 bool resetLedMappingProfile() {
     if (ledEngine.brightness() != 0) {
         Serial.println(
-            "LED MAP reset refused: set output brightness to 0 first.");
+            "LED TOPOLOGY reset refused: set output brightness to 0 first.");
+        return false;
+    }
+
+    const ambilight::LedMappingProfile profile;
+
+    if (!applyLedMappingProfile(
+            profile)) {
+
         return false;
     }
 
     const bool persisted =
         runtimeSettings.resetLedMappingProfile();
 
-    if (!renderer.setMappingProfile(
-            runtimeSettings.ledMappingProfile())) {
-        Serial.println(
-            "LED MAP default profile is invalid.");
-        return false;
-    }
-
-    ledMappingDirty = true;
-
     Serial.printf(
-        "LED MAP reset to default; persisted=%s.\n",
+        "LED TOPOLOGY reset to default; persisted=%s.\n",
         persisted ? "yes" : "no");
 
-    printLedMappingProfile();
     return true;
 }
 
@@ -525,7 +620,7 @@ void handleLedMapCommand(
         ambilight::RuntimePayloadParseResult::Ok) {
 
         Serial.println(
-            "LED MAP invalid. Example: l0:0,1:0,2:0,3:0");
+            "LED TOPOLOGY invalid. Use lCOUNT:GPIO:REV,... Example: l230:18:0,160:19:0,230:20:0,160:21:0");
         return;
     }
 
