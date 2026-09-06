@@ -13,8 +13,8 @@ Stage 34 centralizes firmware identity in:
 ## Current identity
 
     name            ambilight-c6
-    version         0.34.0-dev
-    development     Stage 34
+    version         0.36.0-dev
+    development     Stage 36
     target          ESP32-C6
     serial protocol 1
 
@@ -72,7 +72,9 @@ Other simple Preferences values remain key/value settings rather than versioned 
 
 ## Build identity scope
 
-Stage 34 intentionally does not inject Git SHA, build time or dirty-tree state.
+The deterministic identity policy remains unchanged in Stage 36: source
+version/stage are explicit constants and the build does not inject Git SHA,
+build time or dirty-tree state.
 
 Reasons:
 
