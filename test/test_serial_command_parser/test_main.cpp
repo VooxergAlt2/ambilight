@@ -115,6 +115,10 @@ void test_immediate_debug_commands_are_case_insensitive() {
         SerialCommandKind::StartShadowProbe);
 
     assertEvent(
+        parser.feed('z'),
+        SerialCommandKind::TofDebugToggle);
+
+    assertEvent(
         parser.feed('m'),
         SerialCommandKind::CorrectionStatus);
 
