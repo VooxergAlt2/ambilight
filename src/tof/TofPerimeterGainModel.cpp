@@ -16,6 +16,8 @@ PerimeterGainSnapshot TofPerimeterGainModel::unitySnapshot(
     snapshot.timestampUs = sourceTimestampUs;
     snapshot.planeUsable = planeUsable;
     snapshot.failOpen = true;
+    snapshot.topology =
+        config_.topology;
 
     for (auto& segment : snapshot.segment) {
         segment.startQ12 = kGainUnityQ12;
@@ -123,6 +125,8 @@ PerimeterGainSnapshot TofPerimeterGainModel::evaluate(
     }
 
     PerimeterGainSnapshot next;
+    next.topology =
+        config_.topology;
     next.generation = generation;
     next.timestampUs = geometry.timestampUs;
     next.planeUsable = true;
@@ -151,8 +155,9 @@ PerimeterGainSnapshot TofPerimeterGainModel::evaluate(
             return latest_;
         }
 
-        const auto& logicalSegment =
-            kSegments[index];
+        const auto logicalSegment =
+            config_.topology.segmentConfig(
+                segmentGeometry.id);
 
         if (logicalSegment.id !=
                 segmentGeometry.id ||
