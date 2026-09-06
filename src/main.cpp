@@ -2028,6 +2028,9 @@ void serviceCalibrationCapture() {
     const auto summary =
         calibrationCapture.finish();
 
+    lastCalibrationSummary = summary;
+    haveLastCalibrationSummary = true;
+
     printCalibrationSummary(summary);
 }
 
