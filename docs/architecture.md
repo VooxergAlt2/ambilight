@@ -2,7 +2,7 @@
 
 ## Current stage
 
-Stage 38 is the current software-integration line. It turns LED geometry into a versioned runtime topology and adds explicit LED/ToF commissioning modes on top of the bounded LAN web control surface.
+Stage 39 is the pre-flash hardening line. Stage 38 remains the feature baseline; Stage 39 hardens topology transitions, physical PARLIO buffer cleanup, reset durability and the 16 MiB deployment layout before hardware commissioning.
 
 The active firmware now combines:
 
@@ -148,9 +148,12 @@ A topology apply requires brightness=0 and acts as a coordinated transaction:
 1. queue the new topology to ToF
 2. reconfigure DDP expected frame bytes and reset sender/assembly epoch
 3. switch renderer mapping
-4. sanitize disabled-pixel offsets that no longer fit
-5. publish a black frame with the new pixelCount
-6. reset gain-controller state and wait fail-open for fresh ToF projection
+4. clear fixed physical lane buffers when mapping actually changes
+5. prepare a sanitized disabled-pixel mask without mutating persistence yet
+6. commit/reset the runtime topology in NVS
+7. persist any required mask sanitation only after topology commit
+8. publish a black frame with the new pixelCount
+9. reset gain-controller state and wait fail-open for fresh ToF projection
 
 ## ToF path
 
@@ -415,15 +418,24 @@ Software behavior is locked with deterministic native tests where hardware APIs 
 
 GitHub Actions remain manual because repository Actions quota is exhausted.
 
-Stage 35 remains the last fully validated checkpoint. Stage 38 changes DDP
-frame sizing, renderer topology, ToF perimeter sampling, serial protocol and
-the web commissioning surface, so both native and full ESP32-C6 gates are
-mandatory before flashing.
+Stage 35 remains the last recorded fully validated checkpoint. Stage 39 must
+pass three local gates before flashing:
 
-The target board has 16 MB flash and the deployment partition table is to be
-adapted before flashing. Validation must record final partition fit, RAM and
-binary size rather than comparing against the historical Stage 35 1.31 MB
-application partition.
+1. tools/check_partition.py
+2. all native tests
+3. full ESP32-C6 firmware build
+
+Deployment is pinned to partitions/ambilight_16mb_ota.csv:
+
+    flash      16 MiB
+    app0       7 MiB
+    app1       7 MiB
+    storage    0x1E0000 bytes
+    coredump   64 KiB
+
+PlatformIO is configured with a 7 MiB maximum application image so partition
+fit is checked by the normal firmware build. Final validation still records
+RAM and binary size.
 
 Physical commissioning remains a later stage for:
 
