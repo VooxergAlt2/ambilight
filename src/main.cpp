@@ -41,6 +41,7 @@ constexpr std::uint8_t kMaxConsecutiveBacklogRenderSkips = 4;
 constexpr std::uint64_t kGainTargetPollIntervalUs = 1000000;
 constexpr std::uint64_t kCommissioningDurationUs = 15000000ULL;
 constexpr std::uint8_t kCommissioningMaxBrightness = 64;
+constexpr std::uint64_t kTofDebugDurationUs = 60000000ULL;
 
 ambilight::LedEngine ledEngine;
 ambilight::LedRenderer renderer(ledEngine);
@@ -116,6 +117,7 @@ std::uint32_t backlogRenderSkips = 0;
 std::uint32_t calibrationLastGeometryGeneration = 0;
 std::uint32_t shadowProbeGeneration = 0;
 std::uint64_t shadowProbeUntilUs = 0;
+std::uint64_t tofDebugUntilUs = 0;
 std::uint64_t nextGainTargetPollUs = 0;
 
 std::uint8_t consecutiveBacklogRenderSkips = 0;
@@ -1473,6 +1475,106 @@ void startCommissioning(
             1000ULL),
         static_cast<unsigned>(
             brightness));
+}
+
+bool tofDebugActive() {
+    const std::uint64_t nowUs =
+        static_cast<std::uint64_t>(
+            esp_timer_get_time());
+
+    return
+        tof.debugMode() &&
+        tofDebugUntilUs > nowUs;
+}
+
+void stopTofDebug(
+    const char* reason) {
+
+    const bool wasActive =
+        tof.debugMode();
+
+    tof.setDebugMode(
+        false);
+
+    tofDebugUntilUs = 0;
+
+    if (wasActive) {
+        Serial.printf(
+            "TOF DEBUG stopped%s%s. Normal ~12s pose cadence restored.\n",
+            reason != nullptr
+                ? ": "
+                : "",
+            reason != nullptr
+                ? reason
+                : "");
+    }
+}
+
+bool startTofDebug() {
+    if (correctionMode ==
+        ambilight::
+            CorrectionMode::
+                Active) {
+
+        Serial.println(
+            "TOF DEBUG refused: switch correction out of ACTIVE first.");
+        return false;
+    }
+
+    const std::uint64_t nowUs =
+        static_cast<std::uint64_t>(
+            esp_timer_get_time());
+
+    tofDebugUntilUs =
+        nowUs +
+        kTofDebugDurationUs;
+
+    tof.setDebugMode(
+        true);
+
+    Serial.printf(
+        "TOF DEBUG started for %llums. ToF processing cadence is ~1s; correction remains observational.\n",
+        static_cast<unsigned long long>(
+            kTofDebugDurationUs /
+            1000ULL));
+
+    return true;
+}
+
+void toggleTofDebug() {
+    if (tofDebugActive()) {
+        stopTofDebug(
+            "serial toggle");
+        return;
+    }
+
+    startTofDebug();
+}
+
+void serviceTofDebug(
+    std::uint64_t nowUs) {
+
+    if (!tof.debugMode()) {
+        return;
+    }
+
+    if (correctionMode ==
+        ambilight::
+            CorrectionMode::
+                Active) {
+
+        stopTofDebug(
+            "ACTIVE correction entered");
+        return;
+    }
+
+    if (tofDebugUntilUs == 0 ||
+        nowUs >=
+            tofDebugUntilUs) {
+
+        stopTofDebug(
+            "60s timeout");
+    }
 }
 
 bool commissioningBrightnessSafe() {
