@@ -812,7 +812,7 @@ void invalidateRenderedGainAfterSpatialChange() {
     haveCachedPerimeterGainSnapshot = false;
 
     cachedTargetGainContext =
-        ambilight::RenderGainContext::unity();
+        ambilight::RenderGainContext::unity(runtimeSettings.ledMappingProfile());
 
     renderGainController.reset();
 
@@ -981,7 +981,7 @@ void printTofGainCurve() {
 
 void invalidateRenderedGainAfterCurveChange() {
     cachedTargetGainContext =
-        ambilight::RenderGainContext::unity();
+        ambilight::RenderGainContext::unity(runtimeSettings.ledMappingProfile());
 
     renderGainController.reset();
 
@@ -1277,6 +1277,10 @@ const char* commissioningPatternName(
         return "SEGMENTS";
     case ambilight::LedCommissioningPattern::DirectionMarkers:
         return "DIRECTION";
+    case ambilight::LedCommissioningPattern::LogicalRange:
+        return "LOGICAL_RANGE";
+    case ambilight::LedCommissioningPattern::RawPhysicalRange:
+        return "RAW_GPIO_RANGE";
     }
 
     return "INVALID";
@@ -1339,12 +1343,16 @@ void finishCommissioning(
     } else {
         ambilight::RgbFrame black;
         black.clear();
+        black.pixelCount =
+            runtimeSettings.
+                ledMappingProfile().
+                totalLedCount();
         black.receivedUs = nowUs;
 
         const esp_err_t result =
             renderer.render(
                 black,
-                ambilight::RenderGainContext::unity(),
+                ambilight::RenderGainContext::unity(runtimeSettings.ledMappingProfile()),
                 ambilight::CorrectionMode::Disabled);
 
         if (result != ESP_OK) {
@@ -1391,6 +1399,8 @@ void startCommissioning(
 
     ambilight::LedCommissioningPatternBuilder::build(
         pattern,
+        runtimeSettings.
+            ledMappingProfile(),
         commissioningFrame);
 
     commissioningFrame.receivedUs =
@@ -1463,7 +1473,7 @@ bool serviceCommissioning(
     const esp_err_t result =
         renderer.render(
             commissioningFrame,
-            ambilight::RenderGainContext::unity(),
+            ambilight::RenderGainContext::unity(runtimeSettings.ledMappingProfile()),
             ambilight::CorrectionMode::Disabled);
 
     if (result != ESP_OK) {
@@ -1493,7 +1503,7 @@ void refreshTargetGainContext(
             correctionMode)) {
 
         cachedTargetGainContext =
-            ambilight::RenderGainContext::unity();
+            ambilight::RenderGainContext::unity(runtimeSettings.ledMappingProfile());
 
         nextGainTargetPollUs =
             nowUs + kGainTargetPollIntervalUs;
@@ -1522,7 +1532,9 @@ void refreshTargetGainContext(
         cachedTargetGainContext =
             ambilight::ShadowGainProbe::make(
                 shadowProbeGeneration,
-                nowUs);
+                nowUs,
+                runtimeSettings.
+                    ledMappingProfile());
     }
 
     nextGainTargetPollUs =
@@ -1591,7 +1603,7 @@ bool serviceRender(std::uint64_t nowUs) {
     }
 
     ambilight::RenderGainContext effectiveGainContext =
-        ambilight::RenderGainContext::unity();
+        ambilight::RenderGainContext::unity(runtimeSettings.ledMappingProfile());
 
     if (gainPipelineEnabled) {
         effectiveGainContext =
@@ -1638,6 +1650,10 @@ void serviceIdleBlackout(std::uint64_t nowUs) {
 
     ambilight::RgbFrame black;
     black.clear();
+    black.pixelCount =
+        runtimeSettings.
+            ledMappingProfile().
+            totalLedCount();
     black.receivedUs = nowUs;
 
     if (!mailbox.publish(black)) {
