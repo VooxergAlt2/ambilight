@@ -145,6 +145,8 @@ bool TofService::setSpatialProfile(
     snapshot_.geometry = {};
     snapshot_.gains = {};
     snapshot_.perimeterGains = {};
+    snapshot_.perimeterGains.topology =
+        ledTopology_;
 
     xSemaphoreGive(
         mutex_);
@@ -189,6 +191,8 @@ bool TofService::setLedTopology(
         true;
 
     snapshot_.perimeterGains = {};
+    snapshot_.perimeterGains.topology =
+        topology;
 
     xSemaphoreGive(
         mutex_);
@@ -237,6 +241,8 @@ bool TofService::setGainCurve(
     // being physically applied if ACTIVE is enabled immediately afterward.
     snapshot_.gains = {};
     snapshot_.perimeterGains = {};
+    snapshot_.perimeterGains.topology =
+        ledTopology_;
 
     xSemaphoreGive(
         mutex_);
