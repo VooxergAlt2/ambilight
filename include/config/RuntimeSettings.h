@@ -7,6 +7,7 @@
 #include <Preferences.h>
 
 #include "led/LedMappingProfile.h"
+#include "led/LedPixelMaskProfile.h"
 #include "render/CorrectionMode.h"
 #include "tof/TofGainModel.h"
 #include "tof/TofSpatialProfile.h"
@@ -88,6 +89,18 @@ public:
         return ledMappingProfilePersisted_;
     }
 
+    const LedPixelMaskProfile& ledPixelMaskProfile() const {
+        return ledPixelMaskProfile_;
+    }
+
+    bool ledPixelMaskProfileCustomized() const {
+        return ledPixelMaskProfileCustomized_;
+    }
+
+    bool ledPixelMaskProfilePersisted() const {
+        return ledPixelMaskProfilePersisted_;
+    }
+
     const TofSpatialProfile& tofSpatialProfile() const {
         return tofSpatialProfile_;
     }
@@ -132,6 +145,11 @@ public:
 
     bool resetLedMappingProfile();
 
+    bool setLedPixelMaskProfile(
+        const LedPixelMaskProfile& profile);
+
+    bool resetLedPixelMaskProfile();
+
     // Clear the complete ambilight NVS namespace and restore the in-memory
     // runtime view to firmware defaults. Return value reports durable clear.
     bool factoryReset();
@@ -167,6 +185,10 @@ private:
         "led_map";
     static constexpr const char* kLedMappingVersionKey =
         "led_map_ver";
+    static constexpr const char* kLedPixelMaskProfileKey =
+        "pixel_mask";
+    static constexpr const char* kLedPixelMaskVersionKey =
+        "pixel_mask_ver";
 
     Preferences preferences_;
 
@@ -197,6 +219,10 @@ private:
     LedMappingProfile ledMappingProfile_{};
     bool ledMappingProfileCustomized_ = false;
     bool ledMappingProfilePersisted_ = false;
+
+    LedPixelMaskProfile ledPixelMaskProfile_{};
+    bool ledPixelMaskProfileCustomized_ = false;
+    bool ledPixelMaskProfilePersisted_ = false;
 
     TofSpatialProfile tofSpatialProfile_{};
     bool tofSpatialProfileCustomized_ = false;
