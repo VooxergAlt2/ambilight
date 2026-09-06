@@ -1,5 +1,7 @@
 #include "runtime/RuntimePayloadParser.h"
 
+#include <cstring>
+
 namespace ambilight {
 
 bool RuntimePayloadParser::parseUint16(
@@ -124,6 +126,131 @@ bool RuntimePayloadParser::consume(
 
     ++cursor;
     return true;
+}
+
+RuntimePayloadParseResult
+RuntimePayloadParser::parseCommissioningRange(
+    const char* text,
+    CommissioningRangeRequest& request) {
+
+    if (text == nullptr ||
+        *text == '\0') {
+
+        return
+            RuntimePayloadParseResult::Empty;
+    }
+
+    CommissioningRangeRequest parsed;
+    const char* cursor = text;
+
+    if (std::strncmp(
+            cursor,
+            "side:",
+            5) == 0) {
+
+        parsed.target =
+            CommissioningRangeTarget::
+                LogicalSide;
+
+        cursor += 5;
+    } else if (
+        std::strncmp(
+            cursor,
+            "gpio:",
+            5) == 0) {
+
+        parsed.target =
+            CommissioningRangeTarget::
+                RawGpio;
+
+        cursor += 5;
+    } else {
+        return
+            RuntimePayloadParseResult::
+                InvalidFormat;
+    }
+
+    std::uint16_t target = 0;
+    std::uint16_t start = 0;
+    std::uint16_t count = 0;
+
+    if (!parseUint16(
+            cursor,
+            target) ||
+        !consume(
+            cursor,
+            ':') ||
+        !parseUint16(
+            cursor,
+            start) ||
+        !consume(
+            cursor,
+            ':') ||
+        !parseUint16(
+            cursor,
+            count) ||
+        *cursor != '\0') {
+
+        return
+            RuntimePayloadParseResult::
+                InvalidFormat;
+    }
+
+    if (count == 0 ||
+        start >=
+            config::kPhysicalLaneLength ||
+        count >
+            config::kPhysicalLaneLength ||
+        static_cast<std::uint32_t>(
+            start) +
+            count >
+                config::kPhysicalLaneLength) {
+
+        return
+            RuntimePayloadParseResult::
+                OutOfRange;
+    }
+
+    if (parsed.target ==
+        CommissioningRangeTarget::
+            LogicalSide) {
+
+        if (target >=
+            static_cast<std::uint16_t>(
+                SegmentId::Count)) {
+
+            return
+                RuntimePayloadParseResult::
+                    OutOfRange;
+        }
+
+        parsed.targetValue =
+            static_cast<std::uint8_t>(
+                target);
+    } else {
+        std::uint8_t lane = 0;
+
+        if (!LedMappingProfile::laneForGpio(
+                target,
+                lane)) {
+
+            return
+                RuntimePayloadParseResult::
+                    OutOfRange;
+        }
+
+        parsed.targetValue =
+            static_cast<std::uint8_t>(
+                target);
+    }
+
+    parsed.start = start;
+    parsed.count = count;
+
+    request = parsed;
+
+    return
+        RuntimePayloadParseResult::Ok;
 }
 
 RuntimePayloadParseResult
