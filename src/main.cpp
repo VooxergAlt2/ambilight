@@ -3,6 +3,7 @@
 
 #include <array>
 #include <cstddef>
+#include <cstdio>
 #include <cstring>
 #include <esp_err.h>
 #include <esp_timer.h>
@@ -3512,9 +3513,11 @@ void setup() {
                 "DdpUdpService::begin failed",
                 ESP_FAIL);
         }
+
+        ensureWebUiRunning();
     } else {
         Serial.println(
-            "DDP runtime inactive because Wi-Fi credentials are absent. Provision with wSSID|PASSWORD.");
+            "DDP/Web runtime inactive because Wi-Fi credentials are absent. Provision with wSSID|PASSWORD.");
     }
 
     if (!tof.begin()) {
@@ -3554,6 +3557,18 @@ void loop() {
 
     const std::uint64_t nowUs =
         static_cast<std::uint64_t>(esp_timer_get_time());
+
+    if (webUi.running()) {
+        auto webAction =
+            webUi.poll(
+                fillWebUiSnapshot,
+                nowUs);
+
+        if (webAction.ready()) {
+            handleWebUiAction(
+                webAction);
+        }
+    }
 
     serviceIdleBlackout(nowUs);
 
