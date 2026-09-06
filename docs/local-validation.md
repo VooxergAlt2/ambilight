@@ -126,8 +126,9 @@ The Windows PowerShell wrapper was fixed so native stderr does not terminate
 the script before the firmware gate. Both gate exit codes are now collected
 and written to summary.txt.
 
-Stage 36 adds a new pure-C++ HTTP protocol suite and production lwIP web
-service code. Stage 36 is not considered validated until a fresh harness run
-passes both native and firmware gates and its RAM/Flash growth is reviewed.
+Stage 37 includes the Stage 36 pure-C++ HTTP/lwIP web work plus the persisted
+disabled-pixel profile, parser, serial/web controls and renderer integration.
+Neither Stage 36 nor Stage 37 is considered validated until a fresh harness
+run passes both native and firmware gates and RAM/Flash growth is reviewed.
 
 Preserve the generated artifact directory whenever a gate fails.
