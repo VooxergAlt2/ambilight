@@ -1512,6 +1512,16 @@ void stopTofDebug(
 }
 
 bool startTofDebug() {
+    ambilight::TofSnapshot snapshot;
+
+    if (!tof.copySnapshot(
+            snapshot)) {
+
+        Serial.println(
+            "TOF DEBUG refused: ToF service is not initialized.");
+        return false;
+    }
+
     if (correctionMode ==
         ambilight::
             CorrectionMode::
