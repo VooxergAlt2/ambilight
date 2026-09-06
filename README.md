@@ -4,7 +4,7 @@ Custom ESP32-C6 Ambilight endpoint for HyperHDR.
 
 ## Current development line
 
-Stage 36 adds a minimal LAN web UI on top of the validated Stage 35 software checkpoint. The web layer reuses the existing lwIP stack and existing runtime validation/apply paths without adding a web framework or a dedicated task.
+Stage 37 extends the Stage 36 minimal LAN web UI with a persisted per-segment disabled-pixel mask. One pixel may be forced black independently on TOP, RIGHT, BOTTOM and LEFT without changing the 780-pixel logical frame or ToF geometry.
 
 The firmware stack now includes:
 
@@ -21,6 +21,7 @@ The firmware stack now includes:
 - persistent runtime ToF gain curve
 - persistent runtime spatial profile
 - minimal HTTP/80 commissioning/control UI
+- persisted one-disabled-pixel-per-segment mask
 
 USB/AWA remains preserved separately in:
 
@@ -265,6 +266,36 @@ Each lane 0..3 must be used exactly once.
 GPIO pins and logical segment lengths remain compile-time constants.
 
 
+## Disabled pixel mask
+
+One pixel per logical segment can be forced permanently black at render time.
+
+Serial:
+
+    d<Enter>            status
+    d-,12,-,0<Enter>    TOP none, RIGHT 12, BOTTOM none, LEFT 0
+    dreset<Enter>       remove persisted mask
+
+Web:
+
+    LED commissioning -> Disabled pixel
+
+Indexing is segment-relative and follows the commissioning START marker.
+
+Ranges:
+
+    TOP     0..229
+    RIGHT   0..159
+    BOTTOM  0..229
+    LEFT    0..159
+
+Use `-` or an empty web field for no disabled pixel.
+
+The mask is applied after correction and logical-to-physical mapping, so the
+selected pixel remains black in DISABLED, SHADOW, ACTIVE and commissioning
+patterns. It does not remove a logical LED, shift neighbours or alter ToF
+gain indexing.
+
 ## LED commissioning
 
 Safe test brightness:
@@ -366,6 +397,6 @@ reports:
 
 Current source identity:
 
-    ambilight-c6 0.36.0-dev Stage 36
+    ambilight-c6 0.37.0-dev Stage 37
 
 Startup uses the same centralized FirmwareInfo constants instead of a handwritten stage banner.
