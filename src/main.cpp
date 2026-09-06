@@ -4166,7 +4166,7 @@ void printConfiguration() {
             runtimeSettings.tofGainPointCount()));
 
     Serial.println(
-        "Debug: 't'=raw, 'g'=bands, 'p'=plane, 'k'=legacy gains, 's'=spatial gains, 'c'=capture, 'r'=render, 'x'=shadow probe, 'v'=firmware.");
+        "Debug: 't'=raw, 'g'=bands, 'p'=plane, 'k'=legacy gains, 's'=spatial gains, 'c'=capture, 'r'=render, 'x'=shadow probe, 'z'=ToF live debug toggle, 'v'=firmware.");
     Serial.println(
         "Output brightness: b0..b255 followed by Enter; b + Enter prints status.");
     Serial.println(
@@ -4369,6 +4369,9 @@ void loop() {
 
     const std::uint64_t nowUs =
         static_cast<std::uint64_t>(esp_timer_get_time());
+
+    serviceTofDebug(
+        nowUs);
 
     if (webUi.running()) {
         auto webAction =
