@@ -366,11 +366,11 @@ WebUiParseResult WebUiProtocol::parse(
     const std::size_t requestLineEnd =
         findSequence(
             data,
-            headerEnd,
+            headerEnd + 2,
             kLineEnd,
             2);
 
-    if (requestLineEnd == headerEnd) {
+    if (requestLineEnd > headerEnd) {
         return WebUiParseResult::BadRequest;
     }
 
