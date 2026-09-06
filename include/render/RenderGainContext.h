@@ -8,6 +8,7 @@
 #include "core/GainQ12.h"
 #include "core/Geometry.h"
 #include "core/RgbFrame.h"
+#include "led/LedMappingProfile.h"
 
 namespace ambilight {
 
@@ -33,8 +34,10 @@ struct RenderGainContext {
     // or strip reversal. This keeps spatial correction independent from wiring.
     std::array<
         std::uint16_t,
-        config::kLogicalLedCount>
+        config::kLogicalLedCapacity>
         logicalGainQ12{};
+
+    LedMappingProfile topology{};
 
     bool sourcePresent = false;
     bool sourceUsable = false;
@@ -44,8 +47,15 @@ struct RenderGainContext {
         forceUnity();
     }
 
-    static RenderGainContext unity() {
-        return RenderGainContext{};
+    static RenderGainContext unity(
+        const LedMappingProfile& activeTopology =
+            LedMappingProfile{}) {
+
+        RenderGainContext context;
+        context.topology =
+            activeTopology;
+
+        return context;
     }
 
     void forceUnity() {
@@ -72,30 +82,27 @@ struct RenderGainContext {
     SegmentGainEndpoints endpointsForSegment(
         SegmentId segment) const {
 
-        for (const auto& configSegment :
-             kSegments) {
+        const SegmentConfig configSegment =
+            topology.segmentConfig(
+                segment);
 
-            if (configSegment.id != segment ||
-                configSegment.logicalLength == 0) {
-                continue;
-            }
-
-            const std::uint16_t start =
-                configSegment.logicalStart;
-
-            const std::uint16_t end =
-                static_cast<std::uint16_t>(
-                    configSegment.logicalStart +
-                    configSegment.logicalLength -
-                    1);
-
-            return SegmentGainEndpoints{
-                gainForLogicalIndex(start),
-                gainForLogicalIndex(end)
-            };
+        if (configSegment.logicalLength == 0) {
+            return {};
         }
 
-        return {};
+        const std::uint16_t start =
+            configSegment.logicalStart;
+
+        const std::uint16_t end =
+            static_cast<std::uint16_t>(
+                configSegment.logicalStart +
+                configSegment.logicalLength -
+                1);
+
+        return SegmentGainEndpoints{
+            gainForLogicalIndex(start),
+            gainForLogicalIndex(end)
+        };
     }
 
     // Backward-compatible helper used by diagnostics/tests.
@@ -105,22 +112,20 @@ struct RenderGainContext {
         std::uint16_t logicalOffset,
         std::uint16_t) const {
 
-        for (const auto& configSegment :
-             kSegments) {
+        const SegmentConfig configSegment =
+            topology.segmentConfig(
+                segment);
 
-            if (configSegment.id != segment ||
-                logicalOffset >=
-                    configSegment.logicalLength) {
-                continue;
-            }
+        if (logicalOffset >=
+            configSegment.logicalLength) {
 
-            return gainForLogicalIndex(
-                static_cast<std::uint16_t>(
-                    configSegment.logicalStart +
-                    logicalOffset));
+            return kGainUnityQ12;
         }
 
-        return kGainUnityQ12;
+        return gainForLogicalIndex(
+            static_cast<std::uint16_t>(
+                configSegment.logicalStart +
+                logicalOffset));
     }
 
     void setSegmentUniform(
@@ -146,14 +151,15 @@ struct RenderGainContext {
             sanitizeGainQ12(
                 endQ12);
 
-        for (const auto& configSegment :
-             kSegments) {
+        const SegmentConfig configSegment =
+            topology.segmentConfig(
+                segment);
 
-            if (configSegment.id != segment ||
-                configSegment.logicalLength == 0) {
-                continue;
-            }
+        if (configSegment.logicalLength == 0) {
+            return;
+        }
 
+        {
             const std::uint32_t denominator =
                 configSegment.logicalLength > 1
                     ? configSegment.logicalLength - 1
@@ -207,7 +213,6 @@ struct RenderGainContext {
                 }
             }
 
-            return;
         }
     }
 
@@ -217,11 +222,17 @@ struct RenderGainContext {
             return false;
         }
 
-        for (const auto gain :
-             logicalGainQ12) {
+        const std::size_t count =
+            topology.totalLedCount();
 
-            if (sanitizeGainQ12(gain) !=
+        for (std::size_t index = 0;
+             index < count;
+             ++index) {
+
+            if (sanitizeGainQ12(
+                    logicalGainQ12[index]) !=
                 kGainUnityQ12) {
+
                 return true;
             }
         }
@@ -250,9 +261,17 @@ struct RenderGainContext {
             return true;
         }
 
+        if (topology.segment !=
+            other.topology.segment) {
+
+            return false;
+        }
+
+        const std::size_t count =
+            topology.totalLedCount();
+
         for (std::size_t index = 0;
-             index <
-                logicalGainQ12.size();
+             index < count;
              ++index) {
 
             if (sanitizeGainQ12(
