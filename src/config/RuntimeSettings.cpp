@@ -532,10 +532,10 @@ bool RuntimeSettings::setWifiCredentials(
 }
 
 bool RuntimeSettings::clearWifiCredentials() {
-    wifiSsid_.fill('\0');
-    wifiPassword_.fill('\0');
-
     if (!persistenceAvailable_) {
+        wifiSsid_.fill('\0');
+        wifiPassword_.fill('\0');
+
         ++stats_.writeFailures;
         return false;
     }
@@ -548,22 +548,31 @@ bool RuntimeSettings::clearWifiCredentials() {
         preferences_.isKey(
             kWifiPasswordKey);
 
+    // SSID is the effective commit marker. Remove it before touching live
+    // credentials so a failed durable clear cannot silently return after
+    // reboot.
     const bool ssidOk =
         !hadSsid ||
         preferences_.remove(
             kWifiSsidKey);
+
+    if (!ssidOk) {
+        ++stats_.writeFailures;
+        return false;
+    }
 
     const bool passwordOk =
         !hadPassword ||
         preferences_.remove(
             kWifiPasswordKey);
 
-    if (!ssidOk ||
-        !passwordOk) {
-
+    if (!passwordOk) {
+        // Without SSID the leftover password is inert.
         ++stats_.writeFailures;
-        return false;
     }
+
+    wifiSsid_.fill('\0');
+    wifiPassword_.fill('\0');
 
     if (hadSsid ||
         hadPassword) {
@@ -572,6 +581,7 @@ bool RuntimeSettings::clearWifiCredentials() {
 
     return true;
 }
+
 
 
 bool RuntimeSettings::setTofGainCurve(
@@ -631,18 +641,18 @@ bool RuntimeSettings::setTofGainCurve(
 }
 
 bool RuntimeSettings::resetTofGainCurve() {
-    tofGainPoints_ =
-        config::kTofGainPoints;
-
-    tofGainPointCount_ =
-        config::kTofGainPointCount;
-
-    tofGainCurveCustomized_ =
-        false;
-    tofGainCurvePersisted_ =
-        false;
-
     if (!persistenceAvailable_) {
+        tofGainPoints_ =
+            config::kTofGainPoints;
+
+        tofGainPointCount_ =
+            config::kTofGainPointCount;
+
+        tofGainCurveCustomized_ =
+            false;
+        tofGainCurvePersisted_ =
+            false;
+
         ++stats_.writeFailures;
         return false;
     }
@@ -655,22 +665,37 @@ bool RuntimeSettings::resetTofGainCurve() {
         preferences_.isKey(
             kTofGainCountKey);
 
-    const bool curveOk =
-        !hadCurve ||
-        preferences_.remove(
-            kTofGainCurveKey);
-
+    // Count is the curve commit marker. Remove it first so a stale data blob
+    // cannot become active again after a reset.
     const bool countOk =
         !hadCount ||
         preferences_.remove(
             kTofGainCountKey);
 
-    if (!curveOk ||
-        !countOk) {
-
+    if (!countOk) {
         ++stats_.writeFailures;
         return false;
     }
+
+    const bool curveOk =
+        !hadCurve ||
+        preferences_.remove(
+            kTofGainCurveKey);
+
+    if (!curveOk) {
+        ++stats_.writeFailures;
+    }
+
+    tofGainPoints_ =
+        config::kTofGainPoints;
+
+    tofGainPointCount_ =
+        config::kTofGainPointCount;
+
+    tofGainCurveCustomized_ =
+        false;
+    tofGainCurvePersisted_ =
+        false;
 
     if (hadCurve ||
         hadCount) {
@@ -679,6 +704,7 @@ bool RuntimeSettings::resetTofGainCurve() {
 
     return true;
 }
+
 
 
 bool RuntimeSettings::setTofSpatialProfile(
@@ -735,15 +761,15 @@ bool RuntimeSettings::setTofSpatialProfile(
 }
 
 bool RuntimeSettings::resetTofSpatialProfile() {
-    tofSpatialProfile_ = {};
-
-    tofSpatialProfileCustomized_ =
-        false;
-
-    tofSpatialProfilePersisted_ =
-        false;
-
     if (!persistenceAvailable_) {
+        tofSpatialProfile_ = {};
+
+        tofSpatialProfileCustomized_ =
+            false;
+
+        tofSpatialProfilePersisted_ =
+            false;
+
         ++stats_.writeFailures;
         return false;
     }
@@ -756,22 +782,33 @@ bool RuntimeSettings::resetTofSpatialProfile() {
         preferences_.isKey(
             kTofSpatialVersionKey);
 
-    const bool profileOk =
-        !hadProfile ||
-        preferences_.remove(
-            kTofSpatialProfileKey);
-
+    // Version is the commit marker. Remove it before live state changes.
     const bool versionOk =
         !hadVersion ||
         preferences_.remove(
             kTofSpatialVersionKey);
 
-    if (!profileOk ||
-        !versionOk) {
-
+    if (!versionOk) {
         ++stats_.writeFailures;
         return false;
     }
+
+    const bool profileOk =
+        !hadProfile ||
+        preferences_.remove(
+            kTofSpatialProfileKey);
+
+    if (!profileOk) {
+        ++stats_.writeFailures;
+    }
+
+    tofSpatialProfile_ = {};
+
+    tofSpatialProfileCustomized_ =
+        false;
+
+    tofSpatialProfilePersisted_ =
+        false;
 
     if (hadProfile ||
         hadVersion) {
@@ -780,6 +817,7 @@ bool RuntimeSettings::resetTofSpatialProfile() {
 
     return true;
 }
+
 
 bool RuntimeSettings::setLedMappingProfile(
     const LedMappingProfile& profile) {
