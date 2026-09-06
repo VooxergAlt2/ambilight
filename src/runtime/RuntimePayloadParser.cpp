@@ -251,6 +251,78 @@ RuntimePayloadParser::parseLedMapping(
 }
 
 RuntimePayloadParseResult
+RuntimePayloadParser::parseLedPixelMask(
+    const char* text,
+    LedPixelMaskProfile& profile) {
+
+    if (text == nullptr ||
+        *text == '\0') {
+
+        return
+            RuntimePayloadParseResult::Empty;
+    }
+
+    LedPixelMaskProfile parsed;
+    const char* cursor = text;
+
+    for (std::size_t index = 0;
+         index < parsed.disabledOffset.size();
+         ++index) {
+
+        if (*cursor == '-') {
+            parsed.disabledOffset[index] =
+                LedPixelMaskProfile::kNone;
+
+            ++cursor;
+        } else {
+            std::uint16_t offset = 0;
+
+            if (!parseUint16(
+                    cursor,
+                    offset)) {
+
+                return
+                    RuntimePayloadParseResult::
+                        InvalidFormat;
+            }
+
+            parsed.disabledOffset[index] =
+                offset;
+        }
+
+        if (index + 1 <
+            parsed.disabledOffset.size()) {
+
+            if (!consume(
+                    cursor,
+                    ',')) {
+
+                return
+                    RuntimePayloadParseResult::
+                        InvalidFormat;
+            }
+        }
+    }
+
+    if (*cursor != '\0') {
+        return
+            RuntimePayloadParseResult::
+                InvalidFormat;
+    }
+
+    if (!parsed.valid()) {
+        return
+            RuntimePayloadParseResult::
+                OutOfRange;
+    }
+
+    profile = parsed;
+
+    return
+        RuntimePayloadParseResult::Ok;
+}
+
+RuntimePayloadParseResult
 RuntimePayloadParser::parseSpatialProfile(
     const char* text,
     TofSpatialProfile& profile) {
