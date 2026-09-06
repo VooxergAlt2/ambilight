@@ -342,7 +342,7 @@ void handleWifiCommand(
         true);
 }
 
-void handleFactoryCommand(
+bool handleFactoryCommand(
     const char* command) {
 
     if (command == nullptr ||
@@ -352,7 +352,7 @@ void handleFactoryCommand(
 
         Serial.println(
             "FACTORY RESET not executed. Use freset + Enter with brightness=0.");
-        return;
+        return false;
     }
 
     if (ledEngine.brightness() != 0) {
@@ -361,7 +361,7 @@ void handleFactoryCommand(
             static_cast<unsigned>(
                 ledEngine.brightness()));
 
-        return;
+        return false;
     }
 
     // Best-effort physical blackout before clearing persistent configuration.
@@ -380,7 +380,7 @@ void handleFactoryCommand(
     if (!runtimeSettings.factoryReset()) {
         Serial.println(
             "FACTORY RESET failed: NVS namespace was not cleared. Runtime continues unchanged.");
-        return;
+        return false;
     }
 
     Serial.println(
@@ -389,6 +389,10 @@ void handleFactoryCommand(
 
     delay(100);
     ESP.restart();
+
+    // ESP.restart() should not return, but keep the function contract explicit
+    // for host/static analysis.
+    return true;
 }
 
 const char* ledMappingSourceName() {
@@ -2808,8 +2812,14 @@ void handleWebUiAction(
             true,
             "Factory reset accepted.");
 
-        handleFactoryCommand(
-            "reset");
+        if (!handleFactoryCommand(
+                "reset")) {
+
+            recordWebAction(
+                event.sequence,
+                false,
+                "Factory reset failed: NVS clear failed.");
+        }
 
         return;
 
