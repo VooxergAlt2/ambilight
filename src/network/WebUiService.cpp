@@ -225,7 +225,7 @@ button{cursor:pointer}button.primary{background:var(--accent);color:#fff;border-
 </main>
 <script>
 const $=id=>document.getElementById(id);
-let lastAction=0,refreshing=false;
+let lastAction=0,refreshing=false,tofDebugUiActive=false,selectedTofZone=27;
 const corrNames=['DISABLED','SHADOW','ACTIVE'];
 const mapNames=['TOP','RIGHT','BOTTOM','LEFT'];
 function txt(id,v){$(id).textContent=v}
@@ -285,6 +285,35 @@ function renderPixelMask(m,map){
   m.offsets.forEach((v,i)=>{const max=map.segments[i][0]-1;$('mask'+i).max=max;txt('maskLimit'+i,'0..'+max);setv('mask'+i,v<0?'':v)});
   txt('maskSource',m.source);
 }
+function tofStatusText(s){
+  if(s===5)return '5 · full confidence';
+  if(s===6||s===9)return s+' · usable, 0.5 plane weight';
+  return s+' · rejected from normal ToF processing';
+}
+function selectTofZone(i){selectedTofZone=i;document.querySelectorAll('.tofcell').forEach((e,n)=>e.classList.toggle('selected',n===i))}
+function renderTofGrid(t,sp){
+  const g=$('tofGrid');
+  if(!g.children.length){
+    for(let i=0;i<64;i++){
+      const b=document.createElement('button');b.type='button';b.className='tofcell';b.onclick=()=>{selectTofZone(i);renderTofGrid(lastTofSnapshot,lastSpatialSnapshot)};g.appendChild(b)
+    }
+  }
+  lastTofSnapshot=t;lastSpatialSnapshot=sp;
+  (t.grid||[]).forEach((x,i)=>{
+    const e=g.children[i],d=x[0],st=x[1],raw=x[2];
+    const usable=st===5||st===6||st===9;
+    e.className='tofcell '+(st===5?'usable':(usable?'usable weak':'rejected'))+(i===selectedTofZone?' selected':'');
+    e.innerHTML='<strong>'+(d>0?d:'—')+'</strong>r'+raw+' s'+st;
+    e.title='normalized '+Math.floor(i/8)+','+(i%8)+' · raw '+raw+' · '+d+' mm · '+tofStatusText(st);
+  });
+  const x=(t.grid||[])[selectedTofZone];
+  if(x){
+    txt('tofZoneDetail','normalized row '+Math.floor(selectedTofZone/8)+' col '+(selectedTofZone%8)+'\nraw index '+x[2]+'\ndistance '+x[0]+' mm\nstatus '+tofStatusText(x[1])+'\nROT '+sp.rot+' · mirrorX '+(sp.mirror?'yes':'no'));
+  }
+  tofDebugUiActive=!!t.debug_active;
+  txt('tofDebugState',t.debug_active?('LIVE · '+Math.ceil(t.debug_remaining_ms/1000)+' s remaining · ROT '+sp.rot+' · mirrorX '+(sp.mirror?'yes':'no')):('normal cadence · ROT '+sp.rot+' · mirrorX '+(sp.mirror?'yes':'no')));
+}
+let lastTofSnapshot={grid:[]},lastSpatialSnapshot={rot:0,mirror:0};
 function calibrationText(c){
   if(c.active)return 'capture active · samples '+c.samples;
   if(!c.has_summary)return 'No capture yet.';
@@ -308,6 +337,9 @@ function render(s){
   renderPixelMask(s.pixel_mask,s.map);
   $('mapApply').disabled=s.output.brightness!==0;$('mapReset').disabled=s.output.brightness!==0;
   const sp=s.spatial;
+  renderTofGrid(s.tof,sp);
+  $('tofDebugStart').disabled=s.output.correction===2||s.tof.debug_active;
+  $('tofDebugStop').disabled=!s.tof.debug_active;
   setv('spW',sp.w10/10);setv('spH',sp.h10/10);setv('spX',sp.x10/10);setv('spY',sp.y10/10);setv('spZ',sp.z10/10);setv('spR',sp.rot);setv('spM',sp.mirror);setv('spD',sp.deadband10/10);
   txt('spSource',sp.source);txt('curveSource',s.curve.source);
   const blocked=s.output.correction===2;
@@ -331,7 +363,7 @@ async function refresh(){
 }
 $('brightness').addEventListener('input',e=>txt('brightnessValue',e.target.value));
 $('brightness').addEventListener('change',e=>{clean(['brightness']);post('/api/brightness',e.target.value)});
-markDirty();refresh();setInterval(refresh,2000);
+markDirty();refresh();setInterval(()=>{if(tofDebugUiActive)refresh()},1000);setInterval(()=>{if(!tofDebugUiActive)refresh()},2000);
 </script>
 </body>
 </html>)HTML";
