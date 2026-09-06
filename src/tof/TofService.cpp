@@ -150,6 +150,50 @@ bool TofService::setSpatialProfile(
     return true;
 }
 
+bool TofService::setLedTopology(
+    const LedMappingProfile& topology) {
+
+    if (!topology.valid()) {
+        return false;
+    }
+
+    if (task_ == nullptr) {
+        ledTopology_ =
+            topology;
+
+        perimeterGainModel_.
+            setTopology(
+                topology);
+
+        planeChangeGate_.reset();
+        return true;
+    }
+
+    if (mutex_ == nullptr) {
+        return false;
+    }
+
+    if (xSemaphoreTake(
+            mutex_,
+            pdMS_TO_TICKS(20)) != pdTRUE) {
+
+        return false;
+    }
+
+    pendingLedTopology_ =
+        topology;
+
+    pendingLedTopologyDirty_ =
+        true;
+
+    snapshot_.perimeterGains = {};
+
+    xSemaphoreGive(
+        mutex_);
+
+    return true;
+}
+
 bool TofService::setGainCurve(
     const DistanceGainCurve& curve) {
 
@@ -575,6 +619,63 @@ void TofService::applyPendingSpatialProfile() {
     }
 }
 
+void TofService::applyPendingLedTopology() {
+    LedMappingProfile topology;
+    bool shouldApply = false;
+
+    if (mutex_ == nullptr) {
+        return;
+    }
+
+    if (xSemaphoreTake(
+            mutex_,
+            portMAX_DELAY) == pdTRUE) {
+
+        if (pendingLedTopologyDirty_) {
+            topology =
+                pendingLedTopology_;
+
+            pendingLedTopologyDirty_ =
+                false;
+
+            shouldApply = true;
+        }
+
+        xSemaphoreGive(
+            mutex_);
+    }
+
+    if (!shouldApply ||
+        !topology.valid()) {
+
+        return;
+    }
+
+    if (!perimeterGainModel_.
+            setTopology(
+                topology)) {
+
+        return;
+    }
+
+    ledTopology_ =
+        topology;
+
+    // Same wall, new LED sampling positions. Force the next valid plane to
+    // rebuild the complete active logical gain field.
+    planeChangeGate_.reset();
+
+    if (xSemaphoreTake(
+            mutex_,
+            portMAX_DELAY) == pdTRUE) {
+
+        ++snapshot_.topologyUpdates;
+
+        xSemaphoreGive(
+            mutex_);
+    }
+}
+
 void TofService::applyPendingGainCurve() {
     DistanceGainCurve curve;
     bool shouldApply = false;
@@ -619,7 +720,7 @@ void TofService::applyPendingGainCurve() {
         return;
     }
 
-    // Force the next valid pose to rebuild the full 780-value field even if
+    // Force the next valid pose to rebuild the full active LED gain field even if
     // the wall itself has not moved beyond the normal deadband.
     planeChangeGate_.reset();
 
@@ -738,6 +839,7 @@ void TofService::taskLoop() {
 
         for (;;) {
             applyPendingSpatialProfile();
+            applyPendingLedTopology();
             applyPendingGainCurve();
 
             const std::uint64_t nowUs =
