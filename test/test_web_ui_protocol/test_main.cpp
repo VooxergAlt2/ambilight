@@ -92,6 +92,7 @@ void test_all_action_routes_map_to_expected_kind() {
         {"/api/correction", WebUiActionKind::Correction},
         {"/api/test", WebUiActionKind::Commissioning},
         {"/api/led-map", WebUiActionKind::LedMap},
+        {"/api/pixel-mask", WebUiActionKind::PixelMask},
         {"/api/spatial", WebUiActionKind::Spatial},
         {"/api/curve", WebUiActionKind::GainCurve},
         {"/api/wifi", WebUiActionKind::Wifi},
