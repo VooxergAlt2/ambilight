@@ -643,6 +643,27 @@ WebUiParseResult WebUiProtocol::parse(
         return WebUiParseResult::Incomplete;
     }
 
+    // Keep web payload semantics aligned with the existing serial framing:
+    // runtime commands are printable ASCII text, never binary.
+    for (std::size_t index = 0;
+         index < contentLength;
+         ++index) {
+
+        const unsigned char value =
+            static_cast<unsigned char>(
+                data[
+                    request.bodyOffset +
+                    index]);
+
+        if (value < 32U ||
+            value > 126U) {
+
+            return
+                WebUiParseResult::
+                    BadRequest;
+        }
+    }
+
     return WebUiParseResult::Ok;
 }
 
