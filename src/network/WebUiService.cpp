@@ -227,10 +227,13 @@ async function post(path,body){
 }
 function applyMap(){
   const p=[];
-  for(let i=0;i<4;i++)p.push($('lane'+i).value+':'+($('rev'+i).checked?'1':'0'));
-  clean([...Array(4)].flatMap((_,i)=>['lane'+i,'rev'+i']));
+  for(let i=0;i<4;i++)p.push($('count'+i).value+':'+$('gpio'+i).value+':'+($('rev'+i).checked?'1':'0'));
+  clean([...Array(4)].flatMap((_,i)=>['count'+i,'gpio'+i,'rev'+i]));
   post('/api/led-map',p.join(','));
 }
+function runLogicalRange(){post('/api/test','side:'+$('rangeSide').value+':'+$('rangeStart').value+':'+$('rangeCount').value)}
+function runWholeSide(){const i=Number($('rangeSide').value);$('rangeStart').value=0;$('rangeCount').value=$('count'+i).value;runLogicalRange()}
+function runRawRange(){post('/api/test','gpio:'+$('rawGpio').value+':'+$('rawStart').value+':'+$('rawCount').value)}
 function applyPixelMask(){
   const ids=[0,1,2,3].map(i=>'mask'+i);
   const p=ids.map(id=>{const v=$(id).value.trim();return v===''?'-':v});
@@ -247,18 +250,21 @@ function applyWifi(){const p=$('wifiPass').value;post('/api/wifi',$('ssid').valu
 function factoryReset(){if(confirm('Стереть всю конфигурацию Ambilight и перезагрузить контроллер?'))post('/api/factory','reset')}
 function renderMap(m){
   if(!$('mapping').children.length){
-    mapNames.forEach((n,i)=>{$('mapping').insertAdjacentHTML('beforeend',`<div class="seg"><b>${n}</b><select id="lane${i}"><option>0</option><option>1</option><option>2</option><option>3</option></select><label><input id="rev${i}" type="checkbox"> reverse</label></div>`)});
+    mapNames.forEach((n,i)=>{$('mapping').insertAdjacentHTML('beforeend',`<div class="seg"><b>${n}</b><input id="count${i}" type="number" min="1" max="230" step="1"><select id="gpio${i}"><option>18</option><option>19</option><option>20</option><option>21</option></select><label><input id="rev${i}" type="checkbox"> reverse</label></div>`)});
     markDirty();
   }
-  m.segments.forEach((x,i)=>{setv('lane'+i,x[0]);const e=$('rev'+i);if(!e.dataset.dirty)e.checked=!!x[1]});
+  m.segments.forEach((x,i)=>{setv('count'+i,x[0]);setv('gpio'+i,x[1]);const e=$('rev'+i);if(!e.dataset.dirty)e.checked=!!x[2]});
+  const total=m.segments.reduce((a,x)=>a+x[0],0);
+  txt('topologyInfo','total '+total+' LEDs · DDP '+(total*3)+' bytes · '+m.source);
+  const side=Number($('rangeSide').value||0),len=m.segments[side][0];
+  $('rangeStart').max=Math.max(0,len-1);$('rangeCount').max=len;
 }
-function renderPixelMask(m){
-  const max=[229,159,229,159];
+function renderPixelMask(m,map){
   if(!$('pixelMask').children.length){
-    mapNames.forEach((n,i)=>{$('pixelMask').insertAdjacentHTML('beforeend',`<div class="seg"><b>${n}</b><input id="mask${i}" type="number" min="0" max="${max[i]}" step="1" placeholder="none"><span class="muted">0..${max[i]}</span></div>`)});
+    mapNames.forEach((n,i)=>{$('pixelMask').insertAdjacentHTML('beforeend',`<div class="seg"><b>${n}</b><input id="mask${i}" type="number" min="0" step="1" placeholder="none"><span class="muted" id="maskLimit${i}"></span><span></span></div>`)});
     markDirty();
   }
-  m.offsets.forEach((v,i)=>setv('mask'+i,v<0?'':v));
+  m.offsets.forEach((v,i)=>{const max=map.segments[i][0]-1;$('mask'+i).max=max;txt('maskLimit'+i,'0..'+max);setv('mask'+i,v<0?'':v)});
   txt('maskSource',m.source);
 }
 function calibrationText(c){
@@ -279,9 +285,9 @@ function render(s){
   setv('brightness',s.output.brightness);txt('brightnessValue',s.output.brightness);
   txt('testState','pattern '+s.commissioning.pattern+' · '+Math.ceil(s.commissioning.remaining_ms/1000)+' s');
   const safeTest=s.output.brightness>0&&s.output.brightness<=64;
-  $('testSegments').disabled=!safeTest;$('testDirection').disabled=!safeTest;
+  $('testSegments').disabled=!safeTest;$('testDirection').disabled=!safeTest;$('runLogical').disabled=!safeTest;$('runWhole').disabled=!safeTest;$('runRaw').disabled=!safeTest;
   renderMap(s.map);
-  renderPixelMask(s.pixel_mask);
+  renderPixelMask(s.pixel_mask,s.map);
   $('mapApply').disabled=s.output.brightness!==0;$('mapReset').disabled=s.output.brightness!==0;
   const sp=s.spatial;
   setv('spW',sp.w10/10);setv('spH',sp.h10/10);setv('spX',sp.x10/10);setv('spY',sp.y10/10);setv('spZ',sp.z10/10);setv('spR',sp.rot);setv('spM',sp.mirror);setv('spD',sp.deadband10/10);
