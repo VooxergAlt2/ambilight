@@ -679,9 +679,12 @@ void printLedPixelMaskProfile() {
 bool applyLedPixelMaskProfile(
     const ambilight::LedPixelMaskProfile& profile) {
 
-    if (!profile.valid()) {
+    if (!profile.validFor(
+            runtimeSettings.
+                ledMappingProfile())) {
+
         Serial.println(
-            "LED PIXEL MASK profile is invalid.");
+            "LED PIXEL MASK profile is invalid for the active side lengths.");
         return false;
     }
 
@@ -3788,13 +3791,42 @@ void setup() {
     ledEngine.setBrightness(
         runtimeSettings.outputBrightness());
 
+    const auto& startupTopology =
+        runtimeSettings.ledMappingProfile();
+
     if (!renderer.setMappingProfile(
-            runtimeSettings.ledMappingProfile())) {
+            startupTopology)) {
 
         fatal(
-            "LED runtime mapping profile is invalid",
+            "LED runtime topology profile is invalid",
             ESP_ERR_INVALID_ARG);
     }
+
+    if (!ddp.setLogicalLedCount(
+            startupTopology.totalLedCount())) {
+
+        fatal(
+            "DDP runtime topology size is invalid",
+            ESP_ERR_INVALID_ARG);
+    }
+
+    if (!tof.setLedTopology(
+            startupTopology)) {
+
+        fatal(
+            "ToF runtime topology profile is invalid",
+            ESP_ERR_INVALID_ARG);
+    }
+
+    cachedTargetGainContext =
+        ambilight::RenderGainContext::unity(
+            startupTopology);
+
+    renderSnapshot.pixelCount =
+        startupTopology.totalLedCount();
+
+    commissioningFrame.pixelCount =
+        startupTopology.totalLedCount();
 
     if (!renderer.setPixelMaskProfile(
             runtimeSettings.ledPixelMaskProfile())) {
