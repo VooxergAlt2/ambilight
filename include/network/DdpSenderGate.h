@@ -46,8 +46,12 @@ struct DdpSenderGateStats {
 
 class DdpSenderGate {
 public:
-    static constexpr std::size_t kExpectedFrameBytes =
-        config::kLogicalLedCount *
+    static constexpr std::size_t kDefaultExpectedFrameBytes =
+        config::kDefaultLogicalLedCount *
+        sizeof(Rgb8);
+
+    static constexpr std::size_t kMaxExpectedFrameBytes =
+        config::kLogicalLedCapacity *
         sizeof(Rgb8);
 
     // One second is long relative to a realtime DDP stream but short enough
@@ -61,6 +65,35 @@ public:
             kDefaultLeaseTimeoutUs)
         : leaseTimeoutUs_(
               leaseTimeoutUs) {}
+
+    bool setExpectedFrameBytes(
+        std::size_t frameBytes) {
+
+        if (frameBytes == 0 ||
+            frameBytes >
+                kMaxExpectedFrameBytes ||
+            frameBytes %
+                sizeof(Rgb8) != 0) {
+
+            return false;
+        }
+
+        if (expectedFrameBytes_ ==
+            frameBytes) {
+
+            return true;
+        }
+
+        expectedFrameBytes_ =
+            frameBytes;
+
+        reset();
+        return true;
+    }
+
+    std::size_t expectedFrameBytes() const {
+        return expectedFrameBytes_;
+    }
 
     DdpSenderDecision evaluate(
         const DdpSenderEndpoint& sender,
@@ -151,7 +184,7 @@ public:
     }
 
 private:
-    static bool datagramStructurallyValid(
+    bool datagramStructurallyValid(
         const std::uint8_t* datagram,
         std::size_t datagramLength) {
 
@@ -167,7 +200,7 @@ private:
         }
 
         if (packet.offset >=
-            kExpectedFrameBytes) {
+            expectedFrameBytes_) {
 
             return false;
         }
@@ -179,7 +212,7 @@ private:
                 packet.dataLength);
 
         return end <=
-            kExpectedFrameBytes;
+            expectedFrameBytes_;
     }
 
     void clearActive() {
@@ -191,6 +224,9 @@ private:
     std::uint64_t leaseTimeoutUs_ =
         kDefaultLeaseTimeoutUs;
 
+    std::size_t expectedFrameBytes_ =
+        kDefaultExpectedFrameBytes;
+
     bool active_ = false;
 
     DdpSenderEndpoint activeSender_{};
@@ -200,6 +236,9 @@ private:
 };
 
 static_assert(
-    DdpSenderGate::kExpectedFrameBytes == 2340);
+    DdpSenderGate::kDefaultExpectedFrameBytes == 2340);
+
+static_assert(
+    DdpSenderGate::kMaxExpectedFrameBytes == 2760);
 
 } // namespace ambilight
