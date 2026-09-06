@@ -72,7 +72,7 @@ When a valid new curve is accepted:
 3. render target/controller return to unity
 4. ToF task installs the new curve
 5. plane-change reference is reset
-6. next valid ToF pose forces a full 780-LED rebuild
+6. next valid ToF pose forces a full active-LED rebuild
 7. normal deadband resumes afterward
 
 An old curve therefore cannot remain physically active while a new calibration waits for the next pose.
