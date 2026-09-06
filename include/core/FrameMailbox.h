@@ -12,8 +12,9 @@ namespace ambilight {
 // Small task-level mailbox for complete RGB frames.
 //
 // Correctness is deliberately preferred over premature zero-copy tricks.
-// One 780-pixel RGB frame is 2340 bytes. At 60 FPS, one full-frame copy is
-// about 140 KB/s; publish + consume is about 280 KB/s total.
+// The mailbox uses the fixed 920-pixel capacity but every frame carries its
+// active runtime pixelCount. Copy cost stays small relative to the C6 memory
+// bandwidth and avoids lifetime/zero-copy hazards during topology changes.
 //
 // The mutex is a task mutex, not an interrupt-disabling critical section.
 class FrameMailbox {
