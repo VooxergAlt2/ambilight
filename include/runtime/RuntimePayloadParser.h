@@ -5,6 +5,7 @@
 #include <cstdint>
 
 #include "led/LedMappingProfile.h"
+#include "led/LedPixelMaskProfile.h"
 #include "tof/TofGainModel.h"
 #include "tof/TofSpatialProfile.h"
 
@@ -26,6 +27,10 @@ public:
     static RuntimePayloadParseResult parseLedMapping(
         const char* text,
         LedMappingProfile& profile);
+
+    static RuntimePayloadParseResult parseLedPixelMask(
+        const char* text,
+        LedPixelMaskProfile& profile);
 
     static RuntimePayloadParseResult parseSpatialProfile(
         const char* text,
