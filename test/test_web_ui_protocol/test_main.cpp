@@ -257,6 +257,26 @@ void test_get_rejects_nonzero_body_and_post_requires_length() {
                 request)));
 }
 
+void test_control_bytes_in_body_are_rejected() {
+    WebUiHttpRequest request;
+
+    std::string wire =
+        "POST /api/wifi HTTP/1.1\r\n"
+        "X-Ambilight-Control: 1\r\n"
+        "Content-Length: 3\r\n\r\n"
+        "A|B";
+
+    wire.back() =
+        static_cast<char>(1);
+
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(WebUiParseResult::BadRequest),
+        static_cast<int>(
+            parse(
+                wire,
+                request)));
+}
+
 void test_bad_http_version_and_content_length_are_rejected() {
     WebUiHttpRequest request;
 
@@ -288,6 +308,7 @@ int main(int, char**) {
     RUN_TEST(test_chunked_and_conflicting_lengths_are_rejected);
     RUN_TEST(test_unknown_route_and_method_are_distinct);
     RUN_TEST(test_get_rejects_nonzero_body_and_post_requires_length);
+    RUN_TEST(test_control_bytes_in_body_are_rejected);
     RUN_TEST(test_bad_http_version_and_content_length_are_rejected);
 
     return UNITY_END();
