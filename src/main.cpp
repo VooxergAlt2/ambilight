@@ -67,6 +67,7 @@ bool rgbDirty = false;
 bool correctionModeDirty = false;
 bool brightnessDirty = false;
 bool ledMappingDirty = false;
+bool ledPixelMaskDirty = false;
 
 ambilight::SerialCommandParser serialCommandParser;
 
@@ -529,6 +530,145 @@ void handleLedMapCommand(
     }
 
     applyLedMappingProfile(
+        profile);
+}
+
+const char* ledPixelMaskSourceName() {
+    if (!runtimeSettings.ledPixelMaskProfileCustomized()) {
+        return "DEFAULT";
+    }
+
+    return
+        runtimeSettings.ledPixelMaskProfilePersisted()
+            ? "CUSTOM_NVS"
+            : "CUSTOM_RUNTIME";
+}
+
+void printLedPixelMaskProfile() {
+    const auto& profile =
+        runtimeSettings.ledPixelMaskProfile();
+
+    static constexpr const char* kNames[] = {
+        "TOP", "RIGHT", "BOTTOM", "LEFT"
+    };
+
+    Serial.printf(
+        "LED PIXEL MASK source=%s",
+        ledPixelMaskSourceName());
+
+    for (std::size_t index = 0;
+         index < profile.disabledOffset.size();
+         ++index) {
+
+        const std::uint16_t value =
+            profile.disabledOffset[index];
+
+        if (value ==
+            ambilight::LedPixelMaskProfile::kNone) {
+
+            Serial.printf(
+                " %s=none",
+                kNames[index]);
+        } else {
+            Serial.printf(
+                " %s=%u",
+                kNames[index],
+                static_cast<unsigned>(
+                    value));
+        }
+    }
+
+    Serial.println();
+}
+
+bool applyLedPixelMaskProfile(
+    const ambilight::LedPixelMaskProfile& profile) {
+
+    if (!profile.valid()) {
+        Serial.println(
+            "LED PIXEL MASK profile is invalid.");
+        return false;
+    }
+
+    if (!renderer.setPixelMaskProfile(
+            profile)) {
+
+        Serial.println(
+            "LED PIXEL MASK could not be applied.");
+        return false;
+    }
+
+    const bool persisted =
+        runtimeSettings.setLedPixelMaskProfile(
+            profile);
+
+    ledPixelMaskDirty = true;
+
+    Serial.printf(
+        "LED PIXEL MASK applied; persisted=%s.\n",
+        persisted ? "yes" : "no");
+
+    printLedPixelMaskProfile();
+    return true;
+}
+
+bool resetLedPixelMaskProfile() {
+    const bool persisted =
+        runtimeSettings.resetLedPixelMaskProfile();
+
+    if (!renderer.setPixelMaskProfile(
+            runtimeSettings.ledPixelMaskProfile())) {
+
+        Serial.println(
+            "LED PIXEL MASK default profile is invalid.");
+        return false;
+    }
+
+    ledPixelMaskDirty = true;
+
+    Serial.printf(
+        "LED PIXEL MASK reset; persisted=%s.\n",
+        persisted ? "yes" : "no");
+
+    printLedPixelMaskProfile();
+    return true;
+}
+
+void handleLedPixelMaskCommand(
+    const char* command) {
+
+    if (command == nullptr ||
+        command[0] == '\0') {
+
+        printLedPixelMaskProfile();
+        return;
+    }
+
+    if (std::strcmp(
+            command,
+            "reset") == 0) {
+
+        resetLedPixelMaskProfile();
+        return;
+    }
+
+    ambilight::LedPixelMaskProfile profile;
+
+    const auto parseResult =
+        ambilight::RuntimePayloadParser::
+            parseLedPixelMask(
+                command,
+                profile);
+
+    if (parseResult !=
+        ambilight::RuntimePayloadParseResult::Ok) {
+
+        Serial.println(
+            "LED PIXEL MASK invalid. Use dTOP,RIGHT,BOTTOM,LEFT with '-' for none. Example: d-,12,-,0");
+        return;
+    }
+
+    applyLedPixelMaskProfile(
         profile);
 }
 
