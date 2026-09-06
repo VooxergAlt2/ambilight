@@ -172,6 +172,10 @@ const char* resetReasonName(
         return "BROWNOUT";
     case ESP_RST_SDIO:
         return "SDIO";
+    case ESP_RST_PWR_GLITCH:
+        return "PWR_GLITCH";
+    case ESP_RST_CPU_LOCKUP:
+        return "CPU_LOCKUP";
     default:
         return "OTHER";
     }
@@ -1653,10 +1657,16 @@ void finishCommissioning(
                 totalLedCount();
         black.receivedUs = nowUs;
 
+        commissioningGainContext.topology =
+            runtimeSettings.ledMappingProfile();
+        commissioningGainContext.sourcePresent = false;
+        commissioningGainContext.sourceUsable = false;
+        commissioningGainContext.failOpen = true;
+
         const esp_err_t result =
             renderer.render(
                 black,
-                ambilight::RenderGainContext::unity(runtimeSettings.ledMappingProfile()),
+                commissioningGainContext,
                 ambilight::CorrectionMode::Disabled);
 
         if (result != ESP_OK) {
