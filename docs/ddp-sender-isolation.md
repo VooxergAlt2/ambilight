@@ -33,8 +33,15 @@ Before a sender can acquire or extend a lease, the datagram must pass:
 - destination 1
 - non-empty payload
 - exact datagram length
-- offset inside the 2340-byte logical frame
-- payload end inside the 2340-byte logical frame
+- offset inside the active runtime RGB frame
+- payload end inside the active runtime RGB frame
+
+The frame bound is:
+
+    topology.totalLedCount() * 3
+
+Default remains 2340 bytes for 780 LEDs; maximum Stage 38 capacity is 2760
+bytes for 920 LEDs.
 
 DdpAssembler repeats its own validation afterward as defense in depth.
 
@@ -128,3 +135,13 @@ Accumulated statistics are retained.
 This is automatic first-valid-sender ownership, not a permanent configured IP allow-list.
 
 That matches the current one-PC runtime design while allowing another PC to take over after the active stream stops.
+
+
+## Topology reconfiguration
+
+Every explicit Stage 38 topology apply starts a new DDP transport epoch even
+when the total LED count happens to remain unchanged.
+
+This resets sender ownership and assembler sequence history so a GPIO/REV or
+length commissioning change cannot inherit partial transport state from the
+previous topology.
