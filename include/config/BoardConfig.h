@@ -17,11 +17,6 @@ constexpr std::size_t kLogicalLedCapacity =
 // Default 65-inch topology preserved from earlier stages.
 constexpr std::size_t kDefaultLogicalLedCount = 780;
 
-// Compatibility name for code/tests that specifically mean the default
-// topology. Runtime code must use the active topology total instead.
-constexpr std::size_t kLogicalLedCount =
-    kDefaultLogicalLedCount;
-
 constexpr std::array<std::uint8_t, kParlioLaneCount> kLedGpios = {
     18, // TOP
     19, // RIGHT
