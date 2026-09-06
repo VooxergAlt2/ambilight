@@ -30,7 +30,7 @@ ToF-specific snapshots are translated by TofRenderGainBridge into RenderGainCont
 
 LedRenderer does not depend on VL53L5CX or TofService.
 
-The exact 780-value logical field is applied before physical lane reversal.
+The exact active logical gain field is applied before physical lane reversal.
 
 ## Candidate math
 
