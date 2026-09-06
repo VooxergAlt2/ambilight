@@ -9,6 +9,7 @@
 #include "core/RgbFrame.h"
 #include "led/LedEngine.h"
 #include "led/LedMappingProfile.h"
+#include "led/LedPixelMaskProfile.h"
 #include "render/CorrectionMode.h"
 #include "render/RenderGainContext.h"
 
@@ -71,6 +72,21 @@ public:
         return mappingProfile_;
     }
 
+    bool setPixelMaskProfile(
+        const LedPixelMaskProfile& profile) {
+
+        if (!profile.valid()) {
+            return false;
+        }
+
+        pixelMaskProfile_ = profile;
+        return true;
+    }
+
+    const LedPixelMaskProfile& pixelMaskProfile() const {
+        return pixelMaskProfile_;
+    }
+
     esp_err_t render(const RgbFrame& frame);
 
     // Backward-compatible preview path. Equivalent to SHADOW mode.
@@ -113,6 +129,7 @@ private:
 
     RenderShadowStats shadowStats_{};
     LedMappingProfile mappingProfile_{};
+    LedPixelMaskProfile pixelMaskProfile_{};
     RenderGainContext lastGainContext_{};
     CorrectionMode lastCorrectionMode_ =
         CorrectionMode::Disabled;
