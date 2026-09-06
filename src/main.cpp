@@ -169,6 +169,29 @@ bool ensureDdpRunning() {
     return true;
 }
 
+bool ensureWebUiRunning() {
+    if (!wifi.enabled()) {
+        return false;
+    }
+
+    if (webUi.running()) {
+        return true;
+    }
+
+    if (!webUi.begin()) {
+        Serial.println(
+            "Web UI warning: HTTP/80 listener could not start. Core Ambilight continues.");
+        return false;
+    }
+
+    Serial.printf(
+        "Web UI listening on HTTP/%u. No external assets or web framework loaded.\n",
+        static_cast<unsigned>(
+            ambilight::WebUiService::kPort));
+
+    return true;
+}
+
 void printWifiProvisioningStatus() {
     wifi.printStatus();
 
@@ -215,6 +238,8 @@ bool applyWifiCredentials(
             "Wi-Fi configured, but DDP socket is not running.");
     }
 
+    ensureWebUiRunning();
+
     Serial.printf(
         "Wi-Fi credentials applied: ssid='%s' source=%s password=hidden\n",
         wifi.ssid(),
@@ -233,6 +258,7 @@ void clearRuntimeWifiCredentials() {
                 ambilight::config::kWifiSsid,
                 ambilight::config::kWifiPassword)) {
 
+            webUi.stop();
             wifi.disable();
             ddp.stop();
 
@@ -248,6 +274,7 @@ void clearRuntimeWifiCredentials() {
             WifiCredentialSource::CompileTime;
 
         ensureDdpRunning();
+        ensureWebUiRunning();
 
         Serial.printf(
             "Wi-Fi NVS credentials cleared (%s); using compile-time fallback SSID '%s'.\n",
@@ -257,6 +284,7 @@ void clearRuntimeWifiCredentials() {
         return;
     }
 
+    webUi.stop();
     wifi.disable();
     ddp.stop();
 
