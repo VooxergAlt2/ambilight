@@ -4,7 +4,7 @@ Custom ESP32-C6 Ambilight endpoint for HyperHDR.
 
 ## Current development line
 
-Stage 34 centralizes firmware identity and exposes it through startup diagnostics, STATCFG and the immediate serial v command.
+Stage 36 adds a minimal LAN web UI on top of the validated Stage 35 software checkpoint. The web layer reuses the existing lwIP stack and existing runtime validation/apply paths without adding a web framework or a dedicated task.
 
 The firmware stack now includes:
 
@@ -20,6 +20,7 @@ The firmware stack now includes:
 - persistent output brightness
 - persistent runtime ToF gain curve
 - persistent runtime spatial profile
+- minimal HTTP/80 commissioning/control UI
 
 USB/AWA remains preserved separately in:
 
@@ -79,6 +80,50 @@ STAT reports:
 Startup:
 
     NVS -> secrets.h fallback -> disabled
+
+## Minimal web UI
+
+When Wi-Fi is enabled:
+
+    http://<controller-ip>/
+
+The page provides:
+
+- correction mode
+- brightness
+- LED commissioning patterns
+- runtime lane/reversal mapping
+- ToF spatial profile
+- distance/gain curve
+- 60-second calibration capture
+- SHADOW probe
+- Wi-Fi provisioning
+- guarded factory reset
+- compact DDP/ToF/runtime diagnostics
+
+Implementation constraints:
+
+    one HTTP client
+    no keep-alive
+    no WebSocket
+    no external assets
+    no web framework
+    <=512 B receive per loop
+    <=1024 B send per loop
+
+DDP is serviced before the web layer.
+
+State-changing requests are acknowledged before they are released to main,
+so Wi-Fi changes and factory reset cannot race the HTTP response.
+
+Saved Wi-Fi passwords are never returned.
+
+The interface is trusted-LAN only and has no login. Do not expose TCP/80 to
+the public internet.
+
+See:
+
+    docs/web-ui.md
 
 ## Spatial profile
 
@@ -192,7 +237,15 @@ Each run writes native-test, firmware-build and summary logs under:
 
     .artifacts/validation/<timestamp>/
 
-The Stage 31 harness has been statically reviewed but has not been executed in this development session.
+Stage 35 was validated locally on Windows with:
+
+    147 native tests passed
+    ESP32-C6 firmware build passed
+
+Stage 36 adds new web protocol tests and production socket code. It must be
+revalidated locally before hardware flashing. In particular, Flash growth
+must be checked because the validated Stage 35 application used 91.6% of the
+current application partition.
 
 
 ## Runtime LED mapping
@@ -313,6 +366,6 @@ reports:
 
 Current source identity:
 
-    ambilight-c6 0.34.0-dev Stage 34
+    ambilight-c6 0.36.0-dev Stage 36
 
 Startup uses the same centralized FirmwareInfo constants instead of a handwritten stage banner.
