@@ -172,6 +172,12 @@ const char* resetReasonName(
         return "BROWNOUT";
     case ESP_RST_SDIO:
         return "SDIO";
+    case ESP_RST_USB:
+        return "USB";
+    case ESP_RST_JTAG:
+        return "JTAG";
+    case ESP_RST_EFUSE:
+        return "EFUSE";
     case ESP_RST_PWR_GLITCH:
         return "PWR_GLITCH";
     case ESP_RST_CPU_LOCKUP:
