@@ -125,6 +125,7 @@ struct WebUiStats {
     std::uint32_t connections = 0;
     std::uint32_t requests = 0;
     std::uint32_t actionsQueued = 0;
+    std::uint32_t actionsDropped = 0;
 
     std::uint32_t badRequests = 0;
     std::uint32_t forbiddenRequests = 0;
