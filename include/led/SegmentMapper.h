@@ -53,28 +53,28 @@ public:
         std::uint16_t logicalIndex,
         const LedMappingProfile& profile) {
 
-        if (logicalIndex >= config::kLogicalLedCount ||
-            !profile.valid()) {
+        if (!profile.valid() ||
+            logicalIndex >=
+                profile.totalLedCount()) {
+
             return {};
         }
 
-        for (const auto& baseSegment : kSegments) {
-            SegmentConfig segment =
-                baseSegment;
+        for (std::size_t index = 0;
+             index <
+                static_cast<std::size_t>(
+                    SegmentId::Count);
+             ++index) {
 
-            const auto runtime =
-                profile.forSegment(
-                    segment.id);
+            const auto segment =
+                profile.segmentConfig(
+                    static_cast<SegmentId>(
+                        index));
 
-            segment.lane =
-                runtime.lane;
-
-            segment.reversed =
-                runtime.reversed != 0;
-
-            const PhysicalPixel mapped = mapInSegment(
-                segment,
-                logicalIndex);
+            const PhysicalPixel mapped =
+                mapInSegment(
+                    segment,
+                    logicalIndex);
 
             if (mapped.valid) {
                 return mapped;
