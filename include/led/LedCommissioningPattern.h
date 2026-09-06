@@ -4,37 +4,107 @@
 #include <cstddef>
 #include <cstdint>
 
-#include "core/Geometry.h"
 #include "core/RgbFrame.h"
+#include "led/LedMappingProfile.h"
 
 namespace ambilight {
 
 enum class LedCommissioningPattern : std::uint8_t {
     None = 0,
     SegmentIdentity = 1,
-    DirectionMarkers = 2
+    DirectionMarkers = 2,
+    LogicalRange = 3,
+    RawPhysicalRange = 4
 };
 
 class LedCommissioningPatternBuilder {
 public:
     static void build(
         LedCommissioningPattern pattern,
+        const LedMappingProfile& topology,
         RgbFrame& frame) {
 
         frame.clear();
+        frame.pixelCount =
+            topology.totalLedCount();
 
         switch (pattern) {
         case LedCommissioningPattern::SegmentIdentity:
-            buildSegmentIdentity(frame);
+            buildSegmentIdentity(
+                topology,
+                frame);
             break;
 
         case LedCommissioningPattern::DirectionMarkers:
-            buildDirectionMarkers(frame);
+            buildDirectionMarkers(
+                topology,
+                frame);
             break;
 
         case LedCommissioningPattern::None:
+        case LedCommissioningPattern::LogicalRange:
+        case LedCommissioningPattern::RawPhysicalRange:
             break;
         }
+    }
+
+    static void build(
+        LedCommissioningPattern pattern,
+        RgbFrame& frame) {
+
+        build(
+            pattern,
+            LedMappingProfile{},
+            frame);
+    }
+
+    static bool buildLogicalRange(
+        const LedMappingProfile& topology,
+        SegmentId segmentId,
+        std::uint16_t startOffset,
+        std::uint16_t count,
+        RgbFrame& frame,
+        Rgb8 color = {255, 255, 255}) {
+
+        if (!topology.valid() ||
+            count == 0) {
+
+            return false;
+        }
+
+        const SegmentConfig segment =
+            topology.segmentConfig(
+                segmentId);
+
+        const std::uint32_t end =
+            static_cast<std::uint32_t>(
+                startOffset) +
+            count;
+
+        if (startOffset >=
+                segment.logicalLength ||
+            end >
+                segment.logicalLength) {
+
+            return false;
+        }
+
+        frame.clear();
+        frame.pixelCount =
+            topology.totalLedCount();
+
+        for (std::uint16_t offset = 0;
+             offset < count;
+             ++offset) {
+
+            frame.pixels[
+                segment.logicalStart +
+                startOffset +
+                offset] =
+                color;
+        }
+
+        return true;
     }
 
 private:
@@ -47,15 +117,22 @@ private:
         }};
 
     static void buildSegmentIdentity(
+        const LedMappingProfile& topology,
         RgbFrame& frame) {
 
-        for (const auto& segment :
-             kSegments) {
+        for (std::size_t index = 0;
+             index <
+                static_cast<std::size_t>(
+                    SegmentId::Count);
+             ++index) {
+
+            const auto segment =
+                topology.segmentConfig(
+                    static_cast<SegmentId>(
+                        index));
 
             const auto color =
-                kSegmentColors[
-                    static_cast<std::size_t>(
-                        segment.id)];
+                kSegmentColors[index];
 
             for (std::uint16_t offset = 0;
                  offset <
@@ -70,6 +147,7 @@ private:
     }
 
     static void buildDirectionMarkers(
+        const LedMappingProfile& topology,
         RgbFrame& frame) {
 
         constexpr Rgb8 background{
@@ -91,8 +169,16 @@ private:
         constexpr std::uint16_t markerLength =
             5;
 
-        for (const auto& segment :
-             kSegments) {
+        for (std::size_t segmentIndex = 0;
+             segmentIndex <
+                static_cast<std::size_t>(
+                    SegmentId::Count);
+             ++segmentIndex) {
+
+            const auto segment =
+                topology.segmentConfig(
+                    static_cast<SegmentId>(
+                        segmentIndex));
 
             for (std::uint16_t offset = 0;
                  offset <
