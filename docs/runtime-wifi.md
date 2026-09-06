@@ -6,7 +6,7 @@ Startup resolves Wi-Fi credentials in this order:
 
 1. NVS credentials
 2. compile-time fallback from `secrets.h`
-3. no credentials -> Wi-Fi/DDP disabled
+3. no credentials -> Wi-Fi/DDP/Web disabled
 
 The password is never printed by firmware diagnostics.
 
@@ -42,6 +42,7 @@ Setting new credentials:
 3. reconfigures ESP32 STA immediately
 4. keeps Wi-Fi power-save disabled
 5. starts DDP UDP/4048 if it was not already running
+6. starts the minimal HTTP/80 listener if it was not already running
 
 No reboot is required.
 
@@ -68,10 +69,15 @@ If compile-time fallback exists:
 
 If no fallback exists:
 
+    Web UI listener stopped
     Wi-Fi disabled
     DDP socket stopped
 
-If fallback configuration is invalid, Wi-Fi/DDP are explicitly disabled rather than silently continuing with old credentials.
+If fallback configuration is invalid, Wi-Fi/DDP/Web are explicitly disabled rather than silently continuing with old credentials.
+
+The web UI never returns the saved password. Changing credentials from the
+browser may move the controller to another network, so the current page can
+become unreachable immediately after the acknowledged request is applied.
 
 ## Security note
 
