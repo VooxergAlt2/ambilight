@@ -23,7 +23,7 @@ Plane changes below the screen-space deadband:
 
 Material plane change:
 
-    new 780-value target
+    new active per-LED target
     smooth slew toward target
 
 Effective gain/render update while moving:
@@ -40,7 +40,7 @@ Unity is 4096.
 
 A full-scale transition would take roughly 0.5 seconds.
 
-All 780 logical gains slew independently.
+All active logical gains slew independently.
 
 ## Fail-open behavior
 
