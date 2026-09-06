@@ -59,17 +59,22 @@ void test_brightness_distinguishes_empty_format_and_range() {
         value);
 }
 
-void test_led_mapping_parses_lane_permutation_and_reversal() {
+void test_led_mapping_parses_count_gpio_and_reversal() {
     LedMappingProfile profile;
 
     const auto result =
         RuntimePayloadParser::parseLedMapping(
-            "3:1,2:0,1:1,0:0",
+            "200:21:1,150:20:0,210:19:1,140:18:0",
             profile);
 
     TEST_ASSERT_EQUAL_INT(
-        static_cast<int>(RuntimePayloadParseResult::Ok),
+        static_cast<int>(
+            RuntimePayloadParseResult::Ok),
         static_cast<int>(result));
+
+    TEST_ASSERT_EQUAL_UINT16(
+        200,
+        profile.segment[0].logicalLength);
 
     TEST_ASSERT_EQUAL_UINT8(
         3,
@@ -79,23 +84,33 @@ void test_led_mapping_parses_lane_permutation_and_reversal() {
         1,
         profile.segment[0].reversed);
 
-    TEST_ASSERT_EQUAL_UINT8(
-        0,
-        profile.segment[3].lane);
+    TEST_ASSERT_EQUAL_UINT16(
+        700,
+        profile.totalLedCount());
 
     TEST_ASSERT_EQUAL_UINT8(
-        0,
-        profile.segment[3].reversed);
+        18,
+        profile.gpioForSegment(
+            ambilight::SegmentId::Left));
 }
 
-void test_led_mapping_rejects_duplicate_lane() {
+void test_led_mapping_rejects_duplicate_gpio_or_bad_count() {
     LedMappingProfile profile;
 
     TEST_ASSERT_EQUAL_INT(
-        static_cast<int>(RuntimePayloadParseResult::OutOfRange),
+        static_cast<int>(
+            RuntimePayloadParseResult::OutOfRange),
         static_cast<int>(
             RuntimePayloadParser::parseLedMapping(
-                "0:0,0:0,2:0,3:0",
+                "230:18:0,160:18:0,230:20:0,160:21:0",
+                profile)));
+
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(
+            RuntimePayloadParseResult::OutOfRange),
+        static_cast<int>(
+            RuntimePayloadParser::parseLedMapping(
+                "231:18:0,160:19:0,230:20:0,160:21:0",
                 profile)));
 }
 
@@ -103,18 +118,96 @@ void test_led_mapping_rejects_bad_syntax() {
     LedMappingProfile profile;
 
     TEST_ASSERT_EQUAL_INT(
-        static_cast<int>(RuntimePayloadParseResult::InvalidFormat),
+        static_cast<int>(
+            RuntimePayloadParseResult::InvalidFormat),
         static_cast<int>(
             RuntimePayloadParser::parseLedMapping(
-                "0:0,1:0,2:0",
+                "230:18:0,160:19:0,230:20:0",
                 profile)));
 
     TEST_ASSERT_EQUAL_INT(
-        static_cast<int>(RuntimePayloadParseResult::InvalidFormat),
+        static_cast<int>(
+            RuntimePayloadParseResult::InvalidFormat),
         static_cast<int>(
             RuntimePayloadParser::parseLedMapping(
-                "0-0,1:0,2:0,3:0",
+                "230-18-0,160:19:0,230:20:0,160:21:0",
                 profile)));
+}
+
+void test_commissioning_range_parses_side_and_gpio_targets() {
+    ambilight::CommissioningRangeRequest request;
+
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(
+            RuntimePayloadParseResult::Ok),
+        static_cast<int>(
+            RuntimePayloadParser::
+                parseCommissioningRange(
+                    "side:2:100:10",
+                    request)));
+
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(
+            ambilight::
+                CommissioningRangeTarget::
+                    LogicalSide),
+        static_cast<int>(
+            request.target));
+
+    TEST_ASSERT_EQUAL_UINT8(
+        2,
+        request.targetValue);
+
+    TEST_ASSERT_EQUAL_UINT16(
+        100,
+        request.start);
+
+    TEST_ASSERT_EQUAL_UINT16(
+        10,
+        request.count);
+
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(
+            RuntimePayloadParseResult::Ok),
+        static_cast<int>(
+            RuntimePayloadParser::
+                parseCommissioningRange(
+                    "gpio:20:0:37",
+                    request)));
+
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(
+            ambilight::
+                CommissioningRangeTarget::
+                    RawGpio),
+        static_cast<int>(
+            request.target));
+
+    TEST_ASSERT_EQUAL_UINT8(
+        20,
+        request.targetValue);
+}
+
+void test_commissioning_range_rejects_unknown_gpio_and_overflow() {
+    ambilight::CommissioningRangeRequest request;
+
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(
+            RuntimePayloadParseResult::OutOfRange),
+        static_cast<int>(
+            RuntimePayloadParser::
+                parseCommissioningRange(
+                    "gpio:22:0:10",
+                    request)));
+
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(
+            RuntimePayloadParseResult::OutOfRange),
+        static_cast<int>(
+            RuntimePayloadParser::
+                parseCommissioningRange(
+                    "side:0:220:11",
+                    request)));
 }
 
 void test_led_pixel_mask_parses_none_and_segment_offsets() {
@@ -174,11 +267,15 @@ void test_led_pixel_mask_enforces_segment_lengths() {
                 profile)));
 
     TEST_ASSERT_EQUAL_INT(
-        static_cast<int>(RuntimePayloadParseResult::OutOfRange),
+        static_cast<int>(RuntimePayloadParseResult::Ok),
         static_cast<int>(
             RuntimePayloadParser::parseLedPixelMask(
                 "-,160,-,-",
                 profile)));
+
+    TEST_ASSERT_FALSE(
+        profile.validFor(
+            LedMappingProfile{}));
 }
 
 void test_led_pixel_mask_rejects_bad_syntax_without_mutating_output() {
@@ -407,9 +504,11 @@ int main(int, char**) {
 
     RUN_TEST(test_brightness_parses_valid_values);
     RUN_TEST(test_brightness_distinguishes_empty_format_and_range);
-    RUN_TEST(test_led_mapping_parses_lane_permutation_and_reversal);
-    RUN_TEST(test_led_mapping_rejects_duplicate_lane);
+    RUN_TEST(test_led_mapping_parses_count_gpio_and_reversal);
+    RUN_TEST(test_led_mapping_rejects_duplicate_gpio_or_bad_count);
     RUN_TEST(test_led_mapping_rejects_bad_syntax);
+    RUN_TEST(test_commissioning_range_parses_side_and_gpio_targets);
+    RUN_TEST(test_commissioning_range_rejects_unknown_gpio_and_overflow);
     RUN_TEST(test_led_pixel_mask_parses_none_and_segment_offsets);
     RUN_TEST(test_led_pixel_mask_enforces_segment_lengths);
     RUN_TEST(test_led_pixel_mask_rejects_bad_syntax_without_mutating_output);
