@@ -183,6 +183,22 @@ The compact status endpoint includes:
 
 Saved Wi-Fi password is never returned.
 
+## LED colour order scope
+
+The minimal UI does not expose a separate colour-order setting.
+
+The configured LiteLED strip type is:
+
+    LED_STRIP_WS2812
+
+LiteLED defines that strip type with the standard WS2812/WS2812B GRB wire
+order while application colours remain normal RGB values.
+
+If hardware commissioning proves that the actual strip uses a non-standard
+order, LiteLEDpioLane supports runtime setOrder(). That hardware-specific
+override can be added later without changing logical RGB, DDP or ToF
+semantics.
+
 ## Developer diagnostics remain serial-only
 
 Low-level dumps are intentionally not duplicated in the minimal UI:
