@@ -4166,7 +4166,7 @@ void printRuntimeStatus() {
         static_cast<unsigned long>(ESP.getMinFreeHeap()));
 
     Serial.printf(
-        "STATCFG fw=%s stage=%u curve=%s curve_points=%u curve_updates=%lu spatial=%s spatial_updates=%lu ledmap=%s pixelmask=%s ledtest=%s\n",
+        "STATCFG fw=%s stage=%u curve=%s curve_points=%u curve_updates=%lu spatial=%s spatial_updates=%lu ledmap=%s topo_leds=%u ddp_bytes=%u pixelmask=%s ledtest=%s tofdebug=%s\n",
         ambilight::config::kFirmwareVersion,
         static_cast<unsigned>(
             ambilight::config::kDevelopmentStage),
@@ -4183,9 +4183,21 @@ void printRuntimeStatus() {
                   tofSnapshot.spatialProfileUpdates)
             : 0UL,
         ledMappingSourceName(),
+        static_cast<unsigned>(
+            runtimeSettings.
+                ledMappingProfile().
+                totalLedCount()),
+        static_cast<unsigned>(
+            runtimeSettings.
+                ledMappingProfile().
+                totalLedCount() *
+            sizeof(ambilight::Rgb8)),
         ledPixelMaskSourceName(),
         commissioningPatternName(
-            commissioningPattern));
+            commissioningPattern),
+        tofDebugActive()
+            ? "yes"
+            : "no");
 }
 
 void printConfiguration() {
