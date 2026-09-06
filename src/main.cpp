@@ -1308,7 +1308,7 @@ void printCommissioningStatus() {
             : 0ULL;
 
     Serial.printf(
-        "LED TEST pattern=%s remaining=%llums brightness=%u/255 runs=%lu renders=%lu cancels=%lu\n",
+        "LED TEST pattern=%s remaining=%llums brightness=%u/255 runs=%lu renders=%lu cancels=%lu",
         commissioningPatternName(
             commissioningPattern),
         static_cast<unsigned long long>(
@@ -1321,6 +1321,38 @@ void printCommissioningStatus() {
             commissioningRenders),
         static_cast<unsigned long>(
             commissioningCancels));
+
+    if (commissioningPattern ==
+        ambilight::
+            LedCommissioningPattern::
+                LogicalRange) {
+
+        Serial.printf(
+            " side=%u start=%u count=%u",
+            static_cast<unsigned>(
+                commissioningRangeSegment),
+            static_cast<unsigned>(
+                commissioningRangeStart),
+            static_cast<unsigned>(
+                commissioningRangeCount));
+    } else if (
+        commissioningPattern ==
+            ambilight::
+                LedCommissioningPattern::
+                    RawPhysicalRange) {
+
+        Serial.printf(
+            " gpio=%u start=%u count=%u",
+            static_cast<unsigned>(
+                ambilight::config::kLedGpios[
+                    commissioningRawLane]),
+            static_cast<unsigned>(
+                commissioningRangeStart),
+            static_cast<unsigned>(
+                commissioningRangeCount));
+    }
+
+    Serial.println();
 }
 
 void finishCommissioning(
@@ -3022,10 +3054,25 @@ void handleWebUiAction(
             ok = true;
         }
 
+        if (!ok &&
+            (std::strncmp(
+                 event.text(),
+                 "side:",
+                 5) == 0 ||
+             std::strncmp(
+                 event.text(),
+                 "gpio:",
+                 5) == 0)) {
+
+            ok =
+                handleCommissioningRangePayload(
+                    event.text());
+        }
+
         message =
             ok
                 ? "LED test started."
-                : "Invalid LED test.";
+                : "Invalid/refused LED test.";
 
         break;
     }
@@ -3531,9 +3578,14 @@ void printSerialFramingError(
             "FACTORY RESET command invalid/too long.");
         break;
 
+    case ambilight::SerialCommandKind::CommissioningRange:
+        Serial.println(
+            "LED RANGE command invalid/too long.");
+        break;
+
     case ambilight::SerialCommandKind::LedMap:
         Serial.println(
-            "LED MAP command invalid/too long.");
+            "LED TOPOLOGY command invalid/too long.");
         break;
 
     case ambilight::SerialCommandKind::LedPixelMask:
@@ -3596,6 +3648,11 @@ void dispatchSerialCommand(
 
     case ambilight::SerialCommandKind::Factory:
         handleFactoryCommand(
+            event.text());
+        break;
+
+    case ambilight::SerialCommandKind::CommissioningRange:
+        handleCommissioningRangePayload(
             event.text());
         break;
 
