@@ -261,7 +261,7 @@ async function refresh(){
 }
 $('brightness').addEventListener('input',e=>txt('brightnessValue',e.target.value));
 $('brightness').addEventListener('change',e=>{clean(['brightness']);post('/api/brightness',e.target.value)});
-markDirty();refresh();setInterval(refresh,1500);
+markDirty();refresh();setInterval(refresh,2000);
 </script>
 </body>
 </html>)HTML";
