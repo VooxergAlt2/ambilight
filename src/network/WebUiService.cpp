@@ -46,9 +46,9 @@ label{color:var(--muted);font-size:12px}input,select,textarea,button{font:inheri
 input[type=number]{width:105px}input[type=range]{padding:0;width:min(360px,70vw)}input[type=text],input[type=password]{min-width:220px;flex:1}
 textarea{width:100%;min-height:62px;resize:vertical;font-family:ui-monospace,SFMono-Regular,Consolas,monospace}
 button{cursor:pointer}button.primary{background:var(--accent);color:#fff;border-color:transparent}button.danger{color:var(--danger)}button:disabled{opacity:.45;cursor:not-allowed}
-.seg{display:grid;grid-template-columns:90px 90px 110px;gap:8px;align-items:center;margin:6px 0}.spatial{display:grid;grid-template-columns:repeat(4,minmax(115px,1fr));gap:8px}.field{display:flex;flex-direction:column;gap:4px}
+.seg{display:grid;grid-template-columns:85px 90px 105px 110px;gap:8px;align-items:center;margin:6px 0}.spatial{display:grid;grid-template-columns:repeat(4,minmax(115px,1fr));gap:8px}.field{display:flex;flex-direction:column;gap:4px}
 #action{min-height:20px;margin:12px 0}.ok{color:var(--ok)}.bad{color:var(--danger)}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:var(--bg);padding:10px;border-radius:8px;border:1px solid var(--line)}
-@media(max-width:680px){.cards{grid-template-columns:repeat(2,1fr)}.cols,.spatial{grid-template-columns:1fr 1fr}.seg{grid-template-columns:70px 1fr 90px}header{align-items:flex-start;flex-direction:column}}
+@media(max-width:680px){.cards{grid-template-columns:repeat(2,1fr)}.cols,.spatial{grid-template-columns:1fr 1fr}.seg{grid-template-columns:65px 80px 1fr 90px}header{align-items:flex-start;flex-direction:column}}
 </style>
 </head>
 <body>
@@ -80,26 +80,50 @@ button{cursor:pointer}button.primary{background:var(--accent);color:#fff;border-
 </div>
 </details>
 
-<details>
-<summary>LED commissioning</summary>
-<div class="section cols">
-<div>
-<h2>Тест</h2>
+<details open>
+<summary>Пусконаладка LED</summary>
+<div class="section">
+<h2>Runtime topology</h2>
+<div id="mapping"></div>
+<div id="topologyInfo" class="muted mono"></div>
 <div class="row">
-<button id="testSegments" onclick="post('/api/test','1')">Segments</button>
+<button id="mapApply" class="primary" onclick="applyMap()">Apply topology</button>
+<button id="mapReset" onclick="post('/api/led-map','reset')">Default 230/160/230/160</button>
+</div>
+<div class="muted">COUNT 1..230. GPIO только 18/19/20/21, каждый выход используется один раз. Изменение topology требует brightness=0.</div>
+
+<div class="cols" style="margin-top:16px">
+<div>
+<h2>Logical side test</h2>
+<div class="row">
+<select id="rangeSide"><option value="0">TOP</option><option value="1">RIGHT</option><option value="2">BOTTOM</option><option value="3">LEFT</option></select>
+<input id="rangeStart" type="number" min="0" value="0" step="1">
+<input id="rangeCount" type="number" min="1" value="1" step="1">
+</div>
+<div class="row">
+<button id="runLogical" onclick="runLogicalRange()">Run range</button>
+<button id="runWhole" onclick="runWholeSide()">Run whole side</button>
+</div>
+<div class="muted">Проверяет итоговую side mapping, REV и disabled-pixel mask.</div>
+</div>
+<div>
+<h2>Raw GPIO test</h2>
+<div class="row">
+<select id="rawGpio"><option>18</option><option>19</option><option>20</option><option>21</option></select>
+<input id="rawStart" type="number" min="0" max="229" value="0" step="1">
+<input id="rawCount" type="number" min="1" max="230" value="1" step="1">
+</div>
+<div class="row">
+<button id="runRaw" onclick="runRawRange()">Run raw GPIO</button>
+<button id="testSegments" onclick="post('/api/test','1')">All segments</button>
 <button id="testDirection" onclick="post('/api/test','2')">Direction</button>
 <button onclick="post('/api/test','0')">Stop</button>
 </div>
+<div class="muted">Raw GPIO обходит logical mapping. Используйте для определения физически подключённой линии.</div>
+</div>
+</div>
 <div id="testState" class="muted"></div>
-</div>
-<div>
-<h2>Mapping</h2>
-<div id="mapping"></div>
-<div class="row">
-<button id="mapApply" class="primary" onclick="applyMap()">Apply</button>
-<button id="mapReset" onclick="post('/api/led-map','reset')">Default</button>
-</div>
-<div class="muted">Mapping меняется только при brightness=0.</div>
+
 <h2 style="margin-top:16px">Disabled pixel</h2>
 <div id="pixelMask"></div>
 <div class="row">
@@ -107,8 +131,7 @@ button{cursor:pointer}button.primary{background:var(--accent);color:#fff;border-
 <button onclick="post('/api/pixel-mask','reset')">Clear mask</button>
 <span id="maskSource" class="muted"></span>
 </div>
-<div class="muted">По одному пикселю на сегмент. Пусто = не отключать. Индекс считается от START.</div>
-</div>
+<div class="muted">По одному пикселю на сторону. Пусто = не отключать. Индекс считается от logical START.</div>
 </div>
 </details>
 
