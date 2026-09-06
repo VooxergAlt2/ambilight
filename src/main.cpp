@@ -31,7 +31,7 @@
 #include "network/WebUiService.h"
 #include "network/WifiService.h"
 #include "tof/TofCalibrationCapture.h"
-#include "tof/TofGrid.h"
+#include "tof/TofDebugGrid.h"
 #include "tof/TofService.h"
 
 namespace {
@@ -2895,57 +2895,45 @@ bool fillWebUiSnapshot(
                 .perimeterGains
                 .maxDistanceMm;
 
-        const auto transform =
-            runtimeSettings.
-                tofSpatialProfile().
-                transform();
+        ambilight::TofRawFrame raw;
+        raw.timestampUs =
+            tofSnapshot.timestampUs;
 
-        for (std::size_t row = 0;
-             row <
-                ambilight::
-                    kTofGridHeight;
-             ++row) {
+        raw.distanceMm =
+            tofSnapshot.distanceMm;
 
-            for (std::size_t col = 0;
-                 col <
-                    ambilight::
-                        kTofGridWidth;
-                 ++col) {
+        raw.targetStatus =
+            tofSnapshot.targetStatus;
 
-                const std::size_t normalized =
-                    row *
-                        ambilight::
-                            kTofGridWidth +
-                    col;
+        const auto debugGrid =
+            ambilight::makeTofDebugGrid(
+                raw,
+                runtimeSettings.
+                    tofSpatialProfile().
+                    transform());
 
-                const std::size_t rawIndex =
-                    ambilight::
-                        tofRawIndexForNormalized(
-                            row,
-                            col,
-                            transform);
+        for (std::size_t index = 0;
+             index <
+                debugGrid.size();
+             ++index) {
 
-                snapshot.
-                    tofNormalizedDistanceMm[
-                        normalized] =
-                    tofSnapshot.
-                        distanceMm[
-                            rawIndex];
+            snapshot.
+                tofNormalizedDistanceMm[
+                    index] =
+                debugGrid[index].
+                    distanceMm;
 
-                snapshot.
-                    tofNormalizedStatus[
-                        normalized] =
-                    tofSnapshot.
-                        targetStatus[
-                            rawIndex];
+            snapshot.
+                tofNormalizedStatus[
+                    index] =
+                debugGrid[index].
+                    status;
 
-                snapshot.
-                    tofNormalizedRawIndex[
-                        normalized] =
-                    static_cast<
-                        std::uint8_t>(
-                            rawIndex);
-            }
+            snapshot.
+                tofNormalizedRawIndex[
+                    index] =
+                debugGrid[index].
+                    rawIndex;
         }
     } else {
         copyWebText(
