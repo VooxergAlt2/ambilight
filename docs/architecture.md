@@ -2,7 +2,7 @@
 
 ## Current stage
 
-Stage 34 is the current software-integration line.
+Stage 36 is the current software-integration line. It adds a bounded single-client HTTP control surface on top of the validated Stage 35 firmware.
 
 The active firmware now combines:
 
@@ -23,6 +23,7 @@ The active firmware now combines:
 - typed pure-C++ serial command framing
 - typed pure-C++ runtime payload parsing
 - centralized firmware identity/version diagnostics
+- minimal lwIP HTTP/80 commissioning/control UI
 
 USB/AWA work remains preserved separately in:
 
@@ -43,6 +44,39 @@ USB/AWA work remains preserved separately in:
       -> runtime LedMappingProfile
       -> LedEngine
       -> PARLIO x4
+
+## Web control path
+
+    browser
+      -> TCP/80
+      -> WebUiService
+      -> WebUiProtocol
+      -> acknowledged queued WebUiActionEvent
+      -> main runtime action dispatcher
+      -> existing typed parser/domain object
+      -> existing apply/reset handler
+
+The web layer does not emulate serial bytes and does not duplicate domain
+validation.
+
+The listener is deliberately small:
+
+    one active client
+    no keep-alive
+    no WebSocket
+    1536 B request buffer
+    <=127 B body
+    <=512 B recv per loop
+    <=1024 B send per loop
+    2 s idle timeout
+
+DDP polling and its backlog gate run before the web service in the main loop.
+
+POST actions are released to main only after the HTTP acknowledgement has
+been sent and the client socket closed. This prevents Wi-Fi reconfiguration
+or factory reset from tearing down the connection before acknowledgement.
+
+Developer-only raw ToF/render dumps remain serial-only.
 
 ## DDP sender ownership
 
@@ -313,7 +347,10 @@ Software behavior is locked with deterministic native tests where hardware APIs 
 
 GitHub Actions remain manual because repository Actions quota is exhausted.
 
-The tests added in recent stages are therefore contracts in the repository but have not been claimed as executed.
+Stage 35 was locally validated with 147/147 native tests and a successful
+ESP32-C6 firmware build. Stage 36 adds pure-C++ HTTP protocol contracts plus
+production lwIP socket code and therefore requires a fresh local native +
+firmware validation before it can be treated as hardware-ready.
 
 Physical commissioning remains a later stage for:
 
