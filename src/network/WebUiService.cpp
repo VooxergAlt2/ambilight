@@ -1053,9 +1053,12 @@ bool WebUiService::buildStatusResponse(
                 .segment[index];
 
         writer.appendf(
-            "[%u,%u]",
+            "[%u,%u,%u]",
             static_cast<unsigned>(
-                mapping.lane),
+                mapping.logicalLength),
+            static_cast<unsigned>(
+                config::kLedGpios[
+                    mapping.lane]),
             static_cast<unsigned>(
                 mapping.reversed));
     }
