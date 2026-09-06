@@ -6,6 +6,7 @@ namespace {
 
 constexpr std::size_t kFactoryCapacity = 16;
 constexpr std::size_t kLedMapCapacity = 64;
+constexpr std::size_t kLedPixelMaskCapacity = 32;
 constexpr std::size_t kSpatialCapacity = 128;
 constexpr std::size_t kGainCurveCapacity = 128;
 
@@ -43,6 +44,8 @@ SerialCommandParser::kindForState(
         return SerialCommandKind::Factory;
     case State::LineLedMap:
         return SerialCommandKind::LedMap;
+    case State::LineLedPixelMask:
+        return SerialCommandKind::LedPixelMask;
     case State::LineSpatial:
         return SerialCommandKind::Spatial;
     case State::LineGainCurve:
@@ -65,6 +68,8 @@ SerialCommandParser::capacityForState(
         return kFactoryCapacity;
     case State::LineLedMap:
         return kLedMapCapacity;
+    case State::LineLedPixelMask:
+        return kLedPixelMaskCapacity;
     case State::LineSpatial:
         return kSpatialCapacity;
     case State::LineGainCurve:
@@ -263,6 +268,12 @@ SerialCommandParser::feed(
     case 'L':
         beginLine(
             State::LineLedMap);
+        return {};
+
+    case 'd':
+    case 'D':
+        beginLine(
+            State::LineLedPixelMask);
         return {};
 
     case 'y':
