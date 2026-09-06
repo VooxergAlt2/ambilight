@@ -80,6 +80,7 @@ These collect printable ASCII until CR or LF:
 
     f...  factory recovery
     l...  LED mapping
+    d...  disabled LED pixel mask
     y...  ToF spatial profile
     q...  ToF gain curve
     w...  Wi-Fi
@@ -93,6 +94,7 @@ The parser preserves the previous fixed-buffer limits:
 
     factory       15 chars
     LED map       63 chars
+    pixel mask     31 chars
     spatial      127 chars
     gain curve   127 chars
     Wi-Fi         96 chars
