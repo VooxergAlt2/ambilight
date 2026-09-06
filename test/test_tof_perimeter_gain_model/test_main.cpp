@@ -135,12 +135,14 @@ void test_flat_wall_produces_uniform_perimeter() {
 
     // 600 mm lies halfway between the 500 mm / 2048 and
     // 900 mm / 4096 calibration points.
-    for (const auto gain :
-         result.logicalGainQ12) {
+    for (std::size_t index = 0;
+         index <
+            result.topology.totalLedCount();
+         ++index) {
 
         TEST_ASSERT_EQUAL_UINT16(
             2560,
-            gain);
+            result.logicalGainQ12[index]);
     }
 }
 
@@ -399,6 +401,45 @@ void test_runtime_geometry_replacement_changes_projected_distances() {
             SegmentId::Top).endDistanceMm);
 }
 
+void test_runtime_topology_rebuilds_gain_sampling_and_total() {
+    auto model = makeModel();
+
+    ambilight::LedMappingProfile topology;
+    topology.segment[0].logicalLength = 100;
+    topology.segment[1].logicalLength = 50;
+    topology.segment[2].logicalLength = 100;
+    topology.segment[3].logicalLength = 50;
+
+    TEST_ASSERT_TRUE(
+        model.setTopology(
+            topology));
+
+    const auto result =
+        model.evaluate(
+            makePlane(
+                600.0F,
+                0.0F,
+                0.0F,
+                1000000),
+            1100000);
+
+    TEST_ASSERT_FALSE(
+        result.failOpen);
+
+    TEST_ASSERT_EQUAL_UINT16(
+        300,
+        result.topology.totalLedCount());
+
+    TEST_ASSERT_EQUAL_UINT16(
+        2560,
+        result.logicalGainQ12[299]);
+
+    // Capacity beyond the active topology is not part of the rendered frame.
+    TEST_ASSERT_EQUAL_UINT16(
+        0,
+        result.logicalGainQ12[300]);
+}
+
 void test_runtime_curve_replacement_rebuilds_exact_per_pixel_values() {
     auto model = makeModel();
 
@@ -623,6 +664,7 @@ int main(int, char**) {
     RUN_TEST(test_combined_yaw_pitch_changes_all_four_segments);
     RUN_TEST(test_per_pixel_curve_evaluation_is_exact_across_calibration_knot);
     RUN_TEST(test_runtime_geometry_replacement_changes_projected_distances);
+    RUN_TEST(test_runtime_topology_rebuilds_gain_sampling_and_total);
     RUN_TEST(test_runtime_curve_replacement_rebuilds_exact_per_pixel_values);
     RUN_TEST(test_invalid_runtime_curve_does_not_replace_perimeter_curve);
     RUN_TEST(test_led_plane_z_offset_is_subtracted);
