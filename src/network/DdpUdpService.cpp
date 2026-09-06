@@ -40,6 +40,12 @@ bool DdpUdpService::setLogicalLedCount(
     logicalLedCount_ =
         logicalLedCount;
 
+    // Topology may change lane assignment or direction while retaining the
+    // same total. Every explicit topology apply starts a fresh sender/assembly
+    // epoch so no transport state leaks across commissioning changes.
+    senderGate_.reset();
+    assembler_.resetStream();
+
     completedFrame_.clear();
     completedFrame_.pixelCount =
         logicalLedCount_;
