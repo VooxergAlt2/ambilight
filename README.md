@@ -4,16 +4,16 @@ Custom ESP32-C6 Ambilight endpoint for HyperHDR.
 
 ## Current development line
 
-Stage 37 extends the Stage 36 minimal LAN web UI with a persisted per-segment disabled-pixel mask. One pixel may be forced black independently on TOP, RIGHT, BOTTOM and LEFT without changing the 780-pixel logical frame or ToF geometry.
+Stage 38 adds a complete commissioning layer. LED topology is runtime-configurable (side lengths, GPIO assignment and direction), DDP frame size follows the active total, logical/raw GPIO range tests are available, and ToF has a transient 8x8 live-debug mode for orientation and plane commissioning.
 
 The firmware stack now includes:
 
 - Wi-Fi/DDP runtime transport
 - one active DDP sender lease
 - NVS/serial Wi-Fi provisioning
-- 780-pixel logical renderer
+- runtime logical renderer with 920-LED static capacity
 - 4 synchronized PARLIO outputs
-- slow VL53L5CX wall-plane geometry
+- slow VL53L5CX wall-plane geometry with 60 s live-debug override
 - cumulative plane deadband
 - exact per-LED wall-distance correction
 - persistent DISABLED / SHADOW / ACTIVE modes
@@ -22,18 +22,33 @@ The firmware stack now includes:
 - persistent runtime spatial profile
 - minimal HTTP/80 commissioning/control UI
 - persisted one-disabled-pixel-per-segment mask
+- runtime LED topology: COUNT/GPIO/REV per TV side
+- logical-side and raw-GPIO range commissioning tests
+- normalized selectable 8x8 ToF commissioning matrix
 
 USB/AWA remains preserved separately in:
 
     stage/07-usb-awa
 
-## LED layout
+## LED topology
 
-- TOP: 230
-- RIGHT: 160
-- BOTTOM: 230
-- LEFT: 160
-- total: 780
+Static capacity:
+
+    4 lanes x 230 = 920 LEDs maximum
+
+Default runtime topology:
+
+    TOP     230 -> GPIO18 FWD
+    RIGHT   160 -> GPIO19 FWD
+    BOTTOM  230 -> GPIO20 FWD
+    LEFT    160 -> GPIO21 FWD
+    total   780
+
+Each side may use 1..230 active addresses. The active DDP payload is always:
+
+    totalLedCount * 3 bytes
+
+Topology changes require brightness=0 and start a fresh DDP sender/assembly epoch.
 
 ## DDP transport
 
@@ -93,7 +108,7 @@ The page provides:
 - correction mode
 - brightness
 - LED commissioning patterns
-- runtime lane/reversal mapping
+- runtime side length / GPIO / direction topology
 - ToF spatial profile
 - distance/gain curve
 - 60-second calibration capture
@@ -101,6 +116,8 @@ The page provides:
 - Wi-Fi provisioning
 - guarded factory reset
 - compact DDP/ToF/runtime diagnostics
+- LED logical-side/raw-GPIO range tests
+- live normalized 8x8 ToF zone commissioning
 
 Implementation constraints:
 
@@ -144,7 +161,9 @@ VL53L5CX:
 
 - 8x8
 - internal ranging 1 Hz
-- one processed pose about every 12 s
+- normal processed pose about every 12 s
+- explicit ToF debug processes about every 1 s for 60 s
+- debug is refused in ACTIVE and is not persisted
 
 Plane:
 
@@ -211,6 +230,7 @@ Default:
     w  Wi-Fi
     q  gain curve
     y  spatial profile
+    z  toggle 60 s ToF live debug
 
 ## Development strategy
 
@@ -243,27 +263,36 @@ Stage 35 was validated locally on Windows with:
     147 native tests passed
     ESP32-C6 firmware build passed
 
-Stage 36 adds new web protocol tests and production socket code. It must be
-revalidated locally before hardware flashing. In particular, Flash growth
-must be checked because the validated Stage 35 application used 91.6% of the
-current application partition.
+Stage 38 is not validated until a fresh native + full ESP32-C6 build passes.
+The deployment partition is now intended to be adapted to the current 16 MB
+flash layout before flashing. The old Stage 35 1.31 MB application-partition
+percentage is historical and no longer the target partition limit, but RAM,
+binary size and final partition fit must still be recorded.
 
 
-## Runtime LED mapping
+## Runtime LED topology
 
-Physical lane assignment and strip direction can be commissioned without rebuilding firmware.
+Side length, physical output and strip direction are commissioned as one
+versioned profile.
 
-    l<Enter>                       status
-    l0:0,1:0,2:0,3:0<Enter>       set TOP/RIGHT/BOTTOM/LEFT lane:reverse
-    lreset<Enter>                  default
+    l<Enter>       status
+    lreset<Enter>  default
+    l230:18:0,160:19:0,230:20:0,160:21:0<Enter>
 
-Mapping edits require:
+Per-side grammar:
 
-    brightness = 0
+    COUNT:GPIO:REV
 
-Each lane 0..3 must be used exactly once.
+Rules:
 
-GPIO pins and logical segment lengths remain compile-time constants.
+- COUNT is 1..230
+- GPIO is one of 18/19/20/21
+- every GPIO is used exactly once
+- REV is 0/1
+- brightness must be 0
+
+Changing topology updates renderer, DDP expected frame bytes and ToF
+perimeter sampling together. Old cached RGB/gains are invalidated safely.
 
 
 ## Disabled pixel mask
@@ -302,15 +331,54 @@ Safe test brightness:
 
     1..64
 
-Commands:
+Whole-frame patterns:
 
     i<Enter>   status
     i1         segment colors
     i2         START/MID/END direction markers
     i0         stop
 
-Patterns run for 15 seconds, bypass ToF correction for the test frame, and then restore the newest HyperHDR frame or black if no RGB source exists.
+Range probes:
 
+    jside:SIDE:START:COUNT
+    jgpio:GPIO:START:COUNT
+
+SIDE is 0=TOP, 1=RIGHT, 2=BOTTOM, 3=LEFT.
+
+Logical probes use the active topology, REV and disabled-pixel mask. Raw GPIO
+probes bypass logical mapping and directly identify which physical strip is
+connected to GPIO18/19/20/21.
+
+Tests run for 15 seconds and then restore the newest HyperHDR frame or black.
+
+
+## ToF commissioning
+
+Web UI includes a normalized 8x8 zone matrix.
+
+    POST /api/tof-debug  start
+    POST /api/tof-debug  stop
+
+Serial:
+
+    z
+
+toggles the same transient session.
+
+A debug session lasts at most 60 seconds and changes ToF processing cadence
+from about 12 seconds to about 1 second. It is observational, not persisted,
+and is refused while correction is ACTIVE.
+
+Each matrix cell reports:
+
+    normalized row/column
+    raw VL53L5CX zone index
+    distance_mm
+    target_status
+
+The grid already applies current ROT/MIRROR, so its top row is TV TOP and its
+left column is TV LEFT. Status 5 is full confidence; statuses 6 and 9 remain
+usable at reduced plane-fit weight.
 
 ## Factory recovery
 
@@ -397,6 +465,7 @@ reports:
 
 Current source identity:
 
-    ambilight-c6 0.37.0-dev Stage 37
+    ambilight-c6 0.38.0-dev Stage 38
+    serial protocol 2
 
 Startup uses the same centralized FirmwareInfo constants instead of a handwritten stage banner.
