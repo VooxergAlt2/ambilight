@@ -31,6 +31,7 @@
 #include "network/WebUiService.h"
 #include "network/WifiService.h"
 #include "tof/TofCalibrationCapture.h"
+#include "tof/TofGrid.h"
 #include "tof/TofService.h"
 
 namespace {
@@ -2893,11 +2894,84 @@ bool fillWebUiSnapshot(
             tofSnapshot
                 .perimeterGains
                 .maxDistanceMm;
+
+        const auto transform =
+            runtimeSettings.
+                tofSpatialProfile().
+                transform();
+
+        for (std::size_t row = 0;
+             row <
+                ambilight::
+                    kTofGridHeight;
+             ++row) {
+
+            for (std::size_t col = 0;
+                 col <
+                    ambilight::
+                        kTofGridWidth;
+                 ++col) {
+
+                const std::size_t normalized =
+                    row *
+                        ambilight::
+                            kTofGridWidth +
+                    col;
+
+                const std::size_t rawIndex =
+                    ambilight::
+                        tofRawIndexForNormalized(
+                            row,
+                            col,
+                            transform);
+
+                snapshot.
+                    tofNormalizedDistanceMm[
+                        normalized] =
+                    tofSnapshot.
+                        distanceMm[
+                            rawIndex];
+
+                snapshot.
+                    tofNormalizedStatus[
+                        normalized] =
+                    tofSnapshot.
+                        targetStatus[
+                            rawIndex];
+
+                snapshot.
+                    tofNormalizedRawIndex[
+                        normalized] =
+                    static_cast<
+                        std::uint8_t>(
+                            rawIndex);
+            }
+        }
     } else {
         copyWebText(
             snapshot.tofState,
             "unavailable");
     }
+
+    const std::uint64_t debugNowUs =
+        static_cast<std::uint64_t>(
+            esp_timer_get_time());
+
+    snapshot.tofDebugActive =
+        tofDebugActive();
+
+    snapshot.tofDebugRemainingMs =
+        snapshot.tofDebugActive &&
+        tofDebugUntilUs >
+            debugNowUs
+            ? static_cast<
+                  std::uint32_t>(
+                    (
+                        tofDebugUntilUs -
+                        debugNowUs
+                    ) /
+                    1000ULL)
+            : 0U;
 
     snapshot.spatialProfile =
         runtimeSettings.
