@@ -171,16 +171,27 @@ bool parseSize(
             return false;
         }
 
-        const std::size_t next =
-            parsed * 10U +
+        const std::size_t digitValue =
             static_cast<std::size_t>(
                 digit - '0');
 
-        if (next < parsed) {
+        const std::size_t maximum =
+            static_cast<std::size_t>(
+                -1);
+
+        if (parsed >
+            (
+                maximum -
+                digitValue
+            ) /
+                10U) {
+
             return false;
         }
 
-        parsed = next;
+        parsed =
+            parsed * 10U +
+            digitValue;
     }
 
     value = parsed;
