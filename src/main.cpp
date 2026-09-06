@@ -6,7 +6,11 @@
 #include <cstdio>
 #include <cstring>
 #include <esp_err.h>
+#include <esp_heap_caps.h>
+#include <esp_system.h>
 #include <esp_timer.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
 #include <lwip/inet.h>
 #include <lwip/sockets.h>
 
@@ -34,6 +38,10 @@
 #include "tof/TofCalibrationCapture.h"
 #include "tof/TofDebugGrid.h"
 #include "tof/TofService.h"
+
+// Stage 39 LED-reset diagnostics: give the Arduino loop task enough headroom
+// to distinguish a real driver/power reset from commissioning stack pressure.
+SET_LOOP_TASK_STACK_SIZE(16 * 1024);
 
 namespace {
 
@@ -64,6 +72,9 @@ ambilight::CorrectionMode correctionMode =
 ambilight::RgbFrame renderSnapshot;
 ambilight::PerimeterGainSnapshot cachedPerimeterGainSnapshot{};
 ambilight::RenderGainContext cachedTargetGainContext{};
+// Persistent unity context for commissioning. Keeping this global avoids a
+// ~1.9 KiB temporary RenderGainContext on the loop-task stack at test start.
+ambilight::RenderGainContext commissioningGainContext{};
 
 bool rgbFrameValid = false;
 bool rgbDirty = false;
@@ -134,6 +145,70 @@ bool fillWebUiSnapshot(
     ambilight::WebUiSnapshot& snapshot);
 void handleWebUiAction(
     ambilight::WebUiActionEvent event);
+
+const char* resetReasonName(
+    esp_reset_reason_t reason) {
+
+    switch (reason) {
+    case ESP_RST_UNKNOWN:
+        return "UNKNOWN";
+    case ESP_RST_POWERON:
+        return "POWERON";
+    case ESP_RST_EXT:
+        return "EXT";
+    case ESP_RST_SW:
+        return "SW";
+    case ESP_RST_PANIC:
+        return "PANIC";
+    case ESP_RST_INT_WDT:
+        return "INT_WDT";
+    case ESP_RST_TASK_WDT:
+        return "TASK_WDT";
+    case ESP_RST_WDT:
+        return "WDT";
+    case ESP_RST_DEEPSLEEP:
+        return "DEEPSLEEP";
+    case ESP_RST_BROWNOUT:
+        return "BROWNOUT";
+    case ESP_RST_SDIO:
+        return "SDIO";
+    default:
+        return "OTHER";
+    }
+}
+
+void printLedRuntimeProbe(
+    const char* tag) {
+
+    const UBaseType_t stackHighWater =
+        uxTaskGetStackHighWaterMark(nullptr);
+
+    const std::size_t dmaFree =
+        heap_caps_get_free_size(
+            MALLOC_CAP_DMA |
+            MALLOC_CAP_INTERNAL);
+
+    const std::size_t dmaLargest =
+        heap_caps_get_largest_free_block(
+            MALLOC_CAP_DMA |
+            MALLOC_CAP_INTERNAL);
+
+    Serial.printf(
+        "LED DIAG tag=%s stack_hwm=%lu stack_unit=%uB heap=%lu minheap=%lu dma_free=%lu dma_largest=%lu\n",
+        tag != nullptr ? tag : "none",
+        static_cast<unsigned long>(
+            stackHighWater),
+        static_cast<unsigned>(
+            sizeof(StackType_t)),
+        static_cast<unsigned long>(
+            ESP.getFreeHeap()),
+        static_cast<unsigned long>(
+            ESP.getMinFreeHeap()),
+        static_cast<unsigned long>(
+            dmaFree),
+        static_cast<unsigned long>(
+            dmaLargest));
+}
 
 const char* wifiCredentialSourceName(
     WifiCredentialSource source) {
@@ -1635,6 +1710,14 @@ void startCommissioning(
     commissioningFrame.receivedUs =
         nowUs;
 
+    // Keep commissioning correction-independent without constructing a
+    // full 920-entry unity gain field on the loop stack.
+    commissioningGainContext.topology =
+        runtimeSettings.ledMappingProfile();
+    commissioningGainContext.sourcePresent = false;
+    commissioningGainContext.sourceUsable = false;
+    commissioningGainContext.failOpen = true;
+
     commissioningPattern = pattern;
     commissioningUntilUs =
         nowUs +
@@ -2003,6 +2086,13 @@ bool serviceCommissioning(
         nowUs;
 
     esp_err_t result = ESP_OK;
+    const bool firstDiagnosticRender =
+        commissioningDirty;
+
+    if (firstDiagnosticRender) {
+        printLedRuntimeProbe(
+            "commissioning-before-output");
+    }
 
     if (commissioningPattern ==
         ambilight::
@@ -2030,17 +2120,50 @@ bool serviceCommissioning(
         }
 
         if (result == ESP_OK) {
+            if (firstDiagnosticRender) {
+                Serial.println(
+                    "LED DIAG breadcrumb=raw-before-parlio-show");
+                Serial.flush();
+            }
+
             result =
                 ledEngine.show();
+
+            if (firstDiagnosticRender) {
+                Serial.printf(
+                    "LED DIAG breadcrumb=raw-after-parlio-show result=%s show_us=%lu\n",
+                    esp_err_to_name(result),
+                    static_cast<unsigned long>(
+                        ledEngine.lastShowTimeUs()));
+            }
         }
     } else {
+        if (firstDiagnosticRender) {
+            Serial.println(
+                "LED DIAG breadcrumb=logical-before-render");
+            Serial.flush();
+        }
+
         result =
             renderer.render(
                 commissioningFrame,
-                ambilight::RenderGainContext::unity(
-                    runtimeSettings.
-                        ledMappingProfile()),
+                commissioningGainContext,
                 ambilight::CorrectionMode::Disabled);
+
+        if (firstDiagnosticRender) {
+            Serial.printf(
+                "LED DIAG breadcrumb=logical-after-render result=%s show_us=%lu prepare_us=%lu\n",
+                esp_err_to_name(result),
+                static_cast<unsigned long>(
+                    ledEngine.lastShowTimeUs()),
+                static_cast<unsigned long>(
+                    renderer.shadowStats().lastPrepareUs));
+        }
+    }
+
+    if (firstDiagnosticRender) {
+        printLedRuntimeProbe(
+            "commissioning-after-output");
     }
 
     if (result != ESP_OK) {
@@ -4494,6 +4617,17 @@ void printConfiguration() {
 void setup() {
     Serial.begin(115200);
     delay(1000);
+
+    const esp_reset_reason_t resetReason =
+        esp_reset_reason();
+
+    Serial.printf(
+        "BOOT DIAG reset_reason=%d (%s)\n",
+        static_cast<int>(resetReason),
+        resetReasonName(resetReason));
+
+    printLedRuntimeProbe(
+        "setup-entry");
 
     if (!runtimeSettings.begin()) {
         Serial.println(
