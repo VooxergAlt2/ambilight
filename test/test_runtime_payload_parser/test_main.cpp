@@ -3,6 +3,7 @@
 #include "runtime/RuntimePayloadParser.h"
 
 using ambilight::LedMappingProfile;
+using ambilight::LedPixelMaskProfile;
 using ambilight::RuntimePayloadParseResult;
 using ambilight::RuntimePayloadParser;
 using ambilight::TofSpatialProfile;
@@ -114,6 +115,86 @@ void test_led_mapping_rejects_bad_syntax() {
             RuntimePayloadParser::parseLedMapping(
                 "0-0,1:0,2:0,3:0",
                 profile)));
+}
+
+void test_led_pixel_mask_parses_none_and_segment_offsets() {
+    LedPixelMaskProfile profile;
+
+    const auto result =
+        RuntimePayloadParser::parseLedPixelMask(
+            "-,12,-,0",
+            profile);
+
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(RuntimePayloadParseResult::Ok),
+        static_cast<int>(result));
+
+    TEST_ASSERT_EQUAL_UINT16(
+        LedPixelMaskProfile::kNone,
+        profile.disabledOffset[0]);
+
+    TEST_ASSERT_EQUAL_UINT16(
+        12,
+        profile.disabledOffset[1]);
+
+    TEST_ASSERT_EQUAL_UINT16(
+        LedPixelMaskProfile::kNone,
+        profile.disabledOffset[2]);
+
+    TEST_ASSERT_EQUAL_UINT16(
+        0,
+        profile.disabledOffset[3]);
+
+    TEST_ASSERT_TRUE(
+        profile.disabled(
+            ambilight::SegmentId::Right,
+            12));
+
+    TEST_ASSERT_FALSE(
+        profile.disabled(
+            ambilight::SegmentId::Right,
+            13));
+}
+
+void test_led_pixel_mask_enforces_segment_lengths() {
+    LedPixelMaskProfile profile;
+
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(RuntimePayloadParseResult::Ok),
+        static_cast<int>(
+            RuntimePayloadParser::parseLedPixelMask(
+                "229,159,229,159",
+                profile)));
+
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(RuntimePayloadParseResult::OutOfRange),
+        static_cast<int>(
+            RuntimePayloadParser::parseLedPixelMask(
+                "230,-,-,-",
+                profile)));
+
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(RuntimePayloadParseResult::OutOfRange),
+        static_cast<int>(
+            RuntimePayloadParser::parseLedPixelMask(
+                "-,160,-,-",
+                profile)));
+}
+
+void test_led_pixel_mask_rejects_bad_syntax_without_mutating_output() {
+    LedPixelMaskProfile profile;
+    profile.disabledOffset[0] = 7;
+
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(RuntimePayloadParseResult::InvalidFormat),
+        static_cast<int>(
+            RuntimePayloadParser::parseLedPixelMask(
+                "-,12,-",
+                profile)));
+
+    TEST_ASSERT_EQUAL_UINT16(
+        7,
+        profile.disabledOffset[0]);
 }
 
 void test_spatial_profile_parses_fixed_point_and_negative_offsets() {
@@ -329,6 +410,9 @@ int main(int, char**) {
     RUN_TEST(test_led_mapping_parses_lane_permutation_and_reversal);
     RUN_TEST(test_led_mapping_rejects_duplicate_lane);
     RUN_TEST(test_led_mapping_rejects_bad_syntax);
+    RUN_TEST(test_led_pixel_mask_parses_none_and_segment_offsets);
+    RUN_TEST(test_led_pixel_mask_enforces_segment_lengths);
+    RUN_TEST(test_led_pixel_mask_rejects_bad_syntax_without_mutating_output);
     RUN_TEST(test_spatial_profile_parses_fixed_point_and_negative_offsets);
     RUN_TEST(test_spatial_profile_rejects_more_than_one_decimal_place);
     RUN_TEST(test_spatial_profile_rejects_valid_syntax_outside_profile_bounds);
