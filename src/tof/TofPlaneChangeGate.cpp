@@ -23,7 +23,7 @@ float TofPlaneChangeGate::maxWallDeltaMm(
 
     // A difference between two planes is itself a plane. Over a rectangular
     // screen its maximum absolute Z difference occurs at a corner. Segment
-    // endpoints contain those four corners, so no 780-point scan is needed
+    // endpoints contain those four corners, so no per-LED scan is needed
     // merely to decide whether a recalculation is worthwhile.
     for (const auto& segment : config_.geometry) {
         const ScreenPointMm points[] = {
