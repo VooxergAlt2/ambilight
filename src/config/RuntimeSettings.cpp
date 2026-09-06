@@ -64,6 +64,10 @@ bool RuntimeSettings::begin() {
     ledMappingProfileCustomized_ = false;
     ledMappingProfilePersisted_ = false;
 
+    ledPixelMaskProfile_ = {};
+    ledPixelMaskProfileCustomized_ = false;
+    ledPixelMaskProfilePersisted_ = false;
+
     tofSpatialProfile_ = {};
     tofSpatialProfileCustomized_ =
         false;
@@ -187,6 +191,56 @@ bool RuntimeSettings::begin() {
             ++stats_.invalidStoredValues;
             preferences_.remove(kLedMappingProfileKey);
             preferences_.remove(kLedMappingVersionKey);
+        }
+    }
+
+    const std::uint16_t pixelMaskVersion =
+        preferences_.getUShort(
+            kLedPixelMaskVersionKey,
+            0);
+
+    if (pixelMaskVersion != 0) {
+        LedPixelMaskProfile storedMask;
+
+        const std::size_t storedBytes =
+            preferences_.getBytesLength(
+                kLedPixelMaskProfileKey);
+
+        bool maskValid =
+            pixelMaskVersion ==
+                LedPixelMaskProfile::kSchemaVersion &&
+            storedBytes ==
+                sizeof(LedPixelMaskProfile);
+
+        if (maskValid) {
+            const std::size_t loaded =
+                preferences_.getBytes(
+                    kLedPixelMaskProfileKey,
+                    &storedMask,
+                    sizeof(storedMask));
+
+            maskValid =
+                loaded == sizeof(storedMask) &&
+                storedMask.valid();
+        }
+
+        if (maskValid) {
+            ledPixelMaskProfile_ =
+                storedMask;
+
+            ledPixelMaskProfileCustomized_ =
+                true;
+
+            ledPixelMaskProfilePersisted_ =
+                true;
+        } else {
+            ++stats_.invalidStoredValues;
+
+            preferences_.remove(
+                kLedPixelMaskProfileKey);
+
+            preferences_.remove(
+                kLedPixelMaskVersionKey);
         }
     }
 
@@ -779,6 +833,95 @@ bool RuntimeSettings::resetLedMappingProfile() {
     return true;
 }
 
+bool RuntimeSettings::setLedPixelMaskProfile(
+    const LedPixelMaskProfile& profile) {
+
+    if (!profile.valid()) {
+        return false;
+    }
+
+    ledPixelMaskProfile_ = profile;
+    ledPixelMaskProfileCustomized_ = true;
+    ledPixelMaskProfilePersisted_ = false;
+
+    if (!persistenceAvailable_) {
+        ++stats_.writeFailures;
+        return false;
+    }
+
+    const std::size_t profileBytes =
+        preferences_.putBytes(
+            kLedPixelMaskProfileKey,
+            &profile,
+            sizeof(profile));
+
+    const std::size_t versionBytes =
+        preferences_.putUShort(
+            kLedPixelMaskVersionKey,
+            LedPixelMaskProfile::kSchemaVersion);
+
+    if (profileBytes != sizeof(profile) ||
+        versionBytes != sizeof(std::uint16_t)) {
+
+        ++stats_.writeFailures;
+
+        preferences_.remove(
+            kLedPixelMaskProfileKey);
+
+        preferences_.remove(
+            kLedPixelMaskVersionKey);
+
+        return false;
+    }
+
+    ledPixelMaskProfilePersisted_ = true;
+    ++stats_.writes;
+    return true;
+}
+
+bool RuntimeSettings::resetLedPixelMaskProfile() {
+    ledPixelMaskProfile_ = {};
+    ledPixelMaskProfileCustomized_ = false;
+    ledPixelMaskProfilePersisted_ = false;
+
+    if (!persistenceAvailable_) {
+        ++stats_.writeFailures;
+        return false;
+    }
+
+    const bool hadProfile =
+        preferences_.isKey(
+            kLedPixelMaskProfileKey);
+
+    const bool hadVersion =
+        preferences_.isKey(
+            kLedPixelMaskVersionKey);
+
+    const bool profileOk =
+        !hadProfile ||
+        preferences_.remove(
+            kLedPixelMaskProfileKey);
+
+    const bool versionOk =
+        !hadVersion ||
+        preferences_.remove(
+            kLedPixelMaskVersionKey);
+
+    if (!profileOk ||
+        !versionOk) {
+
+        ++stats_.writeFailures;
+        return false;
+    }
+
+    if (hadProfile ||
+        hadVersion) {
+        ++stats_.writes;
+    }
+
+    return true;
+}
+
 bool RuntimeSettings::factoryReset() {
     if (!persistenceAvailable_) {
         ++stats_.writeFailures;
@@ -820,6 +963,12 @@ bool RuntimeSettings::factoryReset() {
     ledMappingProfileCustomized_ =
         false;
     ledMappingProfilePersisted_ =
+        false;
+
+    ledPixelMaskProfile_ = {};
+    ledPixelMaskProfileCustomized_ =
+        false;
+    ledPixelMaskProfilePersisted_ =
         false;
 
     ++stats_.writes;
