@@ -176,7 +176,7 @@ button{cursor:pointer}button.primary{background:var(--accent);color:#fff;border-
 </main>
 <script>
 const $=id=>document.getElementById(id);
-let lastAction=0;
+let lastAction=0,refreshing=false;
 const corrNames=['DISABLED','SHADOW','ACTIVE'];
 const mapNames=['TOP','RIGHT','BOTTOM','LEFT'];
 function txt(id,v){$(id).textContent=v}
@@ -207,7 +207,7 @@ function applySpatial(){
   clean(ids);post('/api/spatial',p.join(','));
 }
 function applyCurve(){clean(['curve']);post('/api/curve',$('curve').value.trim())}
-function applyWifi(){post('/api/wifi',$('ssid').value+'|'+$('wifiPass').value)}
+function applyWifi(){const p=$('wifiPass').value;post('/api/wifi',$('ssid').value+'|'+p);$('wifiPass').value='';delete $('wifiPass').dataset.dirty}
 function factoryReset(){if(confirm('Стереть всю конфигурацию Ambilight и перезагрузить контроллер?'))post('/api/factory','reset')}
 function renderMap(m){
   if(!$('mapping').children.length){
@@ -254,8 +254,10 @@ function render(s){
   if(s.action.id===lastAction&&s.action.id){txt('action',s.action.msg|| (s.action.ok?'ok':'failed'));$('action').className=s.action.ok?'ok':'bad'}
 }
 async function refresh(){
+  if(refreshing)return;refreshing=true;
   try{const r=await fetch('/api/status',{cache:'no-store'});if(!r.ok)throw new Error('status HTTP '+r.status);render(await r.json())}
   catch(e){txt('action','offline: '+e.message);$('action').className='bad'}
+  finally{refreshing=false}
 }
 $('brightness').addEventListener('input',e=>txt('brightnessValue',e.target.value));
 $('brightness').addEventListener('change',e=>{clean(['brightness']);post('/api/brightness',e.target.value)});
@@ -494,6 +496,7 @@ private:
 
         if (!ok_ ||
             capacity_ == 0 ||
+            length_ >= capacity_ ||
             extra >
                 capacity_ -
                     length_ -
