@@ -603,6 +603,7 @@ bool WebUiService::begin() {
 
 void WebUiService::stop() {
     closeClient();
+    pendingAction_ = {};
 
     if (listenSocket_ >= 0) {
         close(listenSocket_);
@@ -1377,8 +1378,10 @@ WebUiActionEvent WebUiService::receiveStep(
         return event;
     }
 
+    pendingAction_ = event;
     ++stats_.actionsQueued;
-    return event;
+
+    return {};
 }
 
 void WebUiService::sendStep(
@@ -1444,6 +1447,14 @@ WebUiActionEvent WebUiService::poll(
     std::uint64_t nowUs) {
 
     WebUiActionEvent event;
+
+    if (pendingAction_.ready() &&
+        clientSocket_ < 0) {
+
+        event = pendingAction_;
+        pendingAction_ = {};
+        return event;
+    }
 
     if (listenSocket_ < 0) {
         return event;
