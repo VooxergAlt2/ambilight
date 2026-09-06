@@ -64,7 +64,10 @@ void test_default_geometry_boundaries() {
 }
 
 void test_out_of_range_is_invalid() {
-    const PhysicalPixel invalid = SegmentMapper::map(780);
+    const PhysicalPixel invalid =
+        SegmentMapper::map(
+            LedMappingProfile{}.
+                totalLedCount());
     TEST_ASSERT_FALSE(invalid.valid);
 }
 
