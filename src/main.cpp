@@ -492,7 +492,11 @@ void invalidateRuntimeAfterTopologyChange(
 }
 
 bool activateLedMappingProfile(
-    const ambilight::LedMappingProfile& profile) {
+    const ambilight::LedMappingProfile& profile,
+    ambilight::LedPixelMaskProfile& effectiveMask,
+    bool& maskChanged) {
+
+    maskChanged = false;
 
     if (ledEngine.brightness() != 0) {
         Serial.println(
@@ -552,44 +556,78 @@ bool activateLedMappingProfile(
     // actually changes. That makes capacity outside a shortened/remapped side
     // deterministically black before brightness can be restored.
 
-    ambilight::LedPixelMaskProfile mask =
+    effectiveMask =
         runtimeSettings.
             ledPixelMaskProfile();
 
     const auto originalMask =
-        mask.disabledOffset;
+        effectiveMask.disabledOffset;
 
-    mask.sanitizeFor(
+    effectiveMask.sanitizeFor(
         profile);
 
-    if (mask.disabledOffset !=
-        originalMask) {
+    maskChanged =
+        effectiveMask.disabledOffset !=
+        originalMask;
+
+    if (!renderer.setPixelMaskProfile(
+            effectiveMask)) {
+
+        // This should be unreachable after sanitizeFor(profile), but preserve
+        // the old live topology if the renderer contract changes later.
+        renderer.setMappingProfile(
+            previous);
+
+        ddp.setLogicalLedCount(
+            previous.totalLedCount());
+
+        tof.setLedTopology(
+            previous);
 
         renderer.setPixelMaskProfile(
-            mask);
-
-        const bool maskPersisted =
             runtimeSettings.
-                setLedPixelMaskProfile(
-                    mask);
+                ledPixelMaskProfile());
 
-        ledPixelMaskDirty = true;
-
-        Serial.printf(
-            "LED TOPOLOGY shortened a side; out-of-range disabled-pixel entries were cleared (%s).\n",
-            maskPersisted
-                ? "persisted"
-                : "runtime-only");
+        Serial.println(
+            "LED TOPOLOGY change refused: effective pixel mask was rejected; rollback requested.");
+        return false;
     }
 
     return true;
 }
 
+void commitSanitizedMaskAfterTopology(
+    const ambilight::LedPixelMaskProfile& mask,
+    bool maskChanged) {
+
+    if (!maskChanged) {
+        return;
+    }
+
+    const bool maskPersisted =
+        runtimeSettings.
+            setLedPixelMaskProfile(
+                mask);
+
+    ledPixelMaskDirty = true;
+
+    Serial.printf(
+        "LED TOPOLOGY shortened a side; out-of-range disabled-pixel entries were cleared (%s).\n",
+        maskPersisted
+            ? "persisted"
+            : "runtime-only");
+}
+
 bool applyLedMappingProfile(
     const ambilight::LedMappingProfile& profile) {
 
+    ambilight::LedPixelMaskProfile effectiveMask;
+    bool maskChanged = false;
+
     if (!activateLedMappingProfile(
-            profile)) {
+            profile,
+            effectiveMask,
+            maskChanged)) {
 
         return false;
     }
@@ -597,6 +635,10 @@ bool applyLedMappingProfile(
     const bool persisted =
         runtimeSettings.setLedMappingProfile(
             profile);
+
+    commitSanitizedMaskAfterTopology(
+        effectiveMask,
+        maskChanged);
 
     invalidateRuntimeAfterTopologyChange(
         profile);
@@ -621,8 +663,13 @@ bool resetLedMappingProfile() {
 
     const ambilight::LedMappingProfile profile;
 
+    ambilight::LedPixelMaskProfile effectiveMask;
+    bool maskChanged = false;
+
     if (!activateLedMappingProfile(
-            profile)) {
+            profile,
+            effectiveMask,
+            maskChanged)) {
 
         return false;
     }
@@ -633,15 +680,24 @@ bool resetLedMappingProfile() {
     if (!persisted &&
         runtimeSettings.persistenceAvailable()) {
 
+        ambilight::LedPixelMaskProfile rollbackMask;
+        bool rollbackMaskChanged = false;
+
         // Durable reset was refused before its version commit marker could be
-        // removed. Restore the live subsystems to the still-authoritative
-        // previous runtime profile.
+        // removed. Restore the live subsystems and original mask to the still
+        // authoritative previous runtime profile.
         if (!activateLedMappingProfile(
-                previous)) {
+                previous,
+                rollbackMask,
+                rollbackMaskChanged)) {
 
             Serial.println(
                 "LED TOPOLOGY reset failed and live rollback could not be completed; keep brightness=0 and reboot.");
         } else {
+            renderer.setPixelMaskProfile(
+                runtimeSettings.
+                    ledPixelMaskProfile());
+
             invalidateRuntimeAfterTopologyChange(
                 previous);
         }
@@ -650,6 +706,10 @@ bool resetLedMappingProfile() {
             "LED TOPOLOGY reset failed: persisted custom topology remains authoritative.");
         return false;
     }
+
+    commitSanitizedMaskAfterTopology(
+        effectiveMask,
+        maskChanged);
 
     invalidateRuntimeAfterTopologyChange(
         profile);
