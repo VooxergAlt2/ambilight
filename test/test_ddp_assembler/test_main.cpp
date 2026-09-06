@@ -51,7 +51,7 @@ void assertFramePattern(const RgbFrame& frame) {
     const auto* bytes = reinterpret_cast<const std::uint8_t*>(
         frame.pixels.data());
 
-    for (std::size_t index = 0; index < DdpAssembler::kFrameBytes; ++index) {
+    for (std::size_t index = 0; index < DdpAssembler::kDefaultFrameBytes; ++index) {
         TEST_ASSERT_EQUAL_UINT8(
             static_cast<std::uint8_t>(index & 0xFF),
             bytes[index]);
@@ -368,7 +368,7 @@ void test_random_datagrams_preserve_assembler_invariants() {
             frame);
 
         TEST_ASSERT_TRUE(
-            assembler.coveredBytes() <= DdpAssembler::kFrameBytes);
+            assembler.coveredBytes() <= assembler.frameBytes());
 
         if (assembler.active()) {
             TEST_ASSERT_TRUE(
@@ -376,6 +376,60 @@ void test_random_datagrams_preserve_assembler_invariants() {
                 assembler.activeSequence() <= 15);
         }
     }
+}
+
+void test_runtime_frame_size_reconfigures_completion_and_pixel_count() {
+    DdpAssembler assembler;
+    RgbFrame frame;
+
+    constexpr std::size_t kPixels = 300;
+    constexpr std::size_t kBytes = kPixels * 3;
+
+    TEST_ASSERT_TRUE(
+        assembler.setFrameBytes(
+            kBytes));
+
+    TEST_ASSERT_EQUAL_UINT32(
+        kBytes,
+        assembler.frameBytes());
+
+    auto first =
+        makePacket(
+            12,
+            0,
+            600,
+            false);
+
+    auto second =
+        makePacket(
+            12,
+            600,
+            300,
+            true);
+
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(
+            DdpIngestResult::Partial),
+        static_cast<int>(
+            assembler.ingest(
+                first.data(),
+                first.size(),
+                1000,
+                frame)));
+
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(
+            DdpIngestResult::Complete),
+        static_cast<int>(
+            assembler.ingest(
+                second.data(),
+                second.size(),
+                1100,
+                frame)));
+
+    TEST_ASSERT_EQUAL_UINT16(
+        kPixels,
+        frame.pixelCount);
 }
 
 void test_conflicting_overlap_rejects_active_frame() {
@@ -415,6 +469,7 @@ int main(int, char**) {
     RUN_TEST(test_reset_stream_clears_completed_sequence_epoch);
     RUN_TEST(test_timeout_discards_incomplete_frame);
     RUN_TEST(test_wrong_type_destination_and_bounds_are_rejected);
+    RUN_TEST(test_runtime_frame_size_reconfigures_completion_and_pixel_count);
     RUN_TEST(test_conflicting_overlap_rejects_active_frame);
     RUN_TEST(test_random_datagrams_preserve_assembler_invariants);
 
