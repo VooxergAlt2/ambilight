@@ -115,10 +115,19 @@ Launcher/argument setup errors use a non-success exit as well.
 
 ## Important status
 
-The harness scripts are part of the repository and have been statically reviewed.
+The harness was exercised on Windows during Stage 35.
 
-They have not been executed in this development session.
+Validated Stage 35 result:
 
-Therefore Stage 31 does not imply that the current native tests or ESP32-C6 firmware build have passed.
+    native:   147 passed, 0 failed
+    firmware: ESP32-C6 build passed
 
-The first real local validation run should preserve the generated artifact directory for review if any gate fails.
+The Windows PowerShell wrapper was fixed so native stderr does not terminate
+the script before the firmware gate. Both gate exit codes are now collected
+and written to summary.txt.
+
+Stage 36 adds a new pure-C++ HTTP protocol suite and production lwIP web
+service code. Stage 36 is not considered validated until a fresh harness run
+passes both native and firmware gates and its RAM/Flash growth is reviewed.
+
+Preserve the generated artifact directory whenever a gate fails.
