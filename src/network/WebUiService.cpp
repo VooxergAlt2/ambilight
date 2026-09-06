@@ -248,7 +248,7 @@ function render(s){
   $('calStart').disabled=s.calibration.active;$('probeStart').disabled=s.output.correction!==1;
   txt('wifiState',`${s.wifi.connected?'connected':'disconnected'} · ${s.wifi.ip||'no IP'} · RSSI ${s.wifi.rssi} dBm · ${s.wifi.ssid||'no SSID'}`);
   setv('ssid',s.wifi.ssid||'');
-  txt('diag',`DDP frames ${s.ddp.frames} · publications ${s.ddp.publications}\nsender ${s.ddp.sender_locked?(s.ddp.sender_ip+':'+s.ddp.sender_port):'none'}\npersistence ${s.persistence?'available':'unavailable'}\nheap free/min ${s.heap.free}/${s.heap.min} B\nweb requests/actions/bad ${s.web.requests}/${s.web.actions}/${s.web.bad}`);
+  txt('diag',`DDP frames ${s.ddp.frames} · publications ${s.ddp.publications}\nsender ${s.ddp.sender_locked?(s.ddp.sender_ip+':'+s.ddp.sender_port):'none'}\npersistence ${s.persistence?'available':'unavailable'}\nheap free/min ${s.heap.free}/${s.heap.min} B\nweb requests/actions/dropped/bad ${s.web.requests}/${s.web.actions}/${s.web.dropped}/${s.web.bad}`);
   $('factory').disabled=s.output.brightness!==0;
   if(s.action.id&&s.action.id!==lastAction){lastAction=s.action.id}
   if(s.action.id===lastAction&&s.action.id){txt('action',s.action.msg|| (s.action.ok?'ok':'failed'));$('action').className=s.action.ok?'ok':'bad'}
@@ -1186,6 +1186,7 @@ bool WebUiService::buildStatusResponse(
         "\"web\":{"
         "\"requests\":%lu,"
         "\"actions\":%lu,"
+        "\"dropped\":%lu,"
         "\"bad\":%lu}}",
         static_cast<unsigned long>(
             snapshot.freeHeapBytes),
@@ -1195,6 +1196,8 @@ bool WebUiService::buildStatusResponse(
             stats_.requests),
         static_cast<unsigned long>(
             stats_.actionsQueued),
+        static_cast<unsigned long>(
+            stats_.actionsDropped),
         static_cast<unsigned long>(
             stats_.badRequests +
             stats_.forbiddenRequests +
@@ -1423,11 +1426,22 @@ void WebUiService::sendStep(
         }
 
         ++stats_.sendErrors;
+
+        if (pendingAction_.ready()) {
+            pendingAction_ = {};
+            ++stats_.actionsDropped;
+        }
+
         closeClient();
         return;
     }
 
     if (sent == 0) {
+        if (pendingAction_.ready()) {
+            pendingAction_ = {};
+            ++stats_.actionsDropped;
+        }
+
         closeClient();
         return;
     }
@@ -1477,6 +1491,12 @@ WebUiActionEvent WebUiService::poll(
                 kClientIdleTimeoutUs) {
 
         ++stats_.clientTimeouts;
+
+        if (pendingAction_.ready()) {
+            pendingAction_ = {};
+            ++stats_.actionsDropped;
+        }
+
         closeClient();
         return event;
     }
