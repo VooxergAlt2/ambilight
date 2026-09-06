@@ -2154,6 +2154,14 @@ bool serviceCommissioning(
             }
         }
     } else {
+        // Logical-range commissioning does not pass through startCommissioning(),
+        // so normalize the persistent unity context here for every logical path.
+        commissioningGainContext.topology =
+            runtimeSettings.ledMappingProfile();
+        commissioningGainContext.sourcePresent = false;
+        commissioningGainContext.sourceUsable = false;
+        commissioningGainContext.failOpen = true;
+
         if (firstDiagnosticRender) {
             Serial.println(
                 "LED DIAG breadcrumb=logical-before-render");
