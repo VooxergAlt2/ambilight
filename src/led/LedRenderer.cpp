@@ -18,7 +18,8 @@ crgb_t LedRenderer::toCrgb(const Rgb8& color) {
 esp_err_t LedRenderer::render(const RgbFrame& frame) {
     return render(
         frame,
-        RenderGainContext::unity(),
+        RenderGainContext::unity(
+            mappingProfile_),
         CorrectionMode::Disabled);
 }
 
