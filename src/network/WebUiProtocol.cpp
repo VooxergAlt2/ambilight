@@ -256,6 +256,14 @@ WebUiRoute WebUiProtocol::routeForPath(
     if (spanEquals(
             path,
             length,
+            "/api/pixel-mask")) {
+
+        return WebUiRoute::PixelMask;
+    }
+
+    if (spanEquals(
+            path,
+            length,
             "/api/spatial")) {
 
         return WebUiRoute::Spatial;
@@ -316,6 +324,8 @@ WebUiActionKind WebUiProtocol::actionForRoute(
         return WebUiActionKind::Commissioning;
     case WebUiRoute::LedMap:
         return WebUiActionKind::LedMap;
+    case WebUiRoute::PixelMask:
+        return WebUiActionKind::PixelMask;
     case WebUiRoute::Spatial:
         return WebUiActionKind::Spatial;
     case WebUiRoute::GainCurve:
