@@ -13,6 +13,43 @@ DdpUdpService::~DdpUdpService() {
     stop();
 }
 
+bool DdpUdpService::setLogicalLedCount(
+    std::uint16_t logicalLedCount) {
+
+    if (logicalLedCount == 0 ||
+        logicalLedCount >
+            config::kLogicalLedCapacity) {
+
+        return false;
+    }
+
+    const std::size_t frameBytes =
+        static_cast<std::size_t>(
+            logicalLedCount) *
+        sizeof(Rgb8);
+
+    if (!assembler_.setFrameBytes(
+            frameBytes) ||
+        !senderGate_.
+            setExpectedFrameBytes(
+                frameBytes)) {
+
+        return false;
+    }
+
+    logicalLedCount_ =
+        logicalLedCount;
+
+    completedFrame_.clear();
+    completedFrame_.pixelCount =
+        logicalLedCount_;
+
+    lastPacketUs_ = 0;
+    lastCompleteFrameUs_ = 0;
+
+    return true;
+}
+
 bool DdpUdpService::begin() {
     if (socket_ >= 0) {
         return true;
