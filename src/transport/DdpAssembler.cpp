@@ -4,6 +4,25 @@
 
 namespace ambilight {
 
+bool DdpAssembler::setFrameBytes(
+    std::size_t frameBytes) {
+
+    if (frameBytes == 0 ||
+        frameBytes > kMaxFrameBytes ||
+        frameBytes % sizeof(Rgb8) != 0) {
+
+        return false;
+    }
+
+    if (frameBytes_ == frameBytes) {
+        return true;
+    }
+
+    frameBytes_ = frameBytes;
+    resetStream();
+    return true;
+}
+
 void DdpAssembler::startFrame(
     std::uint8_t sequence,
     std::uint64_t nowUs) {
@@ -49,14 +68,14 @@ void DdpAssembler::resetStream() {
 }
 
 bool DdpAssembler::payloadFits(const DdpPacketView& packet) const {
-    if (packet.offset >= kFrameBytes) {
+    if (packet.offset >= frameBytes_) {
         return false;
     }
 
     const std::uint64_t end =
         static_cast<std::uint64_t>(packet.offset) + packet.dataLength;
 
-    return end <= kFrameBytes;
+    return end <= frameBytes_;
 }
 
 bool DdpAssembler::isCovered(std::size_t index) const {
@@ -106,7 +125,7 @@ bool DdpAssembler::copyAndMark(const DdpPacketView& packet) {
 }
 
 bool DdpAssembler::isComplete() const {
-    return pushSeen_ && coveredBytes_ == kFrameBytes;
+    return pushSeen_ && coveredBytes_ == frameBytes_;
 }
 
 bool DdpAssembler::canStartSequence(
@@ -180,11 +199,17 @@ DdpIngestResult DdpAssembler::ingest(
         return DdpIngestResult::Partial;
     }
 
-    static_assert(sizeof(completedFrame.pixels) == kFrameBytes);
+    completedFrame.clear();
+
     std::memcpy(
         completedFrame.pixels.data(),
         staging_.data(),
-        kFrameBytes);
+        frameBytes_);
+
+    completedFrame.pixelCount =
+        static_cast<std::uint16_t>(
+            frameBytes_ /
+            sizeof(Rgb8));
 
     completedFrame.generation = 0;
     completedFrame.receivedUs = nowUs;
