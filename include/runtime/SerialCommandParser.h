@@ -14,6 +14,7 @@ enum class SerialCommandKind : std::uint8_t {
 
     Factory,
     LedMap,
+    LedPixelMask,
     Spatial,
     GainCurve,
     Wifi,
@@ -89,6 +90,7 @@ private:
 
         LineFactory,
         LineLedMap,
+        LineLedPixelMask,
         LineSpatial,
         LineGainCurve,
         LineWifi,
