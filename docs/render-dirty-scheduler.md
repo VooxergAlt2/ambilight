@@ -24,7 +24,7 @@ The main loop polls the cached ToF gain field at:
 
     1 Hz
 
-This is intentionally much faster than the normal ~12-second pose update while avoiding needless repeated copies of a 780-value field.
+This is intentionally much faster than the normal ~12-second pose update while avoiding needless repeated copies of a active per-LED field.
 
 Metadata-only changes do not dirty the render profile.
 
