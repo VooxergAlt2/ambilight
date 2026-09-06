@@ -2,8 +2,10 @@
 
 #include "core/Geometry.h"
 #include "led/SegmentMapper.h"
+#include "led/LedPixelMaskProfile.h"
 
 using ambilight::LedMappingProfile;
+using ambilight::LedPixelMaskProfile;
 using ambilight::PhysicalPixel;
 using ambilight::SegmentConfig;
 using ambilight::SegmentId;
@@ -168,6 +170,54 @@ void test_runtime_profile_reverses_only_selected_segment() {
         firstRight.index);
 }
 
+void test_disabled_pixel_follows_logical_segment_offset_under_reversal() {
+    LedMappingProfile mapping;
+    mapping.segment[
+        static_cast<std::size_t>(
+            SegmentId::Top)].reversed = 1;
+
+    LedPixelMaskProfile mask;
+    mask.disabledOffset[
+        static_cast<std::size_t>(
+            SegmentId::Top)] = 7;
+
+    const auto masked =
+        SegmentMapper::map(
+            7,
+            mapping);
+
+    TEST_ASSERT_TRUE(masked.valid);
+    TEST_ASSERT_EQUAL_UINT16(
+        7,
+        masked.segmentOffset);
+
+    TEST_ASSERT_EQUAL_UINT16(
+        222,
+        masked.index);
+
+    TEST_ASSERT_TRUE(
+        mask.disabled(
+            masked.segment,
+            masked.segmentOffset));
+
+    const auto physicalSeven =
+        SegmentMapper::map(
+            222,
+            mapping);
+
+    TEST_ASSERT_TRUE(
+        physicalSeven.valid);
+
+    TEST_ASSERT_EQUAL_UINT16(
+        7,
+        physicalSeven.index);
+
+    TEST_ASSERT_FALSE(
+        mask.disabled(
+            physicalSeven.segment,
+            physicalSeven.segmentOffset));
+}
+
 void test_duplicate_runtime_lane_is_rejected() {
     LedMappingProfile profile;
 
@@ -200,6 +250,7 @@ int main(int, char**) {
     RUN_TEST(test_reversed_segment_mapping);
     RUN_TEST(test_runtime_profile_can_permute_lanes);
     RUN_TEST(test_runtime_profile_reverses_only_selected_segment);
+    RUN_TEST(test_disabled_pixel_follows_logical_segment_offset_under_reversal);
     RUN_TEST(test_duplicate_runtime_lane_is_rejected);
     RUN_TEST(test_invalid_runtime_reversal_flag_is_rejected);
     return UNITY_END();
