@@ -85,12 +85,90 @@ void test_direction_pattern_marks_start_middle_and_end() {
     assertColor(frame.pixels[389], 0, 0, 255);
 }
 
+void test_runtime_topology_changes_pattern_boundaries() {
+    ambilight::LedMappingProfile topology;
+    topology.segment[0].logicalLength = 10;
+    topology.segment[1].logicalLength = 8;
+    topology.segment[2].logicalLength = 6;
+    topology.segment[3].logicalLength = 4;
+
+    RgbFrame frame;
+
+    LedCommissioningPatternBuilder::build(
+        LedCommissioningPattern::SegmentIdentity,
+        topology,
+        frame);
+
+    TEST_ASSERT_EQUAL_UINT16(
+        28,
+        frame.pixelCount);
+
+    assertColor(
+        frame.pixels[9],
+        255, 0, 0);
+
+    assertColor(
+        frame.pixels[10],
+        0, 255, 0);
+
+    assertColor(
+        frame.pixels[18],
+        0, 0, 255);
+
+    assertColor(
+        frame.pixels[24],
+        255, 255, 255);
+}
+
+void test_logical_range_lights_exact_requested_count() {
+    ambilight::LedMappingProfile topology;
+    topology.segment[0].logicalLength = 20;
+
+    RgbFrame frame;
+
+    TEST_ASSERT_TRUE(
+        LedCommissioningPatternBuilder::
+            buildLogicalRange(
+                topology,
+                ambilight::SegmentId::Top,
+                5,
+                3,
+                frame));
+
+    assertColor(
+        frame.pixels[4],
+        0, 0, 0);
+
+    assertColor(
+        frame.pixels[5],
+        255, 255, 255);
+
+    assertColor(
+        frame.pixels[7],
+        255, 255, 255);
+
+    assertColor(
+        frame.pixels[8],
+        0, 0, 0);
+
+    TEST_ASSERT_FALSE(
+        LedCommissioningPatternBuilder::
+            buildLogicalRange(
+                topology,
+                ambilight::SegmentId::Top,
+                19,
+                2,
+                frame));
+}
+
 int main(int, char**) {
     UNITY_BEGIN();
 
     RUN_TEST(test_none_pattern_is_black);
     RUN_TEST(test_segment_identity_uses_four_logical_colors);
     RUN_TEST(test_direction_pattern_marks_start_middle_and_end);
+    RUN_TEST(test_runtime_topology_changes_pattern_boundaries);
+    RUN_TEST(test_logical_range_lights_exact_requested_count);
 
     return UNITY_END();
 }
