@@ -13,8 +13,8 @@ Stage 34 centralizes firmware identity in:
 ## Current identity
 
     name            ambilight-c6
-    version         0.36.0-dev
-    development     Stage 36
+    version         0.37.0-dev
+    development     Stage 37
     target          ESP32-C6
     serial protocol 1
 
@@ -41,6 +41,7 @@ Example fields:
     ddp_port
     spatial_schema
     ledmap_schema
+    pixelmask_schema
 
 No Enter is required.
 
@@ -65,14 +66,16 @@ The firmware status command also reports:
 
     TofSpatialProfile::kSchemaVersion
     LedMappingProfile::kSchemaVersion
+    LedPixelMaskProfile::kSchemaVersion
 
-These are the two versioned persisted binary profile formats.
+These are the versioned persisted binary profile formats reported by the
+firmware identity command.
 
 Other simple Preferences values remain key/value settings rather than versioned binary schemas.
 
 ## Build identity scope
 
-The deterministic identity policy remains unchanged in Stage 36: source
+The deterministic identity policy remains unchanged in Stage 37: source
 version/stage are explicit constants and the build does not inject Git SHA,
 build time or dirty-tree state.
 
