@@ -126,9 +126,22 @@ The Windows PowerShell wrapper was fixed so native stderr does not terminate
 the script before the firmware gate. Both gate exit codes are now collected
 and written to summary.txt.
 
-Stage 37 includes the Stage 36 pure-C++ HTTP/lwIP web work plus the persisted
-disabled-pixel profile, parser, serial/web controls and renderer integration.
-Neither Stage 36 nor Stage 37 is considered validated until a fresh harness
-run passes both native and firmware gates and RAM/Flash growth is reviewed.
+Stage 38 changes runtime DDP frame sizing, LED topology, ToF perimeter
+sampling, serial protocol, web commissioning and transient ToF debug cadence.
+It is not considered validated until a fresh harness run passes both native
+and firmware gates.
+
+The target hardware has 16 MB flash. Before flashing, Codex/local validation
+must adapt or verify the intended partition table for that flash size and
+record:
+
+- native test total/pass/fail
+- firmware build result
+- RAM usage
+- firmware.bin / factory image sizes
+- actual application partition size and percentage
+
+Do not compare Stage 38 against the historical Stage 35 1.31 MB app partition
+as if it were still the deployment limit.
 
 Preserve the generated artifact directory whenever a gate fails.
