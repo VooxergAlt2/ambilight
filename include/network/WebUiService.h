@@ -233,6 +233,11 @@ private:
     std::uint64_t clientLastActivityUs_ = 0;
     std::uint32_t nextActionSequence_ = 0;
 
+    // State-changing requests are released to main only after the browser has
+    // received the queued acknowledgement. This is important for Wi-Fi
+    // reconfiguration and factory reset, both of which can tear down TCP.
+    WebUiActionEvent pendingAction_{};
+
     WebUiStats stats_{};
 };
 
