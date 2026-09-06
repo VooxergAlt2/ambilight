@@ -16,9 +16,13 @@ class ShadowGainProbe {
 public:
     static RenderGainContext make(
         std::uint32_t generation,
-        std::uint64_t nowUs) {
+        std::uint64_t nowUs,
+        const LedMappingProfile& topology =
+            LedMappingProfile{}) {
 
         RenderGainContext context;
+        context.topology =
+            topology;
 
         context.sourceGeneration = generation;
         context.sourceTimestampUs = nowUs;
