@@ -92,11 +92,16 @@ Current native inventory:
 The partition gate checks alignment, overlap, 16 MiB bounds and both 7 MiB
 application slots.
 
-Record from the firmware build:
+Validated locally on Windows:
 
-- final binary/program size
-- RAM usage
-- 7 MiB app-slot fit
+    partition_exit=0
+    native_exit=0
+    firmware_exit=0
+    native=182 test cases across 19 suites
+    RAM=91636 / 327680 bytes (28.0%)
+    PROGRAM=1269494 / 7340032 bytes (17.3%)
+    firmware.bin=1306928 bytes
+    app-slot margin=6070538 bytes
 
 ## First hardware gate after software validation
 

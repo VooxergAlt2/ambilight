@@ -273,11 +273,16 @@ local validation scripts run tools/check_partition.py first and fail if the
 layout overlaps, loses required alignment, exceeds 16 MiB, or changes the
 expected app-slot size.
 
-Stage 39 is not release-validated until a fresh partition + native + full
-ESP32-C6 build passes. The current native source contains 182 RUN_TEST cases,
-including fault-injected RuntimeSettings/NVS reset semantics. Final RAM usage,
-firmware binary size and 7 MiB application-slot fit must be recorded before
-flashing.
+Stage 39 was locally validated on Windows with the mandatory partition,
+native and ESP32-C6 firmware gates all passing:
+
+    partition_ok=1 (16 MiB flash, two 7 MiB app slots, 6 partitions)
+    182 native test cases passed across 19 suites
+    RAM 91636 / 327680 bytes (28.0%)
+    PROGRAM 1269494 / 7340032 bytes (17.3%)
+    firmware.bin 1306928 bytes; app-slot margin 6070538 bytes
+
+The native result includes fault-injected RuntimeSettings/NVS reset semantics.
 
 
 ## Runtime LED topology

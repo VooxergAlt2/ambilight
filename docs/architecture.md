@@ -418,12 +418,13 @@ Software behavior is locked with deterministic native tests where hardware APIs 
 
 GitHub Actions remain manual because repository Actions quota is exhausted.
 
-Stage 35 remains the last recorded fully validated checkpoint. Stage 39 must
-pass three local gates before flashing:
+Stage 39 passed its local Windows validation gates before hardware
+commissioning:
 
-1. tools/check_partition.py
-2. all native tests
-3. full ESP32-C6 firmware build
+1. tools/check_partition.py: `partition_ok=1`
+2. 19 native suites: 182 test cases passed
+3. full ESP32-C6 firmware build: RAM 91636 / 327680 bytes (28.0%), PROGRAM
+   1269494 / 7340032 bytes (17.3%)
 
 Deployment is pinned to partitions/ambilight_16mb_ota.csv:
 
@@ -434,8 +435,8 @@ Deployment is pinned to partitions/ambilight_16mb_ota.csv:
     coredump   64 KiB
 
 PlatformIO is configured with a 7 MiB maximum application image so partition
-fit is checked by the normal firmware build. Final validation still records
-RAM and binary size.
+fit is checked by the normal firmware build. The validated `firmware.bin` is
+1306928 bytes, leaving 6070538 bytes of app-slot margin.
 
 Physical commissioning remains a later stage for:
 
