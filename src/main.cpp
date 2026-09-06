@@ -491,7 +491,7 @@ void invalidateRuntimeAfterTopologyChange(
     }
 }
 
-bool applyLedMappingProfile(
+bool activateLedMappingProfile(
     const ambilight::LedMappingProfile& profile) {
 
     if (ledEngine.brightness() != 0) {
@@ -506,6 +506,12 @@ bool applyLedMappingProfile(
         return false;
     }
 
+    const ambilight::LedMappingProfile previous =
+        runtimeSettings.
+            ledMappingProfile();
+
+    // The ToF task is the only normal runtime participant that can refuse an
+    // otherwise valid topology because its mutex is busy. Queue it first.
     if (!tof.setLedTopology(
             profile)) {
 
@@ -514,21 +520,37 @@ bool applyLedMappingProfile(
         return false;
     }
 
+    // With a valid profile, DDP and renderer validation should be infallible.
+    // Keep rollback anyway so a future contract change cannot leave mixed
+    // subsystem topology.
     if (!ddp.setLogicalLedCount(
             profile.totalLedCount())) {
 
+        tof.setLedTopology(
+            previous);
+
         Serial.println(
-            "LED TOPOLOGY change refused: DDP frame size rejected.");
+            "LED TOPOLOGY change refused: DDP frame size rejected; ToF rollback requested.");
         return false;
     }
 
     if (!renderer.setMappingProfile(
             profile)) {
 
+        ddp.setLogicalLedCount(
+            previous.totalLedCount());
+
+        tof.setLedTopology(
+            previous);
+
         Serial.println(
-            "LED TOPOLOGY profile could not be applied to renderer.");
+            "LED TOPOLOGY change refused: renderer rejected profile; DDP/ToF rollback requested.");
         return false;
     }
+
+    // LedRenderer clears every physical PARLIO lane buffer whenever mapping
+    // actually changes. That makes capacity outside a shortened/remapped side
+    // deterministically black before brightness can be restored.
 
     ambilight::LedPixelMaskProfile mask =
         runtimeSettings.
@@ -546,14 +568,30 @@ bool applyLedMappingProfile(
         renderer.setPixelMaskProfile(
             mask);
 
-        runtimeSettings.
-            setLedPixelMaskProfile(
-                mask);
+        const bool maskPersisted =
+            runtimeSettings.
+                setLedPixelMaskProfile(
+                    mask);
 
         ledPixelMaskDirty = true;
 
-        Serial.println(
-            "LED TOPOLOGY shortened a side; out-of-range disabled-pixel entries were cleared.");
+        Serial.printf(
+            "LED TOPOLOGY shortened a side; out-of-range disabled-pixel entries were cleared (%s).\n",
+            maskPersisted
+                ? "persisted"
+                : "runtime-only");
+    }
+
+    return true;
+}
+
+bool applyLedMappingProfile(
+    const ambilight::LedMappingProfile& profile) {
+
+    if (!activateLedMappingProfile(
+            profile)) {
+
+        return false;
     }
 
     const bool persisted =
@@ -577,15 +615,13 @@ bool applyLedMappingProfile(
 }
 
 bool resetLedMappingProfile() {
-    if (ledEngine.brightness() != 0) {
-        Serial.println(
-            "LED TOPOLOGY reset refused: set output brightness to 0 first.");
-        return false;
-    }
+    const ambilight::LedMappingProfile previous =
+        runtimeSettings.
+            ledMappingProfile();
 
     const ambilight::LedMappingProfile profile;
 
-    if (!applyLedMappingProfile(
+    if (!activateLedMappingProfile(
             profile)) {
 
         return false;
@@ -594,10 +630,35 @@ bool resetLedMappingProfile() {
     const bool persisted =
         runtimeSettings.resetLedMappingProfile();
 
+    if (!persisted &&
+        runtimeSettings.persistenceAvailable()) {
+
+        // Durable reset was refused before its version commit marker could be
+        // removed. Restore the live subsystems to the still-authoritative
+        // previous runtime profile.
+        if (!activateLedMappingProfile(
+                previous)) {
+
+            Serial.println(
+                "LED TOPOLOGY reset failed and live rollback could not be completed; keep brightness=0 and reboot.");
+        } else {
+            invalidateRuntimeAfterTopologyChange(
+                previous);
+        }
+
+        Serial.println(
+            "LED TOPOLOGY reset failed: persisted custom topology remains authoritative.");
+        return false;
+    }
+
+    invalidateRuntimeAfterTopologyChange(
+        profile);
+
     Serial.printf(
         "LED TOPOLOGY reset to default; persisted=%s.\n",
-        persisted ? "yes" : "no");
+        persisted ? "yes" : "runtime-only");
 
+    printLedMappingProfile();
     return true;
 }
 
