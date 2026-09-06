@@ -274,8 +274,10 @@ layout overlaps, loses required alignment, exceeds 16 MiB, or changes the
 expected app-slot size.
 
 Stage 39 is not release-validated until a fresh partition + native + full
-ESP32-C6 build passes. Final RAM usage, firmware binary size and 7 MiB
-application-slot fit must be recorded before flashing.
+ESP32-C6 build passes. The current native source contains 182 RUN_TEST cases,
+including fault-injected RuntimeSettings/NVS reset semantics. Final RAM usage,
+firmware binary size and 7 MiB application-slot fit must be recorded before
+flashing.
 
 
 ## Runtime LED topology
