@@ -5,6 +5,7 @@
 #include <cstdint>
 
 #include "led/LedMappingProfile.h"
+#include "led/LedPixelMaskProfile.h"
 #include "network/WebUiProtocol.h"
 #include "render/CorrectionMode.h"
 #include "tof/TofCalibrationCapture.h"
@@ -96,6 +97,10 @@ struct WebUiSnapshot {
     LedMappingProfile ledMapping{};
     bool ledMappingCustomized = false;
     bool ledMappingPersisted = false;
+
+    LedPixelMaskProfile ledPixelMask{};
+    bool ledPixelMaskCustomized = false;
+    bool ledPixelMaskPersisted = false;
 
     std::uint8_t commissioningPattern = 0;
     std::uint32_t commissioningRemainingMs = 0;
