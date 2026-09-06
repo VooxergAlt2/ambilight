@@ -5,7 +5,8 @@ namespace ambilight {
 namespace {
 
 constexpr std::size_t kFactoryCapacity = 16;
-constexpr std::size_t kLedMapCapacity = 64;
+constexpr std::size_t kCommissioningRangeCapacity = 48;
+constexpr std::size_t kLedMapCapacity = 96;
 constexpr std::size_t kLedPixelMaskCapacity = 32;
 constexpr std::size_t kSpatialCapacity = 128;
 constexpr std::size_t kGainCurveCapacity = 128;
@@ -42,6 +43,8 @@ SerialCommandParser::kindForState(
     switch (state) {
     case State::LineFactory:
         return SerialCommandKind::Factory;
+    case State::LineCommissioningRange:
+        return SerialCommandKind::CommissioningRange;
     case State::LineLedMap:
         return SerialCommandKind::LedMap;
     case State::LineLedPixelMask:
@@ -66,6 +69,8 @@ SerialCommandParser::capacityForState(
     switch (state) {
     case State::LineFactory:
         return kFactoryCapacity;
+    case State::LineCommissioningRange:
+        return kCommissioningRangeCapacity;
     case State::LineLedMap:
         return kLedMapCapacity;
     case State::LineLedPixelMask:
@@ -262,6 +267,12 @@ SerialCommandParser::feed(
     case 'F':
         beginLine(
             State::LineFactory);
+        return {};
+
+    case 'j':
+    case 'J':
+        beginLine(
+            State::LineCommissioningRange);
         return {};
 
     case 'l':
