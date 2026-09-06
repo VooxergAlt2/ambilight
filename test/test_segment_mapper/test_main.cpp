@@ -218,6 +218,61 @@ void test_disabled_pixel_follows_logical_segment_offset_under_reversal() {
             physicalSeven.segmentOffset));
 }
 
+void test_runtime_lengths_recompute_logical_starts() {
+    LedMappingProfile profile;
+
+    profile.segment[0].logicalLength = 100;
+    profile.segment[1].logicalLength = 50;
+    profile.segment[2].logicalLength = 120;
+    profile.segment[3].logicalLength = 60;
+
+    TEST_ASSERT_TRUE(
+        profile.valid());
+
+    TEST_ASSERT_EQUAL_UINT16(
+        330,
+        profile.totalLedCount());
+
+    const auto rightStart =
+        SegmentMapper::map(
+            100,
+            profile);
+
+    const auto bottomStart =
+        SegmentMapper::map(
+            150,
+            profile);
+
+    const auto leftLast =
+        SegmentMapper::map(
+            329,
+            profile);
+
+    TEST_ASSERT_TRUE(rightStart.valid);
+    TEST_ASSERT_EQUAL_UINT8(
+        static_cast<std::uint8_t>(
+            SegmentId::Right),
+        static_cast<std::uint8_t>(
+            rightStart.segment));
+
+    TEST_ASSERT_TRUE(bottomStart.valid);
+    TEST_ASSERT_EQUAL_UINT8(
+        static_cast<std::uint8_t>(
+            SegmentId::Bottom),
+        static_cast<std::uint8_t>(
+            bottomStart.segment));
+
+    TEST_ASSERT_TRUE(leftLast.valid);
+    TEST_ASSERT_EQUAL_UINT16(
+        59,
+        leftLast.segmentOffset);
+
+    TEST_ASSERT_FALSE(
+        SegmentMapper::map(
+            330,
+            profile).valid);
+}
+
 void test_duplicate_runtime_lane_is_rejected() {
     LedMappingProfile profile;
 
@@ -251,6 +306,7 @@ int main(int, char**) {
     RUN_TEST(test_runtime_profile_can_permute_lanes);
     RUN_TEST(test_runtime_profile_reverses_only_selected_segment);
     RUN_TEST(test_disabled_pixel_follows_logical_segment_offset_under_reversal);
+    RUN_TEST(test_runtime_lengths_recompute_logical_starts);
     RUN_TEST(test_duplicate_runtime_lane_is_rejected);
     RUN_TEST(test_invalid_runtime_reversal_flag_is_rejected);
     return UNITY_END();
