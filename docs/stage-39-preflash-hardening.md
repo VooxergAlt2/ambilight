@@ -84,6 +84,11 @@ A Stage 39 release candidate is accepted only when all three are zero:
     native_exit=0
     firmware_exit=0
 
+Current native inventory:
+
+    182 RUN_TEST cases
+    includes RuntimeSettings fault injection via test/support/Preferences.h
+
 The partition gate checks alignment, overlap, 16 MiB bounds and both 7 MiB
 application slots.
 
