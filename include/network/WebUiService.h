@@ -11,6 +11,7 @@
 #include "tof/TofCalibrationCapture.h"
 #include "tof/TofGainModel.h"
 #include "tof/TofSpatialProfile.h"
+#include "tof/TofTypes.h"
 
 namespace ambilight {
 
@@ -81,6 +82,24 @@ struct WebUiSnapshot {
     std::uint16_t perimeterMinMm = 0;
     std::uint16_t perimeterMaxMm = 0;
 
+    bool tofDebugActive = false;
+    std::uint32_t tofDebugRemainingMs = 0;
+
+    std::array<
+        std::int16_t,
+        kTofZoneCount>
+        tofNormalizedDistanceMm{};
+
+    std::array<
+        std::uint8_t,
+        kTofZoneCount>
+        tofNormalizedStatus{};
+
+    std::array<
+        std::uint8_t,
+        kTofZoneCount>
+        tofNormalizedRawIndex{};
+
     TofSpatialProfile spatialProfile{};
     bool spatialCustomized = false;
     bool spatialPersisted = false;
@@ -149,7 +168,7 @@ public:
         kRequestBufferBytes = 1536;
 
     static constexpr std::size_t
-        kDynamicResponseBytes = 6144;
+        kDynamicResponseBytes = 8192;
 
     static constexpr std::size_t
         kReceiveChunkBytes = 512;
