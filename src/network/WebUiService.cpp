@@ -100,6 +100,14 @@ button{cursor:pointer}button.primary{background:var(--accent);color:#fff;border-
 <button id="mapReset" onclick="post('/api/led-map','reset')">Default</button>
 </div>
 <div class="muted">Mapping меняется только при brightness=0.</div>
+<h2 style="margin-top:16px">Disabled pixel</h2>
+<div id="pixelMask"></div>
+<div class="row">
+<button class="primary" onclick="applyPixelMask()">Apply mask</button>
+<button onclick="post('/api/pixel-mask','-,-,-,-')">Clear mask</button>
+<span id="maskSource" class="muted"></span>
+</div>
+<div class="muted">По одному пикселю на сегмент. Пусто = не отключать. Индекс считается от START.</div>
 </div>
 </div>
 </details>
@@ -197,8 +205,13 @@ async function post(path,body){
 function applyMap(){
   const p=[];
   for(let i=0;i<4;i++)p.push($('lane'+i).value+':'+($('rev'+i).checked?'1':'0'));
-  clean([...Array(4)].flatMap((_,i)=>['lane'+i,'rev'+i]));
+  clean([...Array(4)].flatMap((_,i)=>['lane'+i,'rev'+i']));
   post('/api/led-map',p.join(','));
+}
+function applyPixelMask(){
+  const ids=[0,1,2,3].map(i=>'mask'+i);
+  const p=ids.map(id=>{const v=$(id).value.trim();return v===''?'-':v});
+  clean(ids);post('/api/pixel-mask',p.join(','));
 }
 function f1(v){const n=Number(v);return Number.isFinite(n)?n.toFixed(1):'0.0'}
 function applySpatial(){
@@ -215,6 +228,15 @@ function renderMap(m){
     markDirty();
   }
   m.segments.forEach((x,i)=>{setv('lane'+i,x[0]);const e=$('rev'+i);if(!e.dataset.dirty)e.checked=!!x[1]});
+}
+function renderPixelMask(m){
+  const max=[229,159,229,159];
+  if(!$('pixelMask').children.length){
+    mapNames.forEach((n,i)=>{$('pixelMask').insertAdjacentHTML('beforeend',`<div class="seg"><b>${n}</b><input id="mask${i}" type="number" min="0" max="${max[i]}" step="1" placeholder="none"><span class="muted">0..${max[i]}</span></div>`)});
+    markDirty();
+  }
+  m.offsets.forEach((v,i)=>setv('mask'+i,v<0?'':v));
+  txt('maskSource',m.source);
 }
 function calibrationText(c){
   if(c.active)return 'capture active · samples '+c.samples;
@@ -236,6 +258,7 @@ function render(s){
   const safeTest=s.output.brightness>0&&s.output.brightness<=64;
   $('testSegments').disabled=!safeTest;$('testDirection').disabled=!safeTest;
   renderMap(s.map);
+  renderPixelMask(s.pixel_mask);
   $('mapApply').disabled=s.output.brightness!==0;$('mapReset').disabled=s.output.brightness!==0;
   const sp=s.spatial;
   setv('spW',sp.w10/10);setv('spH',sp.h10/10);setv('spX',sp.x10/10);setv('spY',sp.y10/10);setv('spZ',sp.z10/10);setv('spR',sp.rot);setv('spM',sp.mirror);setv('spD',sp.deadband10/10);
@@ -1006,6 +1029,48 @@ bool WebUiService::buildStatusResponse(
                 mapping.lane),
             static_cast<unsigned>(
                 mapping.reversed));
+    }
+
+    writer.append("]}");
+
+    writer.append(
+        ",\"pixel_mask\":{\"source\":");
+
+    writer.appendJsonString(
+        sourceName(
+            snapshot.ledPixelMaskCustomized,
+            snapshot.ledPixelMaskPersisted));
+
+    writer.append(
+        ",\"offsets\":[");
+
+    for (std::size_t index = 0;
+         index <
+            snapshot
+                .ledPixelMask
+                .disabledOffset
+                .size();
+         ++index) {
+
+        if (index != 0) {
+            writer.append(",");
+        }
+
+        const std::uint16_t value =
+            snapshot
+                .ledPixelMask
+                .disabledOffset[index];
+
+        if (value ==
+            LedPixelMaskProfile::kNone) {
+
+            writer.append("-1");
+        } else {
+            writer.appendf(
+                "%u",
+                static_cast<unsigned>(
+                    value));
+        }
     }
 
     writer.append("]}");
