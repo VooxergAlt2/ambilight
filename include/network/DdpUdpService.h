@@ -79,6 +79,13 @@ public:
     bool begin();
     void stop();
 
+    bool setLogicalLedCount(
+        std::uint16_t logicalLedCount);
+
+    std::uint16_t logicalLedCount() const {
+        return logicalLedCount_;
+    }
+
     DdpPollResult poll();
 
     bool running() const { return socket_ >= 0; }
@@ -124,6 +131,10 @@ private:
     RgbFrame completedFrame_{};
 
     DdpUdpStats stats_{};
+
+    std::uint16_t logicalLedCount_ =
+        static_cast<std::uint16_t>(
+            config::kDefaultLogicalLedCount);
 
     std::uint64_t lastPacketUs_ = 0;
     std::uint64_t lastCompleteFrameUs_ = 0;
