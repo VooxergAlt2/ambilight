@@ -3,6 +3,7 @@
 #include <unity.h>
 
 #include "tof/TofProcessor.h"
+#include "tof/TofDebugGrid.h"
 
 using ambilight::TofGridTransform;
 using ambilight::TofProcessor;
@@ -330,8 +331,56 @@ void test_status_9_is_accepted() {
     TEST_ASSERT_EQUAL_UINT16(750, result.center.filteredMm);
 }
 
+void test_debug_grid_reports_normalized_zone_and_raw_index() {
+    ambilight::TofRawFrame raw;
+
+    for (std::size_t index = 0;
+         index <
+            ambilight::kTofZoneCount;
+         ++index) {
+
+        raw.distanceMm[index] =
+            static_cast<std::int16_t>(
+                1000 + index);
+
+        raw.targetStatus[index] =
+            index == 0
+                ? 5
+                : 12;
+    }
+
+    ambilight::TofGridTransform transform;
+    transform.rotation =
+        ambilight::TofRotation::Deg180;
+
+    const auto grid =
+        ambilight::makeTofDebugGrid(
+            raw,
+            transform);
+
+    TEST_ASSERT_EQUAL_UINT8(
+        63,
+        grid[0].rawIndex);
+
+    TEST_ASSERT_EQUAL_INT16(
+        1063,
+        grid[0].distanceMm);
+
+    TEST_ASSERT_EQUAL_UINT8(
+        0,
+        grid[63].rawIndex);
+
+    TEST_ASSERT_TRUE(
+        grid[63].fullConfidence());
+
+    TEST_ASSERT_TRUE(
+        grid[63].usable());
+}
+
 int main(int, char**) {
     UNITY_BEGIN();
+
+    RUN_TEST(test_debug_grid_reports_normalized_zone_and_raw_index);
 
     RUN_TEST(test_raw_index_transform_has_expected_indices);
     RUN_TEST(test_flat_wall_produces_equal_bands);
