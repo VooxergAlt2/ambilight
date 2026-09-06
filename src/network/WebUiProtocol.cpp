@@ -304,6 +304,14 @@ WebUiRoute WebUiProtocol::routeForPath(
     if (spanEquals(
             path,
             length,
+            "/api/tof-debug")) {
+
+        return WebUiRoute::TofDebug;
+    }
+
+    if (spanEquals(
+            path,
+            length,
             "/api/factory")) {
 
         return WebUiRoute::FactoryReset;
@@ -336,6 +344,8 @@ WebUiActionKind WebUiProtocol::actionForRoute(
         return WebUiActionKind::Calibration;
     case WebUiRoute::ShadowProbe:
         return WebUiActionKind::ShadowProbe;
+    case WebUiRoute::TofDebug:
+        return WebUiActionKind::TofDebug;
     case WebUiRoute::FactoryReset:
         return WebUiActionKind::FactoryReset;
     default:
