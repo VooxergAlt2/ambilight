@@ -38,6 +38,15 @@ else
     exit 2
 fi
 
+if command -v python3 >/dev/null 2>&1; then
+    python_cmd=(python3)
+elif command -v python >/dev/null 2>&1; then
+    python_cmd=(python)
+else
+    echo "Python launcher not found; partition validation cannot run." >&2
+    exit 2
+fi
+
 run_logged() {
     local log_file="$1"
     shift
@@ -51,10 +60,27 @@ run_logged() {
     return "$command_exit"
 }
 
+run_python_logged() {
+    local log_file="$1"
+    shift
+
+    echo
+    echo ">>> Python $*"
+
+    "${python_cmd[@]}" "$@" 2>&1 | tee "$log_file"
+    local command_exit=${PIPESTATUS[0]}
+
+    return "$command_exit"
+}
+
 cd "$repo_root"
 
+partition_exit=0
 native_exit=0
 firmware_exit=0
+
+run_python_logged "$output_dir/partition-check.log" tools/check_partition.py
+partition_exit=$?
 
 if [[ "$skip_native" -eq 0 ]]; then
     run_logged "$output_dir/native-test.log" test -e native
@@ -69,6 +95,7 @@ fi
 cat > "$output_dir/summary.txt" <<EOF
 Ambilight local validation
 timestamp=$timestamp
+partition_exit=$partition_exit
 native_skipped=$skip_native
 native_exit=$native_exit
 firmware_skipped=$skip_firmware
@@ -79,7 +106,7 @@ EOF
 echo
 cat "$output_dir/summary.txt"
 
-if [[ "$native_exit" -ne 0 || "$firmware_exit" -ne 0 ]]; then
+if [[ "$partition_exit" -ne 0 || "$native_exit" -ne 0 || "$firmware_exit" -ne 0 ]]; then
     exit 1
 fi
 
