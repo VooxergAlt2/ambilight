@@ -29,6 +29,7 @@ enum class SerialCommandKind : std::uint8_t {
     StartCalibrationCapture,
     DumpRender,
     StartShadowProbe,
+    TofDebugToggle,
     CorrectionStatus,
     FirmwareStatus
 };
