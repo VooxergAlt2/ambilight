@@ -2,18 +2,18 @@
 
 ## Current stage
 
-Stage 37 is the current software-integration line. It adds a persisted per-segment disabled-pixel mask on top of the Stage 36 bounded HTTP control surface.
+Stage 38 is the current software-integration line. It turns LED geometry into a versioned runtime topology and adds explicit LED/ToF commissioning modes on top of the bounded LAN web control surface.
 
 The active firmware now combines:
 
 - realtime Wi-Fi/DDP RGB transport
 - one active DDP sender lease
 - checked UDP socket receive-buffer tuning
-- 780-pixel logical frame model
+- fixed 920-LED memory capacity with runtime active logical count
 - four synchronized ESP32-C6 PARLIO outputs
-- runtime LED lane/reversal mapping
+- runtime LED side length / GPIO / reversal topology
 - slow VL53L5CX wall-plane geometry
-- exact 780-value distance/gain field
+- exact active-perimeter distance/gain field
 - runtime ToF spatial and photometric calibration
 - DISABLED / SHADOW / ACTIVE correction modes
 - runtime output brightness
@@ -25,6 +25,8 @@ The active firmware now combines:
 - centralized firmware identity/version diagnostics
 - minimal lwIP HTTP/80 commissioning/control UI
 - persisted per-segment disabled-pixel mask
+- logical-side and raw-GPIO LED range probes
+- transient normalized 8x8 ToF live-debug mode
 
 USB/AWA work remains preserved separately in:
 
@@ -113,34 +115,42 @@ and queries the actual value back with:
 
 Socket-option failures are observable but non-fatal.
 
-## Logical LED geometry
+## Runtime LED topology
 
-Logical HyperHDR order is fixed:
+Memory capacity is fixed and heap-free:
 
-    TOP     0..229
-    RIGHT   230..389
-    BOTTOM  390..619
-    LEFT    620..779
+    4 PARLIO lanes x 230 = 920 LED capacity
 
-Total:
+LedMappingProfile schema 2 is the authoritative topology. For each logical TV
+side it stores:
 
-    780 RGB LEDs
-    2340 RGB bytes
+- active logical length, 1..230
+- physical PARLIO lane, surfaced to users as GPIO18/19/20/21
+- FWD/REV direction
 
-Logical geometry stays independent from physical wiring.
+The four active segments remain contiguous in logical order:
 
-## Runtime physical mapping
+    TOP -> RIGHT -> BOTTOM -> LEFT
 
-LedMappingProfile maps each logical segment to:
+Their starts are recomputed from the configured lengths. Therefore:
 
-- one PARLIO lane
-- forward or reversed physical index direction
+    active DDP bytes = totalLedCount * 3
 
-Each lane 0..3 must be used exactly once.
+There are no logical holes and inactive capacity is never part of the DDP
+frame.
 
-GPIO pins and segment lengths remain compile-time hardware constants.
+Every physical GPIO must be assigned exactly once. ToF gains are indexed in
+logical screen space before physical reversal, so wiring cannot reverse the
+wall model.
 
-ToF gain is calculated before physical reversal, so wiring direction cannot reverse the mathematical wall model.
+A topology apply requires brightness=0 and acts as a coordinated transaction:
+
+1. queue the new topology to ToF
+2. reconfigure DDP expected frame bytes and reset sender/assembly epoch
+3. switch renderer mapping
+4. sanitize disabled-pixel offsets that no longer fit
+5. publish a black frame with the new pixelCount
+6. reset gain-controller state and wait fail-open for fresh ToF projection
 
 ## ToF path
 
@@ -150,13 +160,16 @@ ToF gain is calculated before physical reversal, so wiring direction cannot reve
       -> X/Y reconstruction
       -> robust wall-plane fit
       -> PlaneChangeGate
-      -> 780 logical LED positions
+      -> active runtime logical LED positions
       -> +Z intersection with wall plane
-      -> 780 throw distances
+      -> active throw-distance field
       -> runtime DistanceGainCurve
-      -> PerimeterGainSnapshot.logicalGainQ12[780]
+      -> PerimeterGainSnapshot.logicalGainQ12[capacity]
       -> TofRenderGainBridge
-      -> RenderGainContext.logicalGainQ12[780]
+      -> RenderGainContext.logicalGainQ12[capacity]
+
+Only indices below topology.totalLedCount() are active. Capacity arrays are
+fixed at 920 entries to avoid heap allocation during commissioning.
 
 ## Wall model
 
@@ -198,12 +211,12 @@ Default threshold:
 Below threshold:
 
 - refresh source freshness
-- keep existing 780-value field
+- keep existing active gain field
 
 At/above threshold:
 
 - accept new plane
-- rebuild all 780 distances/gains
+- rebuild all active distances/gains
 
 Skipped candidates do not move the accepted reference, so slow motion accumulates.
 
@@ -219,7 +232,8 @@ VL53L5CX internal ranging:
 
 Pose transfer/processing:
 
-    about every 12 s
+    normal: about every 12 s
+    ToF debug: about every 1 s for at most 60 s
 
 Main ToF target polling:
 
@@ -272,7 +286,7 @@ A curve change:
 1. fail-opens old gain snapshots
 2. updates the ToF task
 3. resets plane-change reference
-4. forces the next valid pose to rebuild all 780 gains
+4. forces the next valid pose to rebuild all active gains
 
 The compiled default curve remains neutral until real photometric commissioning.
 
@@ -311,12 +325,40 @@ The mask does not alter:
 - ToF distance/gain arrays
 - physical indices of neighbouring LEDs
 
+## ToF commissioning/debug
+
+ToF debug is transient and is refused in ACTIVE correction mode.
+
+Normal operation keeps the slow pose cadence. An explicit debug session:
+
+    web: POST /api/tof-debug start
+    serial: z
+
+temporarily enables roughly 1-second processed frames for up to 60 seconds.
+The sensor's persisted spatial profile is not modified by entering debug.
+
+The web status surface exposes a normalized 8x8 grid. Each cell contains:
+
+- perpendicular distance_mm
+- target_status
+- original raw VL53L5CX zone index
+
+Normalization uses the active TofSpatialProfile rotation/mirror transform.
+This makes the UI matrix screen-relative while still exposing raw zone ids
+for mounting/orientation diagnosis.
+
+Status 5 is full plane-fit weight. Statuses 6 and 9 are usable at 0.5 weight.
+Other statuses remain visible for diagnosis but are rejected from normal
+processor/plane input.
+
 ## Commissioning patterns
 
-Temporary logical patterns can verify:
+Temporary LED commissioning can verify:
 
-- physical segment/lane assignment
+- physical GPIO/strip identity with a raw lane probe
+- logical TV-side assignment
 - screen-space strip direction
+- exact logical or physical address ranges
 
 They run only at brightness 1..64 and bypass ToF correction for the test frame.
 
@@ -337,7 +379,7 @@ Runtime configuration includes:
 - Wi-Fi credentials
 - ToF gain curve
 - ToF spatial profile
-- LED mapping profile
+- LED topology profile (LedMappingProfile schema 2)
 - disabled-pixel mask profile
 
 Versioned blobs use a data-first/version-last commit pattern.
@@ -373,10 +415,15 @@ Software behavior is locked with deterministic native tests where hardware APIs 
 
 GitHub Actions remain manual because repository Actions quota is exhausted.
 
-Stage 35 was locally validated with 147/147 native tests and a successful
-ESP32-C6 firmware build. Stage 36 adds pure-C++ HTTP protocol contracts plus
-production lwIP socket code and therefore requires a fresh local native +
-firmware validation before it can be treated as hardware-ready.
+Stage 35 remains the last fully validated checkpoint. Stage 38 changes DDP
+frame sizing, renderer topology, ToF perimeter sampling, serial protocol and
+the web commissioning surface, so both native and full ESP32-C6 gates are
+mandatory before flashing.
+
+The target board has 16 MB flash and the deployment partition table is to be
+adapted before flashing. Validation must record final partition fit, RAM and
+binary size rather than comparing against the historical Stage 35 1.31 MB
+application partition.
 
 Physical commissioning remains a later stage for:
 
