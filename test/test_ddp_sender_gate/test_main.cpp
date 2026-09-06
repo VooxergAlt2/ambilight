@@ -249,6 +249,50 @@ void test_out_of_frame_payload_does_not_acquire_lock() {
         gate.active());
 }
 
+void test_runtime_frame_bound_changes_sender_validation() {
+    DdpSenderGate gate;
+
+    TEST_ASSERT_TRUE(
+        gate.setExpectedFrameBytes(
+            900));
+
+    const auto inside =
+        makePacket(
+            1,
+            800,
+            100,
+            true);
+
+    const auto outside =
+        makePacket(
+            1,
+            850,
+            100,
+            true);
+
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(
+            DdpSenderDecision::Accepted),
+        static_cast<int>(
+            gate.evaluate(
+                kSenderA,
+                inside.data(),
+                inside.size(),
+                1000)));
+
+    gate.reset();
+
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(
+            DdpSenderDecision::InvalidDatagram),
+        static_cast<int>(
+            gate.evaluate(
+                kSenderA,
+                outside.data(),
+                outside.size(),
+                1100)));
+}
+
 void test_same_ip_different_port_is_foreign_sender() {
     DdpSenderGate gate;
 
@@ -325,6 +369,7 @@ int main(int, char**) {
     RUN_TEST(test_foreign_sender_is_dropped_without_extending_lease);
     RUN_TEST(test_invalid_packet_from_owner_does_not_extend_lease);
     RUN_TEST(test_out_of_frame_payload_does_not_acquire_lock);
+    RUN_TEST(test_runtime_frame_bound_changes_sender_validation);
     RUN_TEST(test_same_ip_different_port_is_foreign_sender);
     RUN_TEST(test_new_sender_can_acquire_after_timeout);
 
