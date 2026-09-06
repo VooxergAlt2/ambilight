@@ -2072,6 +2072,738 @@ bool shadowGainProbeActive() {
     return nowUs < shadowProbeUntilUs;
 }
 
+template <std::size_t N>
+void copyWebText(
+    std::array<char, N>& destination,
+    const char* source) {
+
+    destination.fill('\0');
+
+    if (source == nullptr ||
+        N == 0) {
+
+        return;
+    }
+
+    std::snprintf(
+        destination.data(),
+        destination.size(),
+        "%s",
+        source);
+}
+
+void recordWebAction(
+    std::uint32_t sequence,
+    bool ok,
+    const char* message) {
+
+    lastWebActionSequence =
+        sequence;
+
+    lastWebActionOk =
+        ok;
+
+    copyWebText(
+        lastWebActionMessage,
+        message != nullptr
+            ? message
+            : (ok ? "ok" : "failed"));
+}
+
+bool fillWebUiSnapshot(
+    ambilight::WebUiSnapshot& snapshot) {
+
+    snapshot = {};
+
+    snapshot.persistenceAvailable =
+        runtimeSettings.persistenceAvailable();
+
+    snapshot.correctionMode =
+        correctionMode;
+
+    snapshot.brightness =
+        ledEngine.brightness();
+
+    snapshot.wifiEnabled =
+        wifi.enabled();
+
+    snapshot.wifiConnected =
+        wifi.connected();
+
+    copyWebText(
+        snapshot.wifiSsid,
+        wifi.ssid());
+
+    if (snapshot.wifiConnected) {
+        const String ip =
+            WiFi.localIP().toString();
+
+        copyWebText(
+            snapshot.wifiIp,
+            ip.c_str());
+
+        snapshot.wifiRssi =
+            WiFi.RSSI();
+    }
+
+    snapshot.ddpRunning =
+        ddp.running();
+
+    snapshot.ddpCompleteFrames =
+        ddp.stats().
+            completeFramesAssembled;
+
+    snapshot.ddpPublications =
+        ddp.stats().
+            mailboxPublications;
+
+    snapshot.senderLocked =
+        ddp.senderLocked();
+
+    snapshot.senderPort =
+        ddp.activeSenderPort();
+
+    if (snapshot.senderLocked) {
+        in_addr address{};
+        address.s_addr =
+            ddp.
+                activeSenderIpv4NetworkOrder();
+
+        char senderIp[
+            INET_ADDRSTRLEN] = {};
+
+        if (inet_ntop(
+                AF_INET,
+                &address,
+                senderIp,
+                sizeof(senderIp)) !=
+            nullptr) {
+
+            copyWebText(
+                snapshot.senderIp,
+                senderIp);
+        }
+    }
+
+    ambilight::TofSnapshot tofSnapshot;
+
+    if (tof.copySnapshot(
+            tofSnapshot)) {
+
+        snapshot.tofAvailable = true;
+
+        copyWebText(
+            snapshot.tofState,
+            tofStateName(
+                tofSnapshot.state));
+
+        snapshot.tofGeneration =
+            tofSnapshot.generation;
+
+        const std::uint64_t nowUs =
+            static_cast<std::uint64_t>(
+                esp_timer_get_time());
+
+        snapshot.tofAgeMs =
+            tofSnapshot.timestampUs != 0 &&
+            nowUs >=
+                tofSnapshot.timestampUs
+                ? (
+                    nowUs -
+                    tofSnapshot.timestampUs
+                  ) /
+                    1000ULL
+                : 0ULL;
+
+        snapshot.tofValidZones =
+            tofSnapshot.validZones;
+
+        snapshot.tofMedianMm =
+            tofSnapshot.medianMm;
+
+        snapshot.planeValid =
+            tofSnapshot.geometry.plane.valid;
+
+        snapshot.planeYawCentiDeg =
+            tofSnapshot
+                .geometry
+                .plane
+                .yawCentiDeg;
+
+        snapshot.planePitchCentiDeg =
+            tofSnapshot
+                .geometry
+                .plane
+                .pitchCentiDeg;
+
+        snapshot.planeAccepted =
+            tofSnapshot
+                .geometry
+                .plane
+                .accepted;
+
+        snapshot.perimeterFailOpen =
+            tofSnapshot
+                .perimeterGains
+                .failOpen;
+
+        snapshot.perimeterMinMm =
+            tofSnapshot
+                .perimeterGains
+                .minDistanceMm;
+
+        snapshot.perimeterMaxMm =
+            tofSnapshot
+                .perimeterGains
+                .maxDistanceMm;
+    } else {
+        copyWebText(
+            snapshot.tofState,
+            "unavailable");
+    }
+
+    snapshot.spatialProfile =
+        runtimeSettings.
+            tofSpatialProfile();
+
+    snapshot.spatialCustomized =
+        runtimeSettings.
+            tofSpatialProfileCustomized();
+
+    snapshot.spatialPersisted =
+        runtimeSettings.
+            tofSpatialProfilePersisted();
+
+    snapshot.gainPoints =
+        runtimeSettings.
+            tofGainPoints();
+
+    snapshot.gainPointCount =
+        runtimeSettings.
+            tofGainPointCount();
+
+    snapshot.gainCustomized =
+        runtimeSettings.
+            tofGainCurveCustomized();
+
+    snapshot.gainPersisted =
+        runtimeSettings.
+            tofGainCurvePersisted();
+
+    snapshot.ledMapping =
+        runtimeSettings.
+            ledMappingProfile();
+
+    snapshot.ledMappingCustomized =
+        runtimeSettings.
+            ledMappingProfileCustomized();
+
+    snapshot.ledMappingPersisted =
+        runtimeSettings.
+            ledMappingProfilePersisted();
+
+    snapshot.commissioningPattern =
+        static_cast<std::uint8_t>(
+            commissioningPattern);
+
+    const std::uint64_t nowUs =
+        static_cast<std::uint64_t>(
+            esp_timer_get_time());
+
+    snapshot.commissioningRemainingMs =
+        commissioningPattern !=
+                ambilight::
+                    LedCommissioningPattern::
+                        None &&
+            commissioningUntilUs >
+                nowUs
+            ? static_cast<std::uint32_t>(
+                  (
+                    commissioningUntilUs -
+                    nowUs
+                  ) /
+                  1000ULL)
+            : 0U;
+
+    snapshot.calibrationActive =
+        calibrationCapture.active();
+
+    snapshot.calibrationSamples =
+        calibrationCapture.
+            storedSamples();
+
+    snapshot.calibrationSummaryAvailable =
+        haveLastCalibrationSummary;
+
+    if (haveLastCalibrationSummary) {
+        snapshot.calibrationSummary =
+            lastCalibrationSummary;
+    }
+
+    snapshot.shadowProbeActive =
+        shadowGainProbeActive();
+
+    snapshot.lastActionSequence =
+        lastWebActionSequence;
+
+    snapshot.lastActionOk =
+        lastWebActionOk;
+
+    snapshot.lastActionMessage =
+        lastWebActionMessage;
+
+    snapshot.freeHeapBytes =
+        ESP.getFreeHeap();
+
+    snapshot.minFreeHeapBytes =
+        ESP.getMinFreeHeap();
+
+    return true;
+}
+
+void handleWebUiAction(
+    ambilight::WebUiActionEvent event) {
+
+    if (!event.ready()) {
+        return;
+    }
+
+    const char* message =
+        "ok";
+
+    bool ok = false;
+
+    switch (event.kind) {
+    case ambilight::WebUiActionKind::
+        Brightness: {
+
+        std::uint8_t value = 0;
+
+        const auto parsed =
+            ambilight::
+                RuntimePayloadParser::
+                    parseBrightness(
+                        event.text(),
+                        value);
+
+        ok =
+            parsed ==
+            ambilight::
+                RuntimePayloadParseResult::
+                    Ok;
+
+        if (ok) {
+            setOutputBrightness(
+                value);
+
+            message =
+                "Brightness applied.";
+        } else {
+            message =
+                "Invalid brightness. Use 0..255.";
+        }
+
+        break;
+    }
+
+    case ambilight::WebUiActionKind::
+        Correction:
+
+        if (std::strcmp(
+                event.text(),
+                "0") == 0) {
+
+            setCorrectionMode(
+                ambilight::
+                    CorrectionMode::
+                        Disabled);
+
+            ok = true;
+        } else if (
+            std::strcmp(
+                event.text(),
+                "1") == 0) {
+
+            setCorrectionMode(
+                ambilight::
+                    CorrectionMode::
+                        Shadow);
+
+            ok = true;
+        } else if (
+            std::strcmp(
+                event.text(),
+                "2") == 0) {
+
+            setCorrectionMode(
+                ambilight::
+                    CorrectionMode::
+                        Active);
+
+            ok = true;
+        }
+
+        message =
+            ok
+                ? "Correction mode applied."
+                : "Invalid correction mode.";
+
+        break;
+
+    case ambilight::WebUiActionKind::
+        Commissioning: {
+
+        const std::uint64_t nowUs =
+            static_cast<std::uint64_t>(
+                esp_timer_get_time());
+
+        if (std::strcmp(
+                event.text(),
+                "0") == 0) {
+
+            finishCommissioning(
+                nowUs,
+                true,
+                "web cancel");
+
+            ok = true;
+            message =
+                "LED test stopped.";
+            break;
+        }
+
+        const std::uint8_t brightness =
+            ledEngine.brightness();
+
+        if (brightness == 0 ||
+            brightness >
+                kCommissioningMaxBrightness) {
+
+            message =
+                "LED test requires brightness 1..64.";
+            break;
+        }
+
+        if (std::strcmp(
+                event.text(),
+                "1") == 0) {
+
+            startCommissioning(
+                ambilight::
+                    LedCommissioningPattern::
+                        SegmentIdentity);
+
+            ok = true;
+        } else if (
+            std::strcmp(
+                event.text(),
+                "2") == 0) {
+
+            startCommissioning(
+                ambilight::
+                    LedCommissioningPattern::
+                        DirectionMarkers);
+
+            ok = true;
+        }
+
+        message =
+            ok
+                ? "LED test started."
+                : "Invalid LED test.";
+
+        break;
+    }
+
+    case ambilight::WebUiActionKind::
+        LedMap:
+
+        if (std::strcmp(
+                event.text(),
+                "reset") == 0) {
+
+            ok =
+                resetLedMappingProfile();
+
+            message =
+                ok
+                    ? "LED mapping reset."
+                    : "LED mapping reset refused.";
+            break;
+        }
+
+        {
+            ambilight::
+                LedMappingProfile profile;
+
+            const auto parsed =
+                ambilight::
+                    RuntimePayloadParser::
+                        parseLedMapping(
+                            event.text(),
+                            profile);
+
+            if (parsed !=
+                ambilight::
+                    RuntimePayloadParseResult::
+                        Ok) {
+
+                message =
+                    "Invalid LED mapping.";
+                break;
+            }
+
+            ok =
+                applyLedMappingProfile(
+                    profile);
+
+            message =
+                ok
+                    ? "LED mapping applied."
+                    : "LED mapping change refused.";
+        }
+
+        break;
+
+    case ambilight::WebUiActionKind::
+        Spatial:
+
+        if (std::strcmp(
+                event.text(),
+                "reset") == 0) {
+
+            ok =
+                resetSpatialProfile();
+
+            message =
+                ok
+                    ? "Spatial profile reset."
+                    : "Spatial reset refused.";
+            break;
+        }
+
+        {
+            ambilight::
+                TofSpatialProfile profile;
+
+            const auto parsed =
+                ambilight::
+                    RuntimePayloadParser::
+                        parseSpatialProfile(
+                            event.text(),
+                            profile);
+
+            if (parsed !=
+                ambilight::
+                    RuntimePayloadParseResult::
+                        Ok) {
+
+                message =
+                    "Invalid spatial profile.";
+                break;
+            }
+
+            ok =
+                applySpatialProfile(
+                    profile);
+
+            message =
+                ok
+                    ? "Spatial profile applied."
+                    : "Spatial change refused.";
+        }
+
+        break;
+
+    case ambilight::WebUiActionKind::
+        GainCurve:
+
+        if (std::strcmp(
+                event.text(),
+                "reset") == 0) {
+
+            ok =
+                resetTofGainCurve();
+
+            message =
+                ok
+                    ? "Gain curve reset."
+                    : "Gain curve reset refused.";
+            break;
+        }
+
+        {
+            std::array<
+                ambilight::GainPoint,
+                ambilight::
+                    DistanceGainCurve::
+                        kMaxPoints>
+                points{};
+
+            std::size_t count = 0;
+
+            const auto parsed =
+                ambilight::
+                    RuntimePayloadParser::
+                        parseGainCurve(
+                            event.text(),
+                            points,
+                            count);
+
+            if (parsed !=
+                ambilight::
+                    RuntimePayloadParseResult::
+                        Ok) {
+
+                message =
+                    "Invalid gain curve.";
+                break;
+            }
+
+            ok =
+                applyTofGainCurve(
+                    points,
+                    count);
+
+            message =
+                ok
+                    ? "Gain curve applied."
+                    : "Gain curve change refused.";
+        }
+
+        break;
+
+    case ambilight::WebUiActionKind::
+        Wifi:
+
+        if (std::strcmp(
+                event.text(),
+                "clear") == 0) {
+
+            recordWebAction(
+                event.sequence,
+                true,
+                "Wi-Fi NVS credentials cleared.");
+
+            clearRuntimeWifiCredentials();
+            return;
+        }
+
+        {
+            char* separator =
+                std::strchr(
+                    event.text(),
+                    '|');
+
+            if (separator == nullptr) {
+                message =
+                    "Wi-Fi payload must be SSID|PASSWORD.";
+                break;
+            }
+
+            *separator = '\0';
+
+            ok =
+                applyWifiCredentials(
+                    event.text(),
+                    separator + 1,
+                    true);
+
+            message =
+                ok
+                    ? "Wi-Fi saved; reconnecting."
+                    : "Wi-Fi credentials rejected.";
+        }
+
+        break;
+
+    case ambilight::WebUiActionKind::
+        Calibration:
+
+        if (std::strcmp(
+                event.text(),
+                "start") == 0) {
+
+            startCalibrationCapture();
+            ok = true;
+            message =
+                "60 s calibration capture started.";
+        } else {
+            message =
+                "Invalid calibration action.";
+        }
+
+        break;
+
+    case ambilight::WebUiActionKind::
+        ShadowProbe:
+
+        if (std::strcmp(
+                event.text(),
+                "start") != 0) {
+
+            message =
+                "Invalid shadow probe action.";
+            break;
+        }
+
+        if (correctionMode !=
+            ambilight::
+                CorrectionMode::
+                    Shadow) {
+
+            message =
+                "Shadow probe requires SHADOW mode.";
+            break;
+        }
+
+        startShadowGainProbe();
+        ok = true;
+        message =
+            "10 s shadow probe started.";
+        break;
+
+    case ambilight::WebUiActionKind::
+        FactoryReset:
+
+        if (std::strcmp(
+                event.text(),
+                "reset") != 0) {
+
+            message =
+                "Invalid factory reset action.";
+            break;
+        }
+
+        if (ledEngine.brightness() != 0) {
+            message =
+                "Factory reset requires brightness 0.";
+            break;
+        }
+
+        recordWebAction(
+            event.sequence,
+            true,
+            "Factory reset accepted.");
+
+        handleFactoryCommand(
+            "reset");
+
+        return;
+
+    case ambilight::WebUiActionKind::
+        None:
+        message =
+            "Unknown web action.";
+        break;
+    }
+
+    recordWebAction(
+        event.sequence,
+        ok,
+        message);
+}
+
 void handleBrightnessCommand(
     const char* command) {
 
