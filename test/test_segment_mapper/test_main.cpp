@@ -221,6 +221,41 @@ void test_disabled_pixel_follows_logical_segment_offset_under_reversal() {
             physicalSeven.segmentOffset));
 }
 
+void test_runtime_topology_accepts_full_920_led_capacity() {
+    LedMappingProfile profile;
+
+    for (auto& segment :
+         profile.segment) {
+
+        segment.logicalLength = 230;
+    }
+
+    TEST_ASSERT_TRUE(
+        profile.valid());
+
+    TEST_ASSERT_EQUAL_UINT16(
+        920,
+        profile.totalLedCount());
+
+    const auto last =
+        SegmentMapper::map(
+            919,
+            profile);
+
+    TEST_ASSERT_TRUE(
+        last.valid);
+
+    TEST_ASSERT_EQUAL_UINT8(
+        static_cast<std::uint8_t>(
+            SegmentId::Left),
+        static_cast<std::uint8_t>(
+            last.segment));
+
+    TEST_ASSERT_EQUAL_UINT16(
+        229,
+        last.segmentOffset);
+}
+
 void test_runtime_lengths_recompute_logical_starts() {
     LedMappingProfile profile;
 
@@ -309,6 +344,7 @@ int main(int, char**) {
     RUN_TEST(test_runtime_profile_can_permute_lanes);
     RUN_TEST(test_runtime_profile_reverses_only_selected_segment);
     RUN_TEST(test_disabled_pixel_follows_logical_segment_offset_under_reversal);
+    RUN_TEST(test_runtime_topology_accepts_full_920_led_capacity);
     RUN_TEST(test_runtime_lengths_recompute_logical_starts);
     RUN_TEST(test_duplicate_runtime_lane_is_rejected);
     RUN_TEST(test_invalid_runtime_reversal_flag_is_rejected);
