@@ -11,6 +11,20 @@
 
 namespace ambilight {
 
+enum class CommissioningRangeTarget : std::uint8_t {
+    LogicalSide = 0,
+    RawGpio
+};
+
+struct CommissioningRangeRequest {
+    CommissioningRangeTarget target =
+        CommissioningRangeTarget::LogicalSide;
+
+    std::uint8_t targetValue = 0;
+    std::uint16_t start = 0;
+    std::uint16_t count = 0;
+};
+
 enum class RuntimePayloadParseResult : std::uint8_t {
     Ok = 0,
     Empty,
@@ -23,6 +37,10 @@ public:
     static RuntimePayloadParseResult parseBrightness(
         const char* text,
         std::uint8_t& brightness);
+
+    static RuntimePayloadParseResult parseCommissioningRange(
+        const char* text,
+        CommissioningRangeRequest& request);
 
     static RuntimePayloadParseResult parseLedMapping(
         const char* text,
