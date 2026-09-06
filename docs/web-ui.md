@@ -69,6 +69,7 @@ Runtime actions:
     POST /api/correction
     POST /api/test
     POST /api/led-map
+    POST /api/pixel-mask
     POST /api/spatial
     POST /api/curve
     POST /api/wifi
@@ -85,6 +86,8 @@ Examples:
     /api/test         0 | 1 | 2
     /api/led-map      0:0,1:0,2:0,3:0
     /api/led-map      reset
+    /api/pixel-mask   -,12,-,0
+    /api/pixel-mask   reset
     /api/spatial      1437.5,1000,0,0,0,0,0,10
     /api/spatial      reset
     /api/curve        50:2048,500:3072,4000:4096
@@ -148,6 +151,35 @@ Shadow probe:
 Invalid web payloads are passed through the same existing typed runtime
 parsers before a setting is applied.
 
+## Disabled pixel mask
+
+The LED commissioning section exposes one optional disabled index for each
+logical segment.
+
+Blank web field means no disabled pixel.
+
+The HTTP payload uses:
+
+    TOP,RIGHT,BOTTOM,LEFT
+
+with `-` for none.
+
+Example:
+
+    -,12,-,0
+
+The index is relative to the logical START marker shown by the direction
+commissioning pattern.
+
+Bounds:
+
+    TOP/BOTTOM  0..229
+    RIGHT/LEFT  0..159
+
+The mask is persisted in NVS and is applied by LedRenderer after correction
+selection. It therefore remains black in DISABLED, SHADOW, ACTIVE and test
+patterns without changing DDP or ToF indexing.
+
 ## Calibration
 
 The web UI can start the existing 60-second observational capture.
@@ -174,6 +206,7 @@ The compact status endpoint includes:
 - spatial profile
 - gain curve
 - runtime LED mapping
+- per-segment disabled-pixel mask
 - commissioning state
 - calibration state/result
 - shadow probe state
