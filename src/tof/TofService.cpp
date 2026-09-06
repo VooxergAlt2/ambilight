@@ -22,6 +22,8 @@ constexpr std::uint32_t kInitRetryMs = 5000;
 constexpr std::uint32_t kPollDelayMs = 100;
 constexpr std::uint32_t kRangingStaleMs = 30000;
 constexpr std::uint32_t kMeasurementIntervalMs = 12000;
+constexpr std::uint32_t kDebugMeasurementIntervalMs = 1000;
+constexpr std::uint32_t kCadencePollMs = 100;
 constexpr std::uint64_t kGainStaleTimeoutUs = 30000000ULL;
 constexpr std::uint8_t kMaxConsecutiveReadFailures = 5;
 
@@ -489,7 +491,7 @@ void TofService::publishResults(
     case TofPlaneChangeAction::RefreshOnly:
         // The fresh sensor frame confirms that the last applied wall plane is
         // still current. Refresh source age/generation only. Do not rebuild
-        // the 780-value distance/gain field.
+        // the active distance/gain field.
         if (!next.gains.failOpen) {
             next.gains.generation =
                 geometry.generation;
@@ -804,6 +806,36 @@ void TofService::refreshGainStaleness(
     }
 }
 
+void TofService::delayForMeasurementCadence() {
+    std::uint32_t elapsedMs = 0;
+
+    for (;;) {
+        const std::uint32_t targetMs =
+            debugMode()
+                ? kDebugMeasurementIntervalMs
+                : kMeasurementIntervalMs;
+
+        if (elapsedMs >= targetMs) {
+            return;
+        }
+
+        const std::uint32_t remainingMs =
+            targetMs - elapsedMs;
+
+        const std::uint32_t sleepMs =
+            std::min<std::uint32_t>(
+                kCadencePollMs,
+                remainingMs);
+
+        vTaskDelay(
+            pdMS_TO_TICKS(
+                sleepMs));
+
+        elapsedMs +=
+            sleepMs;
+    }
+}
+
 void TofService::taskLoop() {
     for (;;) {
         if (!initializeSensor()) {
@@ -906,10 +938,11 @@ void TofService::taskLoop() {
                     readFinishedUs - readStartedUs),
                 readFinishedUs);
 
-            // TV pose changes slowly. Keep the sensor initialized and ranging
-            // internally at 1 Hz, but only transfer/process one 8x8 frame
-            // every ~12 seconds.
-            vTaskDelay(pdMS_TO_TICKS(kMeasurementIntervalMs));
+            // Normal operation intentionally processes a slow TV-pose cadence.
+            // Commissioning/debug mode temporarily shortens it to ~1 second.
+            // The small cadence slices let a newly enabled debug session take
+            // effect without waiting for the old 12-second sleep to finish.
+            delayForMeasurementCadence();
         }
 
         vTaskDelay(pdMS_TO_TICKS(kInitRetryMs));
