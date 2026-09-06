@@ -3497,6 +3497,38 @@ void handleWebUiAction(
         break;
 
     case ambilight::WebUiActionKind::
+        TofDebug:
+
+        if (std::strcmp(
+                event.text(),
+                "start") == 0) {
+
+            ok =
+                startTofDebug();
+
+            message =
+                ok
+                    ? "60 s ToF live debug started."
+                    : "ToF debug requires DISABLED or SHADOW.";
+        } else if (
+            std::strcmp(
+                event.text(),
+                "stop") == 0) {
+
+            stopTofDebug(
+                "web stop");
+
+            ok = true;
+            message =
+                "ToF live debug stopped.";
+        } else {
+            message =
+                "Invalid ToF debug action.";
+        }
+
+        break;
+
+    case ambilight::WebUiActionKind::
         FactoryReset:
 
         if (std::strcmp(
@@ -3818,6 +3850,10 @@ void dispatchSerialCommand(
 
     case ambilight::SerialCommandKind::StartShadowProbe:
         startShadowGainProbe();
+        break;
+
+    case ambilight::SerialCommandKind::TofDebugToggle:
+        toggleTofDebug();
         break;
 
     case ambilight::SerialCommandKind::CorrectionStatus:
