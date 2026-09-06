@@ -4,7 +4,7 @@
 
 Convert plane-derived LED-to-wall distance into an attenuation factor.
 
-The authoritative render source is the exact 780-value wall-plane model.
+The authoritative render source is the exact active per-LED wall-plane model.
 
 The older LEFT/CENTER/RIGHT GainSnapshot remains diagnostic only.
 
@@ -33,7 +33,7 @@ For each logical LED:
     distance_i = wall_z(x_i, y_i) - z_led_i
     gain_i = curve(distance_i)
 
-The curve is evaluated independently for all 780 LEDs when the wall plane or calibration profile requires a rebuild.
+The curve is evaluated independently for all active LEDs when the wall plane or calibration profile requires a rebuild.
 
 ## Runtime calibration
 
@@ -55,7 +55,7 @@ A runtime curve change immediately invalidates existing gain snapshots to unity.
 
 The ToF task then installs the new curve and resets the accepted-plane reference.
 
-The next valid pose therefore rebuilds the entire 780-value field even if the TV itself did not move.
+The next valid pose therefore rebuilds the entire active gain field even if the TV itself did not move.
 
 ## Plane deadband interaction
 
