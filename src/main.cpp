@@ -2723,17 +2723,23 @@ void handleWebUiAction(
 
         if (std::strcmp(
                 event.text(),
-                "start") == 0) {
+                "start") != 0) {
 
-            startCalibrationCapture();
-            ok = true;
-            message =
-                "60 s calibration capture started.";
-        } else {
             message =
                 "Invalid calibration action.";
+            break;
         }
 
+        if (calibrationCapture.active()) {
+            message =
+                "Calibration capture is already active.";
+            break;
+        }
+
+        startCalibrationCapture();
+        ok = true;
+        message =
+            "60 s calibration capture started.";
         break;
 
     case ambilight::WebUiActionKind::
