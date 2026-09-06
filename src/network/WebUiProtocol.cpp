@@ -491,12 +491,12 @@ WebUiParseResult WebUiProtocol::parse(
         const std::size_t lineEnd =
             findSequence(
                 data,
-                headerEnd,
+                headerEnd + 2,
                 kLineEnd,
                 2,
                 lineStart);
 
-        if (lineEnd == headerEnd ||
+        if (lineEnd > headerEnd ||
             lineEnd <= lineStart) {
 
             return
