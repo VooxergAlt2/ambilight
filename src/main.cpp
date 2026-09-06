@@ -1126,7 +1126,7 @@ void handleGainCurveCommand(
 void printFirmwareInfo() {
     Serial.printf(
         "FW name=%s version=%s stage=%u target=%s serial_proto=%u "
-        "logical_leds=%u ddp_port=%u spatial_schema=%u ledmap_schema=%u pixelmask_schema=%u\n",
+        "logical_leds=%u logical_capacity=%u ddp_bytes=%u ddp_port=%u spatial_schema=%u ledmap_schema=%u pixelmask_schema=%u\n",
         ambilight::config::kFirmwareName,
         ambilight::config::kFirmwareVersion,
         static_cast<unsigned>(
@@ -1135,7 +1135,17 @@ void printFirmwareInfo() {
         static_cast<unsigned>(
             ambilight::config::kSerialProtocolVersion),
         static_cast<unsigned>(
-            ambilight::config::kLogicalLedCount),
+            runtimeSettings.
+                ledMappingProfile().
+                totalLedCount()),
+        static_cast<unsigned>(
+            ambilight::config::
+                kLogicalLedCapacity),
+        static_cast<unsigned>(
+            runtimeSettings.
+                ledMappingProfile().
+                totalLedCount() *
+            sizeof(ambilight::Rgb8)),
         static_cast<unsigned>(
             ambilight::DdpUdpService::kPort),
         static_cast<unsigned>(
@@ -2092,14 +2102,11 @@ void printRenderSegmentGain(
     std::uint16_t midpointQ12 =
         ambilight::kGainUnityQ12;
 
-    for (const auto& segmentConfig :
-         ambilight::kSegments) {
+    const auto segmentConfig =
+        context.topology.segmentConfig(
+            segment);
 
-        if (segmentConfig.id != segment ||
-            segmentConfig.logicalLength == 0) {
-            continue;
-        }
-
+    if (segmentConfig.logicalLength > 0) {
         const std::uint16_t midpoint =
             static_cast<std::uint16_t>(
                 segmentConfig.logicalStart +
@@ -2108,8 +2115,6 @@ void printRenderSegmentGain(
         midpointQ12 =
             context.gainForLogicalIndex(
                 midpoint);
-
-        break;
     }
 
     Serial.printf(
@@ -2310,20 +2315,15 @@ void printPerimeterSegmentGain(
     std::uint16_t midpointQ12 =
         ambilight::kGainUnityQ12;
 
-    for (const auto& segmentConfig :
-         ambilight::kSegments) {
+    const auto segmentConfig =
+        gains.topology.segmentConfig(
+            segmentId);
 
-        if (segmentConfig.id != segmentId ||
-            segmentConfig.logicalLength == 0) {
-            continue;
-        }
-
+    if (segmentConfig.logicalLength > 0) {
         midpointQ12 =
             gains.logicalGainQ12[
                 segmentConfig.logicalStart +
                 segmentConfig.logicalLength / 2U];
-
-        break;
     }
 
     Serial.printf(
@@ -3991,10 +3991,18 @@ void printConfiguration() {
             ambilight::config::kSerialProtocolVersion));
 
     Serial.printf(
-        "Logical LEDs=%u payload=%uB DDP=%u poll_budget=%luus max_datagrams=%u\n",
-        static_cast<unsigned>(ambilight::config::kLogicalLedCount),
+        "Logical LEDs=%u/%u capacity payload=%uB DDP=%u poll_budget=%luus max_datagrams=%u\n",
         static_cast<unsigned>(
-            ambilight::config::kLogicalLedCount *
+            runtimeSettings.
+                ledMappingProfile().
+                totalLedCount()),
+        static_cast<unsigned>(
+            ambilight::config::
+                kLogicalLedCapacity),
+        static_cast<unsigned>(
+            runtimeSettings.
+                ledMappingProfile().
+                totalLedCount() *
             sizeof(ambilight::Rgb8)),
         ambilight::DdpUdpService::kPort,
         static_cast<unsigned long>(
@@ -4066,11 +4074,11 @@ void printConfiguration() {
     Serial.println(
         "Spatial: y + Enter=status, yreset, or yW,H,X,Y,Z,ROT,MIRROR,DEADBAND (mm, not in ACTIVE).");
     Serial.println(
-        "LED map: l + Enter=status, lreset, or lTlane:Trev,Rlane:Rrev,Blane:Brev,Llane:Lrev; brightness must be 0.");
+        "LED topology: l + Enter=status, lreset, or lCOUNT:GPIO:REV,... Example l230:18:0,160:19:0,230:20:0,160:21:0; brightness must be 0.");
     Serial.println(
         "LED pixel mask: d + Enter=status, dreset, or dTOP,RIGHT,BOTTOM,LEFT; '-' means none. Example: d-,12,-,0.");
     Serial.println(
-        "LED test: i1=segment colors, i2=direction markers, i0=stop, i + Enter=status; brightness 1..64.");
+        "LED test: i1=segments, i2=direction, i0=stop; jside:SIDE:START:COUNT or jgpio:GPIO:START:COUNT; brightness 1..64.");
     Serial.println(
         "Factory recovery: freset + Enter clears ambilight NVS and restarts; brightness must be 0.");
 
