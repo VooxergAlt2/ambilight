@@ -823,11 +823,11 @@ bool RuntimeSettings::setLedMappingProfile(
 }
 
 bool RuntimeSettings::resetLedMappingProfile() {
-    ledMappingProfile_ = {};
-    ledMappingProfileCustomized_ = false;
-    ledMappingProfilePersisted_ = false;
-
     if (!persistenceAvailable_) {
+        ledMappingProfile_ = {};
+        ledMappingProfileCustomized_ = false;
+        ledMappingProfilePersisted_ = false;
+
         ++stats_.writeFailures;
         return false;
     }
@@ -837,17 +837,29 @@ bool RuntimeSettings::resetLedMappingProfile() {
     const bool hadVersion =
         preferences_.isKey(kLedMappingVersionKey);
 
-    const bool profileOk =
-        !hadProfile ||
-        preferences_.remove(kLedMappingProfileKey);
+    // Version is the commit marker. Remove it first so a later failure while
+    // cleaning the data blob can never resurrect the old topology on reboot.
     const bool versionOk =
         !hadVersion ||
         preferences_.remove(kLedMappingVersionKey);
 
-    if (!profileOk || !versionOk) {
+    if (!versionOk) {
         ++stats_.writeFailures;
         return false;
     }
+
+    const bool profileOk =
+        !hadProfile ||
+        preferences_.remove(kLedMappingProfileKey);
+
+    if (!profileOk) {
+        // The stale blob is now inert because its version marker is gone.
+        ++stats_.writeFailures;
+    }
+
+    ledMappingProfile_ = {};
+    ledMappingProfileCustomized_ = false;
+    ledMappingProfilePersisted_ = false;
 
     if (hadProfile || hadVersion) {
         ++stats_.writes;
@@ -905,11 +917,11 @@ bool RuntimeSettings::setLedPixelMaskProfile(
 }
 
 bool RuntimeSettings::resetLedPixelMaskProfile() {
-    ledPixelMaskProfile_ = {};
-    ledPixelMaskProfileCustomized_ = false;
-    ledPixelMaskProfilePersisted_ = false;
-
     if (!persistenceAvailable_) {
+        ledPixelMaskProfile_ = {};
+        ledPixelMaskProfileCustomized_ = false;
+        ledPixelMaskProfilePersisted_ = false;
+
         ++stats_.writeFailures;
         return false;
     }
@@ -922,22 +934,31 @@ bool RuntimeSettings::resetLedPixelMaskProfile() {
         preferences_.isKey(
             kLedPixelMaskVersionKey);
 
-    const bool profileOk =
-        !hadProfile ||
-        preferences_.remove(
-            kLedPixelMaskProfileKey);
-
+    // Remove the commit marker first. A leftover data blob without its
+    // schema/version marker is ignored at boot and therefore cannot restore
+    // a mask that the operator already reset.
     const bool versionOk =
         !hadVersion ||
         preferences_.remove(
             kLedPixelMaskVersionKey);
 
-    if (!profileOk ||
-        !versionOk) {
-
+    if (!versionOk) {
         ++stats_.writeFailures;
         return false;
     }
+
+    const bool profileOk =
+        !hadProfile ||
+        preferences_.remove(
+            kLedPixelMaskProfileKey);
+
+    if (!profileOk) {
+        ++stats_.writeFailures;
+    }
+
+    ledPixelMaskProfile_ = {};
+    ledPixelMaskProfileCustomized_ = false;
+    ledPixelMaskProfilePersisted_ = false;
 
     if (hadProfile ||
         hadVersion) {
