@@ -2453,6 +2453,18 @@ bool fillWebUiSnapshot(
         runtimeSettings.
             ledMappingProfilePersisted();
 
+    snapshot.ledPixelMask =
+        runtimeSettings.
+            ledPixelMaskProfile();
+
+    snapshot.ledPixelMaskCustomized =
+        runtimeSettings.
+            ledPixelMaskProfileCustomized();
+
+    snapshot.ledPixelMaskPersisted =
+        runtimeSettings.
+            ledPixelMaskProfilePersisted();
+
     snapshot.commissioningPattern =
         static_cast<std::uint8_t>(
             commissioningPattern);
@@ -2712,6 +2724,56 @@ void handleWebUiAction(
                 ok
                     ? "LED mapping applied."
                     : "LED mapping change refused.";
+        }
+
+        break;
+
+    case ambilight::WebUiActionKind::
+        PixelMask:
+
+        if (std::strcmp(
+                event.text(),
+                "reset") == 0) {
+
+            ok =
+                resetLedPixelMaskProfile();
+
+            message =
+                ok
+                    ? "Disabled-pixel mask reset."
+                    : "Disabled-pixel mask reset failed.";
+            break;
+        }
+
+        {
+            ambilight::
+                LedPixelMaskProfile profile;
+
+            const auto parsed =
+                ambilight::
+                    RuntimePayloadParser::
+                        parseLedPixelMask(
+                            event.text(),
+                            profile);
+
+            if (parsed !=
+                ambilight::
+                    RuntimePayloadParseResult::
+                        Ok) {
+
+                message =
+                    "Invalid disabled-pixel mask.";
+                break;
+            }
+
+            ok =
+                applyLedPixelMaskProfile(
+                    profile);
+
+            message =
+                ok
+                    ? "Disabled-pixel mask applied."
+                    : "Disabled-pixel mask change failed.";
         }
 
         break;
@@ -3122,6 +3184,11 @@ void printSerialFramingError(
             "LED MAP command invalid/too long.");
         break;
 
+    case ambilight::SerialCommandKind::LedPixelMask:
+        Serial.println(
+            "LED PIXEL MASK command invalid/too long.");
+        break;
+
     case ambilight::SerialCommandKind::Spatial:
         Serial.println(
             tooLong
@@ -3182,6 +3249,11 @@ void dispatchSerialCommand(
 
     case ambilight::SerialCommandKind::LedMap:
         handleLedMapCommand(
+            event.text());
+        break;
+
+    case ambilight::SerialCommandKind::LedPixelMask:
+        handleLedPixelMaskCommand(
             event.text());
         break;
 
