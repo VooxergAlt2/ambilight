@@ -1351,7 +1351,8 @@ bool serviceCommissioning(
 
     if (!commissioningDirty &&
         !brightnessDirty &&
-        !ledMappingDirty) {
+        !ledMappingDirty &&
+        !ledPixelMaskDirty) {
 
         return true;
     }
@@ -1375,6 +1376,7 @@ bool serviceCommissioning(
     commissioningDirty = false;
     brightnessDirty = false;
     ledMappingDirty = false;
+    ledPixelMaskDirty = false;
 
     return true;
 }
@@ -1444,6 +1446,7 @@ bool serviceRender(std::uint64_t nowUs) {
         correctionModeDirty ||
         brightnessDirty ||
         ledMappingDirty ||
+        ledPixelMaskDirty ||
         (
             gainPipelineEnabled &&
             (
@@ -1513,6 +1516,7 @@ bool serviceRender(std::uint64_t nowUs) {
     correctionModeDirty = false;
     brightnessDirty = false;
     ledMappingDirty = false;
+    ledPixelMaskDirty = false;
 
     if (decision.dueToRgb) {
         rgbDirty = false;
@@ -3616,6 +3620,14 @@ void setup() {
 
         fatal(
             "LED runtime mapping profile is invalid",
+            ESP_ERR_INVALID_ARG);
+    }
+
+    if (!renderer.setPixelMaskProfile(
+            runtimeSettings.ledPixelMaskProfile())) {
+
+        fatal(
+            "LED runtime pixel-mask profile is invalid",
             ESP_ERR_INVALID_ARG);
     }
 
