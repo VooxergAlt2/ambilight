@@ -466,6 +466,8 @@ void printLedMappingProfile() {
     Serial.println();
 }
 
+void refreshRgbCache();
+
 void invalidateRuntimeAfterTopologyChange(
     const ambilight::LedMappingProfile& profile) {
 
