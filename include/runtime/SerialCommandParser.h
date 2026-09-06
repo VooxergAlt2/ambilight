@@ -11,6 +11,7 @@ enum class SerialCommandKind : std::uint8_t {
 
     Correction,
     Commissioning,
+    CommissioningRange,
 
     Factory,
     LedMap,
@@ -89,6 +90,7 @@ private:
         AwaitCommissioningArgument,
 
         LineFactory,
+        LineCommissioningRange,
         LineLedMap,
         LineLedPixelMask,
         LineSpatial,
