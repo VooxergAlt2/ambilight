@@ -358,6 +358,12 @@ SerialCommandParser::feed(
             SerialCommandKind::
                 StartShadowProbe);
 
+    case 'z':
+    case 'Z':
+        return emitImmediate(
+            SerialCommandKind::
+                TofDebugToggle);
+
     case 'm':
     case 'M':
         return emitImmediate(
