@@ -102,7 +102,7 @@ public:
     }
 
 private:
-    static PerimeterGainSnapshot unitySnapshot(
+    PerimeterGainSnapshot unitySnapshot(
         std::uint32_t generation,
         std::uint64_t sourceTimestampUs,
         bool planeUsable);
