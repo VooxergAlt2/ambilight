@@ -16,7 +16,7 @@ Firmware requests:
 
     SO_RCVBUF = 32768 bytes
 
-The request is deliberately larger than one 2340-byte RGB frame so short scheduling/network bursts have room before user-space polling catches up.
+The request is deliberately larger than the default 2340-byte RGB frame and the Stage 38 maximum 2760-byte frame so short scheduling/network bursts have room before user-space polling catches up.
 
 ## Configuration sequence
 
