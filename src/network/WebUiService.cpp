@@ -48,7 +48,8 @@ textarea{width:100%;min-height:62px;resize:vertical;font-family:ui-monospace,SFM
 button{cursor:pointer}button.primary{background:var(--accent);color:#fff;border-color:transparent}button.danger{color:var(--danger)}button:disabled{opacity:.45;cursor:not-allowed}
 .seg{display:grid;grid-template-columns:85px 90px 105px 110px;gap:8px;align-items:center;margin:6px 0}.spatial{display:grid;grid-template-columns:repeat(4,minmax(115px,1fr));gap:8px}.field{display:flex;flex-direction:column;gap:4px}
 #action{min-height:20px;margin:12px 0}.ok{color:var(--ok)}.bad{color:var(--danger)}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:var(--bg);padding:10px;border-radius:8px;border:1px solid var(--line)}
-@media(max-width:680px){.cards{grid-template-columns:repeat(2,1fr)}.cols,.spatial{grid-template-columns:1fr 1fr}.seg{grid-template-columns:65px 80px 1fr 90px}header{align-items:flex-start;flex-direction:column}}
+.tofgrid{display:grid;grid-template-columns:repeat(8,minmax(42px,1fr));gap:4px}.tofcell{padding:6px 3px;min-height:48px;font:11px/1.15 ui-monospace,SFMono-Regular,Consolas,monospace}.tofcell strong{display:block;font-size:12px}.tofcell.usable{border-color:var(--ok)}.tofcell.weak{border-style:dashed}.tofcell.rejected{opacity:.55}.tofcell.selected{outline:2px solid var(--accent);outline-offset:1px}
+@media(max-width:680px){.cards{grid-template-columns:repeat(2,1fr)}.cols,.spatial{grid-template-columns:1fr 1fr}.seg{grid-template-columns:65px 80px 1fr 90px}.tofgrid{grid-template-columns:repeat(8,minmax(34px,1fr));gap:2px}.tofcell{padding:4px 1px;font-size:9px;min-height:42px}header{align-items:flex-start;flex-direction:column}}
 </style>
 </head>
 <body>
@@ -135,10 +136,31 @@ button{cursor:pointer}button.primary{background:var(--accent);color:#fff;border-
 </div>
 </details>
 
-<details>
-<summary>ToF geometry & correction</summary>
+<details open>
+<summary>Пусконаладка ToF</summary>
 <div class="section">
-<h2>Spatial profile</h2>
+<h2>Live 8×8 debug</h2>
+<div class="row">
+<button id="tofDebugStart" class="primary" onclick="post('/api/tof-debug','start')">Live debug 60 s</button>
+<button id="tofDebugStop" onclick="post('/api/tof-debug','stop')">Stop</button>
+<span id="tofDebugState" class="muted"></span>
+</div>
+<div class="muted">Матрица уже нормализована текущими ROT/MIRROR. Верх сетки = TOP ТВ. status 5 = full confidence, 6/9 = usable lower weight.</div>
+<div class="cols" style="margin-top:12px">
+<div>
+<div class="muted" style="text-align:center">TOP ↑</div>
+<div id="tofGrid" class="tofgrid"></div>
+<div class="muted">← LEFT · RIGHT →</div>
+</div>
+<div>
+<h2>Selected zone</h2>
+<pre id="tofZoneDetail">click a zone</pre>
+<h2>Plane</h2>
+<pre id="tofDetail">—</pre>
+</div>
+</div>
+
+<h2 style="margin-top:16px">Spatial profile</h2>
 <div class="spatial">
 <div class="field"><label>Width mm</label><input id="spW" type="number" step=".1"></div>
 <div class="field"><label>Height mm</label><input id="spH" type="number" step=".1"></div>
@@ -164,10 +186,6 @@ button{cursor:pointer}button.primary{background:var(--accent);color:#fff;border-
 </div>
 
 <div class="cols">
-<div>
-<h2>Live ToF</h2>
-<pre id="tofDetail">—</pre>
-</div>
 <div>
 <h2>Calibration</h2>
 <div class="row">
