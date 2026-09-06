@@ -98,6 +98,7 @@ void test_all_action_routes_map_to_expected_kind() {
         {"/api/wifi", WebUiActionKind::Wifi},
         {"/api/calibration", WebUiActionKind::Calibration},
         {"/api/shadow-probe", WebUiActionKind::ShadowProbe},
+        {"/api/tof-debug", WebUiActionKind::TofDebug},
         {"/api/factory", WebUiActionKind::FactoryReset}
     };
 
