@@ -3373,6 +3373,11 @@ void printConfiguration() {
         static_cast<unsigned>(
             ledEngine.brightness()));
 
+    Serial.printf(
+        "Web UI HTTP/%u single-client, bounded 512B recv / 1024B send per main-loop service step.\n",
+        static_cast<unsigned>(
+            ambilight::WebUiService::kPort));
+
     const auto& spatialProfile =
         runtimeSettings.tofSpatialProfile();
 
