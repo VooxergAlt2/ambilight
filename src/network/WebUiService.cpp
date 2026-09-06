@@ -104,7 +104,7 @@ button{cursor:pointer}button.primary{background:var(--accent);color:#fff;border-
 <div id="pixelMask"></div>
 <div class="row">
 <button class="primary" onclick="applyPixelMask()">Apply mask</button>
-<button onclick="post('/api/pixel-mask','-,-,-,-')">Clear mask</button>
+<button onclick="post('/api/pixel-mask','reset')">Clear mask</button>
 <span id="maskSource" class="muted"></span>
 </div>
 <div class="muted">По одному пикселю на сегмент. Пусто = не отключать. Индекс считается от START.</div>
