@@ -45,6 +45,41 @@ function Resolve-PlatformIo {
 
 $PlatformIo = Resolve-PlatformIo
 
+function Resolve-Python {
+    if (Get-Command py -ErrorAction SilentlyContinue) {
+        return "py"
+    }
+
+    if (Get-Command python -ErrorAction SilentlyContinue) {
+        return "python"
+    }
+
+    throw "Python launcher not found; partition validation cannot run."
+}
+
+$Python = Resolve-Python
+
+function Invoke-PythonLogged {
+    param(
+        [string[]]$Arguments,
+        [string]$LogFile
+    )
+
+    Write-Host ""
+    Write-Host ">>> Python $($Arguments -join ' ')"
+
+    $PreviousErrorActionPreference = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+
+    try {
+        & $Python @Arguments 2>&1 | Tee-Object -FilePath $LogFile | Out-Host
+        return [int]$LASTEXITCODE
+    }
+    finally {
+        $ErrorActionPreference = $PreviousErrorActionPreference
+    }
+}
+
 function Invoke-PlatformIoLogged {
     param(
         [string[]]$Arguments,
@@ -78,6 +113,9 @@ function Invoke-PlatformIoLogged {
 Push-Location $RepoRoot
 
 try {
+    $PartitionLog = Join-Path $OutputDir "partition-check.log"
+    $PartitionExit = Invoke-PythonLogged -Arguments @("tools/check_partition.py") -LogFile $PartitionLog
+
     $NativeExit = 0
     $FirmwareExit = 0
 
@@ -94,6 +132,7 @@ try {
     $Summary = @(
         "Ambilight local validation"
         "timestamp=$Timestamp"
+        "partition_exit=$PartitionExit"
         "native_skipped=$SkipNative"
         "native_exit=$NativeExit"
         "firmware_skipped=$SkipFirmware"
@@ -107,7 +146,7 @@ try {
     Write-Host ""
     Write-Host ($Summary -join [Environment]::NewLine)
 
-    if ($NativeExit -ne 0 -or $FirmwareExit -ne 0) {
+    if ($PartitionExit -ne 0 -or $NativeExit -ne 0 -or $FirmwareExit -ne 0) {
         exit 1
     }
 
