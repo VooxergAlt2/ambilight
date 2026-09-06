@@ -4,7 +4,7 @@ Custom ESP32-C6 Ambilight endpoint for HyperHDR.
 
 ## Current development line
 
-Stage 38 adds a complete commissioning layer. LED topology is runtime-configurable (side lengths, GPIO assignment and direction), DDP frame size follows the active total, logical/raw GPIO range tests are available, and ToF has a transient 8x8 live-debug mode for orientation and plane commissioning.
+Stage 39 is the pre-flash hardening line. It keeps the Stage 38 commissioning feature set, closes runtime-topology rollback/physical-buffer edge cases, and pins deployment to a validated 16 MiB dual-slot partition layout.
 
 The firmware stack now includes:
 
@@ -263,11 +263,19 @@ Stage 35 was validated locally on Windows with:
     147 native tests passed
     ESP32-C6 firmware build passed
 
-Stage 38 is not validated until a fresh native + full ESP32-C6 build passes.
-The deployment partition is now intended to be adapted to the current 16 MB
-flash layout before flashing. The old Stage 35 1.31 MB application-partition
-percentage is historical and no longer the target partition limit, but RAM,
-binary size and final partition fit must still be recorded.
+Stage 39 adds a mandatory partition-layout gate before native/firmware checks.
+The target layout is now committed as:
+
+    partitions/ambilight_16mb_ota.csv
+
+It provides two 7 MiB application slots inside the 16 MiB flash image. The
+local validation scripts run tools/check_partition.py first and fail if the
+layout overlaps, loses required alignment, exceeds 16 MiB, or changes the
+expected app-slot size.
+
+Stage 39 is not release-validated until a fresh partition + native + full
+ESP32-C6 build passes. Final RAM usage, firmware binary size and 7 MiB
+application-slot fit must be recorded before flashing.
 
 
 ## Runtime LED topology
@@ -293,6 +301,9 @@ Rules:
 
 Changing topology updates renderer, DDP expected frame bytes and ToF
 perimeter sampling together. Old cached RGB/gains are invalidated safely.
+Any actual mapping change also clears all fixed 230-pixel PARLIO lane buffers,
+so inactive physical addresses beyond a shortened/remapped side cannot retain
+old RGB values.
 
 
 ## Disabled pixel mask
@@ -465,7 +476,7 @@ reports:
 
 Current source identity:
 
-    ambilight-c6 0.38.0-dev Stage 38
+    ambilight-c6 0.39.0-dev Stage 39
     serial protocol 2
 
 Startup uses the same centralized FirmwareInfo constants instead of a handwritten stage banner.
