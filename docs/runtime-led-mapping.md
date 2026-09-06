@@ -1,101 +1,100 @@
-# Runtime LED mapping profile
+# Runtime LED topology profile
 
 ## Purpose
 
-Physical strip wiring can differ from the logical HyperHDR perimeter.
+Stage 38 evolves the old lane/reversal-only mapping into the authoritative
+runtime LED topology.
 
-Stage 27 makes two mounting-dependent properties configurable without rebuilding firmware:
+For each logical TV side the profile stores:
 
-- logical segment -> PARLIO lane
-- logical segment direction (forward/reversed)
+- active LED count
+- physical PARLIO output, surfaced as GPIO
+- forward/reversed direction
 
-GPIO numbers and segment lengths remain compile-time constants.
+No firmware rebuild is required.
 
-## Logical segments
+## Capacity and default
 
-The logical RGB frame remains fixed:
+Static capacity:
 
-    TOP     0..229
-    RIGHT   230..389
-    BOTTOM  390..619
-    LEFT    620..779
+    4 lanes x 230 = 920 LEDs
 
-Changing the runtime map does not change HyperHDR geometry or ToF logical coordinates.
+Default topology:
 
-## Default map
+    TOP     230 : GPIO18 : FWD
+    RIGHT   160 : GPIO19 : FWD
+    BOTTOM  230 : GPIO20 : FWD
+    LEFT    160 : GPIO21 : FWD
 
-    TOP     lane 0 FWD
-    RIGHT   lane 1 FWD
-    BOTTOM  lane 2 FWD
-    LEFT    lane 3 FWD
+The logical frame is contiguous in TOP, RIGHT, BOTTOM, LEFT order. Logical
+starts are recomputed from configured lengths.
 
 ## Serial commands
 
-Show active map:
+Status:
 
     l<Enter>
 
-Set map:
+Set:
 
-    lTlane:Trev,Rlane:Rrev,Blane:Brev,Llane:Lrev<Enter>
+    lCOUNT:GPIO:REV,COUNT:GPIO:REV,COUNT:GPIO:REV,COUNT:GPIO:REV<Enter>
 
-Example default:
+Default example:
 
-    l0:0,1:0,2:0,3:0<Enter>
-
-Example with TOP on lane 3 reversed:
-
-    l3:1,1:0,2:0,0:0<Enter>
+    l230:18:0,160:19:0,230:20:0,160:21:0<Enter>
 
 Reset:
 
     lreset<Enter>
 
-Reversal flag:
-
-    0 = forward
-    1 = reversed
-
 ## Validation
 
-A valid map requires:
+For every side:
 
-- lane in 0..3
-- reversal in 0..1
-- every physical lane used exactly once
+    COUNT  1..230
+    GPIO   18 | 19 | 20 | 21
+    REV    0 | 1
 
-Duplicate lanes are rejected.
+Every GPIO must be used exactly once.
 
-## Safety boundary
+Topology edits require:
 
-Mapping edits are accepted only when:
+    brightness = 0
 
-    output brightness = 0
+## Coordinated runtime behavior
 
-This prevents a lane permutation from becoming visible unexpectedly while live content is displayed.
+A valid topology apply coordinates all dependent subsystems:
 
-Recommended commissioning flow:
+1. ToF receives the new LED sampling topology
+2. DDP expected frame size becomes totalLedCount * 3
+3. sender lease and assembler sequence epoch reset
+4. LedRenderer switches logical-to-physical mapping
+5. disabled-pixel entries outside shortened sides are cleared
+6. cached RGB is replaced with a black frame carrying the new pixelCount
+7. gain state returns fail-open/unity until a fresh ToF projection exists
 
-1. b0
-2. change mapping
-3. verify status
-4. restore a low brightness
-5. run commissioning pattern / HyperHDR test
+This avoids mixed old/new topology frames.
 
-## Runtime behavior
+## Physical GPIO model
 
-LedRenderer owns the active mapping profile.
+PARLIO is initialized on four fixed physical outputs:
 
-For every logical LED:
+    lane 0 -> GPIO18
+    lane 1 -> GPIO19
+    lane 2 -> GPIO20
+    lane 3 -> GPIO21
 
-1. determine logical segment/offset
-2. apply runtime lane selection
-3. apply runtime reversal
-4. send the resulting physical lane/index to LedEngine
+The commissioning UI exposes GPIO numbers, not internal lane numbers.
 
-ToF gains remain indexed in logical screen order before this physical mapping layer.
+Raw GPIO tests can directly light a physical lane before logical side
+assignment is trusted.
 
-Therefore a reversed strip cannot reverse the wall-distance correction model.
+## ToF independence from wiring direction
+
+ToF distance/gain is calculated in logical screen order.
+
+Physical GPIO assignment and REV are applied afterward by SegmentMapper.
+Therefore rewiring or reversing a strip cannot reverse the wall model.
 
 ## NVS
 
@@ -110,16 +109,9 @@ Keys:
 
 Schema:
 
-    1
+    2
 
-The mapping blob is written first.
+The blob is written first and the version commit marker last.
 
-Version is written last as the commit marker.
-
-Invalid stored profiles are removed and firmware falls back to the default map.
-
-Diagnostics distinguish:
-
-    DEFAULT
-    CUSTOM_NVS
-    CUSTOM_RUNTIME
+A stale/incompatible mapping schema falls back to the Stage 38 default
+topology and can then be recommissioned from the web UI.
