@@ -47,7 +47,9 @@ These emit an event as soon as the selector byte is received:
     c/C  calibration capture
     r/R  render diagnostics
     x/X  shadow probe
+    z/Z  toggle 60 s ToF live debug
     m/M  correction status
+    v/V  firmware identity
 
 ## One-argument commands
 
@@ -79,7 +81,8 @@ The parser waits for exactly one byte after i/I.
 These collect printable ASCII until CR or LF:
 
     f...  factory recovery
-    l...  LED mapping
+    j...  LED commissioning range
+    l...  LED runtime topology
     d...  disabled LED pixel mask
     y...  ToF spatial profile
     q...  ToF gain curve
@@ -93,7 +96,8 @@ CRLF produces only one event. The second newline is idle input and is ignored.
 The parser preserves the previous fixed-buffer limits:
 
     factory       15 chars
-    LED map       63 chars
+    LED range      47 chars
+    LED topology   95 chars
     pixel mask     31 chars
     spatial      127 chars
     gain curve   127 chars
@@ -141,7 +145,7 @@ The parser does not decide whether these are meaningful:
     qbad-data
     ybad-data
     wmissing-separator
-    lduplicate-lanes
+    lbad-count-or-gpio
     fnot-reset
 
 They are valid serial frames.
@@ -149,6 +153,29 @@ They are valid serial frames.
 Their existing semantic handlers validate the payload and produce the user-facing error.
 
 This keeps framing and subsystem rules separate.
+
+## Stage 38 semantic payloads
+
+The serial protocol version is now 2 because the meaning of `l` changed.
+
+Topology:
+
+    lCOUNT:GPIO:REV,COUNT:GPIO:REV,COUNT:GPIO:REV,COUNT:GPIO:REV
+
+Example:
+
+    l230:18:0,160:19:0,230:20:0,160:21:0
+
+Range commissioning:
+
+    jside:SIDE:START:COUNT
+    jgpio:GPIO:START:COUNT
+
+ToF live debug:
+
+    z
+
+toggles a transient 60-second session. It is refused in ACTIVE mode.
 
 ## Native contracts
 
@@ -158,6 +185,8 @@ test/test_serial_command_parser covers:
 - case-insensitive immediate selectors
 - correction one-byte framing
 - commissioning one-byte framing
+- commissioning range line framing
+- ToF debug immediate selector
 - CRLF behavior
 - empty status line commands
 - full 32+63 Wi-Fi payload
