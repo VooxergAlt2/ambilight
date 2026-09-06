@@ -53,8 +53,19 @@ esp_err_t LedRenderer::render(
         static_cast<std::size_t>(SegmentId::Count)>
         frameChangedBySegment{};
 
+    const std::uint16_t activeLedCount =
+        mappingProfile_.totalLedCount();
+
+    if (!mappingProfile_.valid() ||
+        frame.pixelCount !=
+            activeLedCount) {
+
+        ++mappingErrors_;
+        return ESP_ERR_INVALID_ARG;
+    }
+
     for (std::uint16_t logical = 0;
-         logical < config::kLogicalLedCount;
+         logical < activeLedCount;
          ++logical) {
 
         const PhysicalPixel mapped =
@@ -182,7 +193,7 @@ esp_err_t LedRenderer::render(
     }
 
     shadowStats_.evaluatedPixels +=
-        config::kLogicalLedCount;
+        activeLedCount;
 
     shadowStats_.wouldChangePixels +=
         frameWouldChangePixels;
