@@ -106,11 +106,18 @@ esp_err_t LedRenderer::render(
                 frameMaxChannelDelta,
                 shadow.maxChannelDelta);
 
-        const Rgb8 physicalOutput =
+        Rgb8 physicalOutput =
             CorrectionOutputPolicy::physicalOutput(
                 correctionMode,
                 original,
                 shadow);
+
+        if (pixelMaskProfile_.disabled(
+                mapped.segment,
+                mapped.segmentOffset)) {
+
+            physicalOutput = {};
+        }
 
         if (physicalOutput.r != original.r ||
             physicalOutput.g != original.g ||
