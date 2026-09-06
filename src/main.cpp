@@ -13,6 +13,7 @@
 #include "config/BoardConfig.h"
 #include "config/FirmwareInfo.h"
 #include "config/RuntimeSettings.h"
+#include "config/TofCalibration.h"
 #include "config/WifiCredentials.h"
 #include "core/FrameMailbox.h"
 #include "core/LatencyHistogram.h"
@@ -265,6 +266,14 @@ bool applyWifiCredentials(
 bool clearRuntimeWifiCredentials() {
     const bool cleared =
         runtimeSettings.clearWifiCredentials();
+
+    if (!cleared &&
+        runtimeSettings.persistenceAvailable()) {
+
+        Serial.println(
+            "Wi-Fi clear failed: persisted credentials remain authoritative; live networking unchanged.");
+        return false;
+    }
 
     if (ambilight::config::wifiCredentialsPresent()) {
         if (!wifi.configure(
@@ -846,6 +855,14 @@ bool resetLedPixelMaskProfile() {
     const bool persisted =
         runtimeSettings.resetLedPixelMaskProfile();
 
+    if (!persisted &&
+        runtimeSettings.persistenceAvailable()) {
+
+        Serial.println(
+            "LED PIXEL MASK reset failed: persisted mask remains active.");
+        return false;
+    }
+
     if (!renderer.setPixelMaskProfile(
             runtimeSettings.ledPixelMaskProfile())) {
 
@@ -858,7 +875,7 @@ bool resetLedPixelMaskProfile() {
 
     Serial.printf(
         "LED PIXEL MASK reset; persisted=%s.\n",
-        persisted ? "yes" : "no");
+        persisted ? "yes" : "runtime-only");
 
     printLedPixelMaskProfile();
     return true;
@@ -1000,17 +1017,34 @@ bool resetSpatialProfile() {
         return false;
     }
 
-    const bool persisted =
-        runtimeSettings.resetTofSpatialProfile();
-
-    const auto profile =
+    const ambilight::TofSpatialProfile previous =
         runtimeSettings.tofSpatialProfile();
+
+    const ambilight::TofSpatialProfile profile;
 
     if (!tof.setSpatialProfile(
             profile)) {
 
         Serial.println(
-            "TOF SPATIAL reset stored, but sensor service could not queue it. Reboot will load the default.");
+            "TOF SPATIAL reset refused: sensor service could not queue the default profile.");
+        return false;
+    }
+
+    const bool persisted =
+        runtimeSettings.resetTofSpatialProfile();
+
+    if (!persisted &&
+        runtimeSettings.persistenceAvailable()) {
+
+        if (!tof.setSpatialProfile(
+                previous)) {
+
+            Serial.println(
+                "TOF SPATIAL reset failed and live rollback could not be queued; keep correction out of ACTIVE and reboot.");
+        }
+
+        Serial.println(
+            "TOF SPATIAL reset failed: persisted profile remains authoritative.");
         return false;
     }
 
@@ -1018,7 +1052,7 @@ bool resetSpatialProfile() {
 
     Serial.printf(
         "TOF SPATIAL profile reset to default; persisted=%s. Waiting for next valid pose rebuild.\n",
-        persisted ? "yes" : "no");
+        persisted ? "yes" : "runtime-only");
 
     printSpatialProfile();
     return true;
@@ -1178,17 +1212,36 @@ bool resetTofGainCurve() {
         return false;
     }
 
-    const bool persisted =
-        runtimeSettings.resetTofGainCurve();
-
-    const ambilight::DistanceGainCurve curve =
+    const ambilight::DistanceGainCurve previous =
         runtimeSettings.tofGainCurve();
+
+    const ambilight::DistanceGainCurve curve(
+        ambilight::config::kTofGainPoints,
+        ambilight::config::kTofGainPointCount);
 
     if (!tof.setGainCurve(
             curve)) {
 
         Serial.println(
-            "TOF CURVE reset stored, but sensor service could not queue it. Reboot will load the default.");
+            "TOF CURVE reset refused: sensor service could not queue the default curve.");
+        return false;
+    }
+
+    const bool persisted =
+        runtimeSettings.resetTofGainCurve();
+
+    if (!persisted &&
+        runtimeSettings.persistenceAvailable()) {
+
+        if (!tof.setGainCurve(
+                previous)) {
+
+            Serial.println(
+                "TOF CURVE reset failed and live rollback could not be queued; keep correction out of ACTIVE and reboot.");
+        }
+
+        Serial.println(
+            "TOF CURVE reset failed: persisted curve remains authoritative.");
         return false;
     }
 
@@ -1196,7 +1249,7 @@ bool resetTofGainCurve() {
 
     Serial.printf(
         "TOF CURVE reset to default; persisted=%s. Waiting for next valid ToF pose rebuild.\n",
-        persisted ? "yes" : "no");
+        persisted ? "yes" : "runtime-only");
 
     printTofGainCurve();
     return true;
