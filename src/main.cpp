@@ -1020,7 +1020,7 @@ void handleGainCurveCommand(
 void printFirmwareInfo() {
     Serial.printf(
         "FW name=%s version=%s stage=%u target=%s serial_proto=%u "
-        "logical_leds=%u ddp_port=%u spatial_schema=%u ledmap_schema=%u\n",
+        "logical_leds=%u ddp_port=%u spatial_schema=%u ledmap_schema=%u pixelmask_schema=%u\n",
         ambilight::config::kFirmwareName,
         ambilight::config::kFirmwareVersion,
         static_cast<unsigned>(
@@ -1035,7 +1035,9 @@ void printFirmwareInfo() {
         static_cast<unsigned>(
             ambilight::TofSpatialProfile::kSchemaVersion),
         static_cast<unsigned>(
-            ambilight::LedMappingProfile::kSchemaVersion));
+            ambilight::LedMappingProfile::kSchemaVersion),
+        static_cast<unsigned>(
+            ambilight::LedPixelMaskProfile::kSchemaVersion));
 }
 
 void printCorrectionMode() {
@@ -3547,7 +3549,7 @@ void printRuntimeStatus() {
         static_cast<unsigned long>(ESP.getMinFreeHeap()));
 
     Serial.printf(
-        "STATCFG fw=%s stage=%u curve=%s curve_points=%u curve_updates=%lu spatial=%s spatial_updates=%lu ledmap=%s ledtest=%s\n",
+        "STATCFG fw=%s stage=%u curve=%s curve_points=%u curve_updates=%lu spatial=%s spatial_updates=%lu ledmap=%s pixelmask=%s ledtest=%s\n",
         ambilight::config::kFirmwareVersion,
         static_cast<unsigned>(
             ambilight::config::kDevelopmentStage),
@@ -3564,6 +3566,7 @@ void printRuntimeStatus() {
                   tofSnapshot.spatialProfileUpdates)
             : 0UL,
         ledMappingSourceName(),
+        ledPixelMaskSourceName(),
         commissioningPatternName(
             commissioningPattern));
 }
@@ -3658,11 +3661,14 @@ void printConfiguration() {
     Serial.println(
         "LED map: l + Enter=status, lreset, or lTlane:Trev,Rlane:Rrev,Blane:Brev,Llane:Lrev; brightness must be 0.");
     Serial.println(
+        "LED pixel mask: d + Enter=status, dreset, or dTOP,RIGHT,BOTTOM,LEFT; '-' means none. Example: d-,12,-,0.");
+    Serial.println(
         "LED test: i1=segment colors, i2=direction markers, i0=stop, i + Enter=status; brightness 1..64.");
     Serial.println(
         "Factory recovery: freset + Enter clears ambilight NVS and restarts; brightness must be 0.");
 
     printLedMappingProfile();
+    printLedPixelMaskProfile();
 
     Serial.println(
         "Active frame transport remains Wi-Fi/DDP only. "
