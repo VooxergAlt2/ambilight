@@ -6,6 +6,7 @@
 #include <type_traits>
 
 #include "core/Geometry.h"
+#include "led/LedMappingProfile.h"
 
 namespace ambilight {
 
@@ -24,28 +25,69 @@ struct LedPixelMaskProfile {
         }};
 
     constexpr bool valid() const {
-        for (const auto& segment : kSegments) {
-            const std::size_t index =
-                static_cast<std::size_t>(
-                    segment.id);
-
-            if (index >=
-                disabledOffset.size()) {
-                return false;
-            }
-
-            const std::uint16_t value =
-                disabledOffset[index];
+        for (const std::uint16_t value :
+             disabledOffset) {
 
             if (value != kNone &&
                 value >=
-                    segment.logicalLength) {
+                    config::kPhysicalLaneLength) {
 
                 return false;
             }
         }
 
         return true;
+    }
+
+    constexpr bool validFor(
+        const LedMappingProfile& topology) const {
+
+        if (!valid() ||
+            !topology.valid()) {
+
+            return false;
+        }
+
+        for (std::size_t index = 0;
+             index <
+                disabledOffset.size();
+             ++index) {
+
+            const std::uint16_t value =
+                disabledOffset[index];
+
+            if (value != kNone &&
+                value >=
+                    topology
+                        .segment[index]
+                        .logicalLength) {
+
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    void sanitizeFor(
+        const LedMappingProfile& topology) {
+
+        for (std::size_t index = 0;
+             index <
+                disabledOffset.size();
+             ++index) {
+
+            if (disabledOffset[index] !=
+                    kNone &&
+                disabledOffset[index] >=
+                    topology
+                        .segment[index]
+                        .logicalLength) {
+
+                disabledOffset[index] =
+                    kNone;
+            }
+        }
     }
 
     constexpr bool disabled(
