@@ -222,6 +222,29 @@ bool RuntimeSettings::begin() {
             maskValid =
                 loaded == sizeof(storedMask) &&
                 storedMask.valid();
+
+            if (maskValid &&
+                !storedMask.validFor(
+                    ledMappingProfile_)) {
+
+                storedMask.sanitizeFor(
+                    ledMappingProfile_);
+
+                const std::size_t rewritten =
+                    preferences_.putBytes(
+                        kLedPixelMaskProfileKey,
+                        &storedMask,
+                        sizeof(storedMask));
+
+                if (rewritten ==
+                    sizeof(storedMask)) {
+
+                    ++stats_.writes;
+                } else {
+                    ++stats_.writeFailures;
+                    maskValid = false;
+                }
+            }
         }
 
         if (maskValid) {
@@ -836,7 +859,9 @@ bool RuntimeSettings::resetLedMappingProfile() {
 bool RuntimeSettings::setLedPixelMaskProfile(
     const LedPixelMaskProfile& profile) {
 
-    if (!profile.valid()) {
+    if (!profile.validFor(
+            ledMappingProfile_)) {
+
         return false;
     }
 
