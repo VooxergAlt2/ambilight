@@ -24,7 +24,7 @@ Gain:
 
     gain_i = curve(distance_i)
 
-This is evaluated for all 780 logical LEDs whenever a new plane is accepted.
+This is evaluated for every active logical LED whenever a new plane is accepted.
 
 ## Why not endpoint gain interpolation
 
@@ -38,14 +38,16 @@ Per-LED evaluation preserves the curve exactly.
 
 ## Data model
 
-    PerimeterGainSnapshot.logicalGainQ12[780]
-    RenderGainContext.logicalGainQ12[780]
+    PerimeterGainSnapshot.logicalGainQ12[920 capacity]
+    RenderGainContext.logicalGainQ12[920 capacity]
+
+Only indices below the active topology total are rendered.
 
 The array is indexed in logical screen order before physical lane reversal.
 
 ## Plane deadband
 
-The 780-value field is not rebuilt for sensor jitter.
+The active gain field is not rebuilt for sensor jitter.
 
 The new plane is compared with the last accepted plane over the screen rectangle.
 
@@ -59,8 +61,8 @@ Below the threshold:
 
 At/above the threshold:
 
-    recompute 780 wall distances
-    recompute 780 gain values
+    recompute active wall distances
+    recompute active gain values
 
 ## Rate domains
 
@@ -82,11 +84,13 @@ Gain slew/render after an accepted target change:
 
 ## Performance
 
-One field:
+Capacity field:
 
-    780 * 2 bytes = 1560 bytes
+    920 * 2 bytes = 1840 bytes
 
-At the slow pose cadence, explicit evaluation of all 780 LED intersections is inexpensive and preferable to hidden geometric approximations.
+The default topology still activates 780 entries. Explicit evaluation of all
+active LED intersections is inexpensive at the slow pose cadence and remains
+preferable to hidden geometric approximations.
 
 ## Fail-open
 
