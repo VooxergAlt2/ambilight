@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <atomic>
 #include <cstdint>
 
 #include <Adafruit_VL53L5CX.h>
@@ -78,6 +79,19 @@ public:
     bool setLedTopology(
         const LedMappingProfile& topology);
 
+    void setDebugMode(
+        bool enabled) {
+
+        debugMode_.store(
+            enabled,
+            std::memory_order_relaxed);
+    }
+
+    bool debugMode() const {
+        return debugMode_.load(
+            std::memory_order_relaxed);
+    }
+
     bool copySnapshot(TofSnapshot& destination) const;
     bool copyGainSnapshot(GainSnapshot& destination) const;
     bool copyPerimeterGainSnapshot(
@@ -97,6 +111,7 @@ private:
     void applyPendingGainCurve();
     void applyPendingSpatialProfile();
     void applyPendingLedTopology();
+    void delayForMeasurementCadence();
 
     static bool isUsableStatus(std::uint8_t status);
     static std::uint16_t medianOfValid(
@@ -126,6 +141,10 @@ private:
     bool pendingLedTopologyDirty_ = false;
 
     TofSnapshot snapshot_{};
+
+    std::atomic<bool> debugMode_{
+        false
+    };
 };
 
 } // namespace ambilight
