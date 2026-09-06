@@ -2,8 +2,8 @@
 
 ## Purpose
 
-Stage 38 evolves the old lane/reversal-only mapping into the authoritative
-runtime LED topology.
+Stage 38 introduced the authoritative runtime LED topology. Stage 39 hardens
+its transition and persistence behavior before flashing.
 
 For each logical TV side the profile stores:
 
@@ -68,10 +68,14 @@ A valid topology apply coordinates all dependent subsystems:
 1. ToF receives the new LED sampling topology
 2. DDP expected frame size becomes totalLedCount * 3
 3. sender lease and assembler sequence epoch reset
-4. LedRenderer switches logical-to-physical mapping
-5. disabled-pixel entries outside shortened sides are cleared
-6. cached RGB is replaced with a black frame carrying the new pixelCount
-7. gain state returns fail-open/unity until a fresh ToF projection exists
+4. LedRenderer switches logical-to-physical mapping and clears all fixed
+   physical lane buffers when the mapping actually changes
+5. disabled-pixel entries outside shortened sides are prepared in memory
+6. topology persistence/reset is committed
+7. any required disabled-pixel sanitation is persisted only after topology
+   commit
+8. cached RGB is replaced with a black frame carrying the new pixelCount
+9. gain state returns fail-open/unity until a fresh ToF projection exists
 
 This avoids mixed old/new topology frames.
 
@@ -113,5 +117,9 @@ Schema:
 
 The blob is written first and the version commit marker last.
 
-A stale/incompatible mapping schema falls back to the Stage 38 default
+Reset removes the version commit marker first. If later stale-blob cleanup
+fails, the old blob is inert on reboot and cannot resurrect a topology the
+operator already reset.
+
+A stale/incompatible mapping schema falls back to the firmware default
 topology and can then be recommissioned from the web UI.
