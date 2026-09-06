@@ -27,6 +27,7 @@
 #include "runtime/RuntimePayloadParser.h"
 #include "runtime/SerialCommandParser.h"
 #include "network/DdpUdpService.h"
+#include "network/WebUiService.h"
 #include "network/WifiService.h"
 #include "tof/TofCalibrationCapture.h"
 #include "tof/TofService.h"
@@ -51,6 +52,7 @@ ambilight::TofCalibrationCapture calibrationCapture;
 ambilight::RenderGainController renderGainController;
 ambilight::RenderScheduler renderScheduler;
 ambilight::RuntimeSettings runtimeSettings;
+ambilight::WebUiService webUi;
 
 ambilight::CorrectionMode correctionMode =
     ambilight::CorrectionMode::Shadow;
@@ -66,6 +68,13 @@ bool brightnessDirty = false;
 bool ledMappingDirty = false;
 
 ambilight::SerialCommandParser serialCommandParser;
+
+std::uint32_t lastWebActionSequence = 0;
+bool lastWebActionOk = true;
+std::array<char, 96> lastWebActionMessage{};
+
+bool haveLastCalibrationSummary = false;
+ambilight::CalibrationCaptureSummary lastCalibrationSummary{};
 
 enum class WifiCredentialSource : std::uint8_t {
     None = 0,
@@ -107,6 +116,10 @@ std::uint64_t lastFrameAgeUs = 0;
 std::uint64_t maxFrameAgeUs = 0;
 
 bool shadowGainProbeActive();
+bool fillWebUiSnapshot(
+    ambilight::WebUiSnapshot& snapshot);
+void handleWebUiAction(
+    ambilight::WebUiActionEvent event);
 
 const char* wifiCredentialSourceName(
     WifiCredentialSource source) {
