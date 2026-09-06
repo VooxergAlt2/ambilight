@@ -21,7 +21,15 @@ struct Rgb8 {
 struct RgbFrame {
     std::uint32_t generation = 0;
     std::uint64_t receivedUs = 0;
-    std::array<Rgb8, config::kLogicalLedCount> pixels{};
+
+    std::uint16_t pixelCount =
+        static_cast<std::uint16_t>(
+            config::kDefaultLogicalLedCount);
+
+    std::array<
+        Rgb8,
+        config::kLogicalLedCapacity>
+        pixels{};
 
     void clear() {
         pixels.fill(Rgb8{});
@@ -30,7 +38,15 @@ struct RgbFrame {
 
 static_assert(sizeof(Rgb8) == 3, "Rgb8 must stay packed as three bytes");
 static_assert(
-    config::kLogicalLedCount * sizeof(Rgb8) == 2340,
-    "780 RGB LEDs must occupy 2340 payload bytes");
+    config::kDefaultLogicalLedCount *
+        sizeof(Rgb8) ==
+        2340,
+    "Default 780 RGB LEDs must occupy 2340 payload bytes");
+
+static_assert(
+    config::kLogicalLedCapacity *
+        sizeof(Rgb8) ==
+        2760,
+    "Maximum 920 RGB LEDs must occupy 2760 payload bytes");
 
 } // namespace ambilight
