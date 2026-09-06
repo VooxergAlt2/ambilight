@@ -2,8 +2,8 @@
 
 ## Purpose
 
-Stage 36 adds a small LAN-only control surface for commissioning and normal
-runtime operation.
+The Stage 38 web surface remains LAN-only and bounded, but now includes the
+full LED topology/commissioning workflow and transient ToF live-debug tools.
 
 It intentionally does not add:
 
@@ -75,6 +75,7 @@ Runtime actions:
     POST /api/wifi
     POST /api/calibration
     POST /api/shadow-probe
+    POST /api/tof-debug
     POST /api/factory
 
 POST bodies use the same compact text payloads as existing runtime commands.
@@ -84,7 +85,9 @@ Examples:
     /api/brightness   32
     /api/correction   0 | 1 | 2
     /api/test         0 | 1 | 2
-    /api/led-map      0:0,1:0,2:0,3:0
+    /api/test         side:2:100:10
+    /api/test         gpio:20:0:37
+    /api/led-map      230:18:0,160:19:0,230:20:0,160:21:0
     /api/led-map      reset
     /api/pixel-mask   -,12,-,0
     /api/pixel-mask   reset
@@ -96,6 +99,7 @@ Examples:
     /api/wifi         clear
     /api/calibration  start
     /api/shadow-probe start
+    /api/tof-debug    start | stop
     /api/factory      reset
 
 ## Action acknowledgement
@@ -124,9 +128,12 @@ Those actions may tear down the network or reboot the MCU.
 
 The web UI does not weaken existing guards.
 
-LED mapping:
+LED topology:
 
     brightness = 0
+    COUNT 1..230
+    GPIO one of 18/19/20/21, unique
+    REV 0/1
 
 Factory reset:
 
@@ -148,8 +155,85 @@ Shadow probe:
 
     SHADOW only
 
+ToF live debug:
+
+    DISABLED or SHADOW only
+    transient, max 60 s
+
 Invalid web payloads are passed through the same existing typed runtime
 parsers before a setting is applied.
+
+## LED topology commissioning
+
+The LED commissioning section edits all four logical sides as one topology:
+
+    COUNT | GPIO | REV
+
+Rows are always:
+
+    TOP
+    RIGHT
+    BOTTOM
+    LEFT
+
+The UI also displays the resulting total logical LEDs and DDP RGB byte count.
+
+Two probe modes are available:
+
+Logical side range:
+
+    side:SIDE:START:COUNT
+
+This passes through the active topology, reversal and disabled-pixel mask.
+
+Raw GPIO range:
+
+    gpio:GPIO:START:COUNT
+
+This directly addresses the physical PARLIO lane for GPIO18/19/20/21 and
+bypasses logical mapping. It is intended for identifying which installed
+strip is physically connected to which output.
+
+Both probe types require brightness 1..64 and stop automatically after the
+normal commissioning timeout.
+
+## ToF live commissioning
+
+The ToF commissioning section contains a normalized 8x8 live matrix.
+
+Starting:
+
+    POST /api/tof-debug
+    start
+
+temporarily changes processed ToF cadence from about 12 seconds to about
+1 second. The session stops automatically after 60 seconds or when ACTIVE
+correction is entered.
+
+The matrix is normalized by the current TofSpatialProfile ROT/MIRROR before it
+is sent to the browser. Each cell still includes its original raw VL53L5CX
+zone index.
+
+A cell shows:
+
+    distance_mm
+    raw index
+    target_status
+
+Selecting a cell expands:
+
+    normalized row/column
+    raw index
+    distance
+    status classification
+    active ROT/MIRROR
+
+Status 5 is full-confidence. Statuses 6 and 9 are usable at reduced plane-fit
+weight. Rejected statuses stay visible rather than being hidden.
+
+The existing spatial controls are in the same commissioning section, so ROT,
+MIRROR and mounting geometry can be adjusted while observing the live matrix.
+Edits remain blocked in ACTIVE.
 
 ## Disabled pixel mask
 
@@ -171,10 +255,9 @@ Example:
 The index is relative to the logical START marker shown by the direction
 commissioning pattern.
 
-Bounds:
-
-    TOP/BOTTOM  0..229
-    RIGHT/LEFT  0..159
+Bounds follow the active runtime length of each side. If a topology change
+shortens a side below a stored disabled-pixel offset, that mask entry is
+automatically cleared.
 
 The mask is persisted in NVS and is applied by LedRenderer after correction
 selection. It therefore remains black in DISABLED, SHADOW, ACTIVE and test
@@ -205,8 +288,10 @@ The compact status endpoint includes:
 - perimeter min/max distance and fail-open state
 - spatial profile
 - gain curve
-- runtime LED mapping
+- runtime LED topology including COUNT/GPIO/REV
 - per-segment disabled-pixel mask
+- normalized 8x8 ToF debug grid and raw zone ids
+- ToF debug session state/remaining time
 - commissioning state
 - calibration state/result
 - shadow probe state
@@ -306,10 +391,12 @@ Native contracts cover:
 The lwIP socket service itself is compiled only by the full ESP32-C6 firmware
 build.
 
-Stage 36 must not be treated as validated until both local gates pass:
+Stage 38 must not be treated as validated until both local gates pass:
 
     pio test -e native
     pio run -e esp32-c6-devkitc-1
 
-Flash growth must be reviewed explicitly because the Stage 35 validated
-application already used 91.6% of the current application partition.
+The final firmware build must use/verify the intended 16 MB flash partition
+layout before hardware flashing. Record RAM, binary size and actual partition
+fit; the historical Stage 35 1.31 MB app partition is no longer the target
+limit.
