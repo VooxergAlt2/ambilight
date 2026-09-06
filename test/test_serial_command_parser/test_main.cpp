@@ -288,6 +288,30 @@ void test_empty_line_commands_emit_status_events() {
         "");
 }
 
+void test_commissioning_range_line_payload_is_emitted() {
+    SerialCommandParser parser;
+
+    const auto side =
+        feedText(
+            parser,
+            "jside:2:100:10\r");
+
+    assertEvent(
+        side,
+        SerialCommandKind::CommissioningRange,
+        "side:2:100:10");
+
+    const auto gpio =
+        feedText(
+            parser,
+            "Jgpio:20:0:37\n");
+
+    assertEvent(
+        gpio,
+        SerialCommandKind::CommissioningRange,
+        "gpio:20:0:37");
+}
+
 void test_disabled_pixel_line_payload_is_emitted() {
     SerialCommandParser parser;
 
@@ -496,6 +520,7 @@ int main(int, char**) {
     RUN_TEST(test_wifi_line_payload_is_emitted_on_enter);
     RUN_TEST(test_wifi_accepts_full_32_plus_63_character_payload);
     RUN_TEST(test_empty_line_commands_emit_status_events);
+    RUN_TEST(test_commissioning_range_line_payload_is_emitted);
     RUN_TEST(test_disabled_pixel_line_payload_is_emitted);
     RUN_TEST(test_line_command_prefix_is_not_reinterpreted_inside_payload);
     RUN_TEST(test_brightness_accepts_three_digits);
