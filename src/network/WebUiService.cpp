@@ -182,7 +182,7 @@ const mapNames=['TOP','RIGHT','BOTTOM','LEFT'];
 function txt(id,v){$(id).textContent=v}
 function setv(id,v){const e=$(id);if(!e.dataset.dirty)e.value=v}
 function clean(ids){ids.forEach(id=>{delete $(id).dataset.dirty})}
-function markDirty(){document.querySelectorAll('input,select,textarea').forEach(e=>e.addEventListener('input',()=>e.dataset.dirty='1'))}
+function markDirty(){document.querySelectorAll('input,select,textarea').forEach(e=>{if(e.dataset.bound)return;e.dataset.bound='1';e.addEventListener('input',()=>e.dataset.dirty='1')})}
 function src(custom,persisted){return custom?(persisted?'CUSTOM_NVS':'CUSTOM_RUNTIME'):'DEFAULT'}
 async function post(path,body){
   txt('action','sending…');$('action').className='muted';
