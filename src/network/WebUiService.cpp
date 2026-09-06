@@ -950,7 +950,43 @@ bool WebUiService::buildStatusResponse(
     writer.appendJsonString(
         snapshot.tofState.data());
 
-    writer.append("}");
+    writer.appendf(
+        ",\"debug_active\":%s,"
+        "\"debug_remaining_ms\":%lu,"
+        "\"grid\":[",
+        boolJson(
+            snapshot.tofDebugActive),
+        static_cast<unsigned long>(
+            snapshot.tofDebugRemainingMs));
+
+    for (std::size_t index = 0;
+         index <
+            snapshot
+                .tofNormalizedDistanceMm
+                .size();
+         ++index) {
+
+        if (index != 0) {
+            writer.append(",");
+        }
+
+        writer.appendf(
+            "[%d,%u,%u]",
+            static_cast<int>(
+                snapshot
+                    .tofNormalizedDistanceMm[
+                        index]),
+            static_cast<unsigned>(
+                snapshot
+                    .tofNormalizedStatus[
+                        index]),
+            static_cast<unsigned>(
+                snapshot
+                    .tofNormalizedRawIndex[
+                        index]));
+    }
+
+    writer.append("]}");
 
     const auto& spatial =
         snapshot.spatialProfile;
