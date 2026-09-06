@@ -41,7 +41,7 @@ Throw distance:
 
     distance = z_wall - z_led
 
-The code evaluates this explicitly for all 780 logical LEDs.
+The code evaluates this explicitly for all active logical LEDs.
 
 ## Why per-LED evaluation
 
