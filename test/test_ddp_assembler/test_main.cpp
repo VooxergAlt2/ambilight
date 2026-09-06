@@ -378,6 +378,25 @@ void test_random_datagrams_preserve_assembler_invariants() {
     }
 }
 
+void test_runtime_frame_size_accepts_full_920_led_capacity_only() {
+    DdpAssembler assembler;
+
+    TEST_ASSERT_TRUE(
+        assembler.setFrameBytes(
+            DdpAssembler::
+                kMaxFrameBytes));
+
+    TEST_ASSERT_EQUAL_UINT32(
+        2760,
+        assembler.frameBytes());
+
+    TEST_ASSERT_FALSE(
+        assembler.setFrameBytes(
+            DdpAssembler::
+                kMaxFrameBytes +
+            3));
+}
+
 void test_runtime_frame_size_reconfigures_completion_and_pixel_count() {
     DdpAssembler assembler;
     RgbFrame frame;
@@ -469,6 +488,7 @@ int main(int, char**) {
     RUN_TEST(test_reset_stream_clears_completed_sequence_epoch);
     RUN_TEST(test_timeout_discards_incomplete_frame);
     RUN_TEST(test_wrong_type_destination_and_bounds_are_rejected);
+    RUN_TEST(test_runtime_frame_size_accepts_full_920_led_capacity_only);
     RUN_TEST(test_runtime_frame_size_reconfigures_completion_and_pixel_count);
     RUN_TEST(test_conflicting_overlap_rejects_active_frame);
     RUN_TEST(test_random_datagrams_preserve_assembler_invariants);
