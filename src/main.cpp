@@ -250,7 +250,7 @@ bool applyWifiCredentials(
     return true;
 }
 
-void clearRuntimeWifiCredentials() {
+bool clearRuntimeWifiCredentials() {
     const bool cleared =
         runtimeSettings.clearWifiCredentials();
 
@@ -268,7 +268,7 @@ void clearRuntimeWifiCredentials() {
 
             Serial.println(
                 "Compile-time Wi-Fi fallback is invalid; Wi-Fi/DDP disabled.");
-            return;
+            return cleared;
         }
 
         wifiCredentialSource =
@@ -282,7 +282,7 @@ void clearRuntimeWifiCredentials() {
             cleared ? "persisted" : "volatile-only",
             wifi.ssid());
 
-        return;
+        return cleared;
     }
 
     webUi.stop();
@@ -295,6 +295,8 @@ void clearRuntimeWifiCredentials() {
     Serial.printf(
         "Wi-Fi NVS credentials cleared (%s); no compile-time fallback, Wi-Fi/DDP disabled.\n",
         cleared ? "persisted" : "volatile-only");
+
+    return cleared;
 }
 
 void handleWifiCommand(
@@ -2681,12 +2683,16 @@ void handleWebUiAction(
                 event.text(),
                 "clear") == 0) {
 
+            const bool cleared =
+                clearRuntimeWifiCredentials();
+
             recordWebAction(
                 event.sequence,
-                true,
-                "Wi-Fi NVS credentials cleared.");
+                cleared,
+                cleared
+                    ? "Wi-Fi NVS credentials cleared."
+                    : "Wi-Fi runtime changed; NVS clear failed.");
 
-            clearRuntimeWifiCredentials();
             return;
         }
 
@@ -2710,10 +2716,19 @@ void handleWebUiAction(
                     separator + 1,
                     true);
 
-            message =
-                ok
-                    ? "Wi-Fi saved; reconnecting."
-                    : "Wi-Fi credentials rejected.";
+            if (!ok) {
+                message =
+                    "Wi-Fi credentials rejected.";
+            } else if (
+                wifiCredentialSource ==
+                    WifiCredentialSource::Nvs) {
+
+                message =
+                    "Wi-Fi saved; reconnecting.";
+            } else {
+                message =
+                    "Wi-Fi applied runtime-only; NVS write failed.";
+            }
         }
 
         break;
