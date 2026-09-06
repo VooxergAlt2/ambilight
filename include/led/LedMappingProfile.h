@@ -14,6 +14,22 @@ struct LedSegmentMapping {
     std::uint16_t logicalLength = 1;
     std::uint8_t lane = 0;
     std::uint8_t reversed = 0;
+
+    constexpr bool operator==(
+        const LedSegmentMapping& other) const {
+
+        return
+            logicalLength ==
+                other.logicalLength &&
+            lane == other.lane &&
+            reversed == other.reversed;
+    }
+
+    constexpr bool operator!=(
+        const LedSegmentMapping& other) const {
+
+        return !(*this == other);
+    }
 };
 
 // Historical name retained to avoid needless churn. Since schema 2 this is
