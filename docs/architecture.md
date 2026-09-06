@@ -2,7 +2,7 @@
 
 ## Current stage
 
-Stage 36 is the current software-integration line. It adds a bounded single-client HTTP control surface on top of the validated Stage 35 firmware.
+Stage 37 is the current software-integration line. It adds a persisted per-segment disabled-pixel mask on top of the Stage 36 bounded HTTP control surface.
 
 The active firmware now combines:
 
@@ -24,6 +24,7 @@ The active firmware now combines:
 - typed pure-C++ runtime payload parsing
 - centralized firmware identity/version diagnostics
 - minimal lwIP HTTP/80 commissioning/control UI
+- persisted per-segment disabled-pixel mask
 
 USB/AWA work remains preserved separately in:
 
@@ -238,6 +239,7 @@ Non-RGB state-dirty sources currently include:
 - correction mode
 - global brightness
 - LED mapping changes
+- disabled-pixel mask changes
 
 RenderScheduler treats these generically as output state rather than incorrectly calling all of them gain changes.
 
@@ -286,6 +288,29 @@ Default:
 
 It is a final multiplier independent from ToF gain.
 
+## Disabled pixel mask
+
+LedPixelMaskProfile stores one optional segment-relative offset for each
+logical segment.
+
+The sentinel value means no disabled pixel.
+
+The mask is evaluated by LedRenderer after correction output is selected and
+after SegmentMapper has resolved the physical lane/index. The decision uses
+the logical segmentOffset, so runtime lane changes or FWD/REV mapping do not
+change which screen-space LED is disabled.
+
+A masked pixel is written as black in every correction mode and in
+commissioning patterns.
+
+The mask does not alter:
+
+- logical segment lengths
+- DDP payload size
+- logical LED indices
+- ToF distance/gain arrays
+- physical indices of neighbouring LEDs
+
 ## Commissioning patterns
 
 Temporary logical patterns can verify:
@@ -313,6 +338,7 @@ Runtime configuration includes:
 - ToF gain curve
 - ToF spatial profile
 - LED mapping profile
+- disabled-pixel mask profile
 
 Versioned blobs use a data-first/version-last commit pattern.
 
