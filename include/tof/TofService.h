@@ -53,6 +53,7 @@ struct TofSnapshot {
 
     std::uint32_t gainCurveUpdates = 0;
     std::uint32_t spatialProfileUpdates = 0;
+    std::uint32_t topologyUpdates = 0;
 
     std::uint32_t lastReadUs = 0;
     std::uint32_t maxReadUs = 0;
@@ -74,6 +75,9 @@ public:
     bool setSpatialProfile(
         const TofSpatialProfile& profile);
 
+    bool setLedTopology(
+        const LedMappingProfile& topology);
+
     bool copySnapshot(TofSnapshot& destination) const;
     bool copyGainSnapshot(GainSnapshot& destination) const;
     bool copyPerimeterGainSnapshot(
@@ -92,6 +96,7 @@ private:
     void refreshGainStaleness(std::uint64_t nowUs);
     void applyPendingGainCurve();
     void applyPendingSpatialProfile();
+    void applyPendingLedTopology();
 
     static bool isUsableStatus(std::uint8_t status);
     static std::uint16_t medianOfValid(
@@ -115,6 +120,10 @@ private:
     TofSpatialProfile spatialProfile_{};
     TofSpatialProfile pendingSpatialProfile_{};
     bool pendingSpatialProfileDirty_ = false;
+
+    LedMappingProfile ledTopology_{};
+    LedMappingProfile pendingLedTopology_{};
+    bool pendingLedTopologyDirty_ = false;
 
     TofSnapshot snapshot_{};
 };
