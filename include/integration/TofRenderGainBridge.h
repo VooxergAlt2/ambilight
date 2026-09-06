@@ -26,6 +26,9 @@ public:
             return context;
         }
 
+        context.topology =
+            gains.topology;
+
         context.sourceGeneration =
             gains.generation;
 
