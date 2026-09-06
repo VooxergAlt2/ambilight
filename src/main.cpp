@@ -460,11 +460,11 @@ bool applyLedMappingProfile(
     return true;
 }
 
-void resetLedMappingProfile() {
+bool resetLedMappingProfile() {
     if (ledEngine.brightness() != 0) {
         Serial.println(
             "LED MAP reset refused: set output brightness to 0 first.");
-        return;
+        return false;
     }
 
     const bool persisted =
@@ -474,7 +474,7 @@ void resetLedMappingProfile() {
             runtimeSettings.ledMappingProfile())) {
         Serial.println(
             "LED MAP default profile is invalid.");
-        return;
+        return false;
     }
 
     ledMappingDirty = true;
@@ -484,6 +484,7 @@ void resetLedMappingProfile() {
         persisted ? "yes" : "no");
 
     printLedMappingProfile();
+    return true;
 }
 
 void handleLedMapCommand(
@@ -613,13 +614,13 @@ bool applySpatialProfile(
     return true;
 }
 
-void resetSpatialProfile() {
+bool resetSpatialProfile() {
     if (correctionMode ==
         ambilight::CorrectionMode::Active) {
 
         Serial.println(
             "TOF SPATIAL reset refused in ACTIVE mode. Switch to SHADOW or DISABLED first.");
-        return;
+        return false;
     }
 
     const bool persisted =
@@ -633,7 +634,7 @@ void resetSpatialProfile() {
 
         Serial.println(
             "TOF SPATIAL reset stored, but sensor service could not queue it. Reboot will load the default.");
-        return;
+        return false;
     }
 
     invalidateRenderedGainAfterSpatialChange();
@@ -643,6 +644,7 @@ void resetSpatialProfile() {
         persisted ? "yes" : "no");
 
     printSpatialProfile();
+    return true;
 }
 
 void handleSpatialCommand(
@@ -790,13 +792,13 @@ bool applyTofGainCurve(
     return true;
 }
 
-void resetTofGainCurve() {
+bool resetTofGainCurve() {
     if (correctionMode ==
         ambilight::CorrectionMode::Active) {
 
         Serial.println(
             "TOF CURVE reset refused in ACTIVE mode. Switch to SHADOW or DISABLED first.");
-        return;
+        return false;
     }
 
     const bool persisted =
@@ -810,7 +812,7 @@ void resetTofGainCurve() {
 
         Serial.println(
             "TOF CURVE reset stored, but sensor service could not queue it. Reboot will load the default.");
-        return;
+        return false;
     }
 
     invalidateRenderedGainAfterCurveChange();
@@ -820,6 +822,7 @@ void resetTofGainCurve() {
         persisted ? "yes" : "no");
 
     printTofGainCurve();
+    return true;
 }
 
 void handleGainCurveCommand(
