@@ -184,12 +184,19 @@ RuntimePayloadParser::parseLedMapping(
          index < parsed.segment.size();
          ++index) {
 
-        std::uint16_t lane = 0;
+        std::uint16_t length = 0;
+        std::uint16_t gpio = 0;
         std::uint16_t reversed = 0;
 
         if (!parseUint16(
                 cursor,
-                lane) ||
+                length) ||
+            !consume(
+                cursor,
+                ':') ||
+            !parseUint16(
+                cursor,
+                gpio) ||
             !consume(
                 cursor,
                 ':') ||
@@ -202,17 +209,33 @@ RuntimePayloadParser::parseLedMapping(
                     InvalidFormat;
         }
 
-        if (lane > 255U ||
-            reversed > 255U) {
+        if (length == 0 ||
+            length >
+                config::kPhysicalLaneLength ||
+            reversed > 1U) {
 
             return
                 RuntimePayloadParseResult::
                     OutOfRange;
         }
 
+        std::uint8_t lane = 0;
+
+        if (!LedMappingProfile::laneForGpio(
+                gpio,
+                lane)) {
+
+            return
+                RuntimePayloadParseResult::
+                    OutOfRange;
+        }
+
+        parsed.segment[index].
+            logicalLength =
+                length;
+
         parsed.segment[index].lane =
-            static_cast<std::uint8_t>(
-                lane);
+            lane;
 
         parsed.segment[index].reversed =
             static_cast<std::uint8_t>(
