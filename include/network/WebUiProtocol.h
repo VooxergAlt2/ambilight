@@ -19,6 +19,7 @@ enum class WebUiRoute : std::uint8_t {
     Wifi,
     Calibration,
     ShadowProbe,
+    TofDebug,
     FactoryReset
 };
 
@@ -34,6 +35,7 @@ enum class WebUiActionKind : std::uint8_t {
     Wifi,
     Calibration,
     ShadowProbe,
+    TofDebug,
     FactoryReset
 };
 
