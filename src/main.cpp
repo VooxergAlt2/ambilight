@@ -92,6 +92,14 @@ ambilight::LedCommissioningPattern commissioningPattern =
     ambilight::LedCommissioningPattern::None;
 ambilight::RgbFrame commissioningFrame;
 std::uint64_t commissioningUntilUs = 0;
+
+ambilight::SegmentId commissioningRangeSegment =
+    ambilight::SegmentId::Top;
+
+std::uint8_t commissioningRawLane = 0;
+std::uint16_t commissioningRangeStart = 0;
+std::uint16_t commissioningRangeCount = 0;
+
 bool commissioningDirty = false;
 std::uint32_t commissioningRuns = 0;
 std::uint32_t commissioningRenders = 0;
@@ -1425,6 +1433,199 @@ void startCommissioning(
             brightness));
 }
 
+bool commissioningBrightnessSafe() {
+    const std::uint8_t brightness =
+        ledEngine.brightness();
+
+    return
+        brightness > 0 &&
+        brightness <=
+            kCommissioningMaxBrightness;
+}
+
+bool startLogicalRangeCommissioning(
+    ambilight::SegmentId segment,
+    std::uint16_t start,
+    std::uint16_t count) {
+
+    if (!commissioningBrightnessSafe()) {
+        Serial.printf(
+            "LED RANGE refused: brightness must be 1..%u.\n",
+            static_cast<unsigned>(
+                kCommissioningMaxBrightness));
+        return false;
+    }
+
+    if (!ambilight::
+            LedCommissioningPatternBuilder::
+                buildLogicalRange(
+                    runtimeSettings.
+                        ledMappingProfile(),
+                    segment,
+                    start,
+                    count,
+                    commissioningFrame)) {
+
+        Serial.println(
+            "LED RANGE refused: logical side/start/count are outside active topology.");
+        return false;
+    }
+
+    const std::uint64_t nowUs =
+        static_cast<std::uint64_t>(
+            esp_timer_get_time());
+
+    commissioningPattern =
+        ambilight::
+            LedCommissioningPattern::
+                LogicalRange;
+
+    commissioningRangeSegment =
+        segment;
+
+    commissioningRangeStart = start;
+    commissioningRangeCount = count;
+
+    commissioningUntilUs =
+        nowUs +
+        kCommissioningDurationUs;
+
+    commissioningDirty = true;
+    ++commissioningRuns;
+
+    Serial.printf(
+        "LED RANGE logical side=%u start=%u count=%u for %llums.\n",
+        static_cast<unsigned>(
+            segment),
+        static_cast<unsigned>(
+            start),
+        static_cast<unsigned>(
+            count),
+        static_cast<unsigned long long>(
+            kCommissioningDurationUs /
+            1000ULL));
+
+    return true;
+}
+
+bool startRawGpioCommissioning(
+    std::uint8_t gpio,
+    std::uint16_t start,
+    std::uint16_t count) {
+
+    if (!commissioningBrightnessSafe()) {
+        Serial.printf(
+            "GPIO TEST refused: brightness must be 1..%u.\n",
+            static_cast<unsigned>(
+                kCommissioningMaxBrightness));
+        return false;
+    }
+
+    std::uint8_t lane = 0;
+
+    if (!ambilight::
+            LedMappingProfile::
+                laneForGpio(
+                    gpio,
+                    lane)) {
+
+        Serial.println(
+            "GPIO TEST refused: allowed GPIO are 18,19,20,21.");
+        return false;
+    }
+
+    if (count == 0 ||
+        start >=
+            ambilight::config::
+                kPhysicalLaneLength ||
+        static_cast<std::uint32_t>(
+            start) +
+            count >
+                ambilight::config::
+                    kPhysicalLaneLength) {
+
+        Serial.println(
+            "GPIO TEST refused: start/count exceed physical 230-address lane.");
+        return false;
+    }
+
+    const std::uint64_t nowUs =
+        static_cast<std::uint64_t>(
+            esp_timer_get_time());
+
+    commissioningPattern =
+        ambilight::
+            LedCommissioningPattern::
+                RawPhysicalRange;
+
+    commissioningRawLane = lane;
+    commissioningRangeStart = start;
+    commissioningRangeCount = count;
+
+    commissioningUntilUs =
+        nowUs +
+        kCommissioningDurationUs;
+
+    commissioningDirty = true;
+    ++commissioningRuns;
+
+    Serial.printf(
+        "GPIO TEST GPIO%u lane=%u start=%u count=%u for %llums; logical mapping bypassed.\n",
+        static_cast<unsigned>(
+            gpio),
+        static_cast<unsigned>(
+            lane),
+        static_cast<unsigned>(
+            start),
+        static_cast<unsigned>(
+            count),
+        static_cast<unsigned long long>(
+            kCommissioningDurationUs /
+            1000ULL));
+
+    return true;
+}
+
+bool handleCommissioningRangePayload(
+    const char* command) {
+
+    ambilight::CommissioningRangeRequest request;
+
+    const auto parsed =
+        ambilight::RuntimePayloadParser::
+            parseCommissioningRange(
+                command,
+                request);
+
+    if (parsed !=
+        ambilight::RuntimePayloadParseResult::Ok) {
+
+        Serial.println(
+            "LED RANGE invalid. Use side:SIDE:START:COUNT or gpio:GPIO:START:COUNT.");
+        return false;
+    }
+
+    if (request.target ==
+        ambilight::
+            CommissioningRangeTarget::
+                LogicalSide) {
+
+        return
+            startLogicalRangeCommissioning(
+                static_cast<
+                    ambilight::SegmentId>(
+                        request.targetValue),
+                request.start,
+                request.count);
+    }
+
+    return
+        startRawGpioCommissioning(
+            request.targetValue,
+            request.start,
+            request.count);
+}
+
 bool serviceCommissioning(
     std::uint64_t nowUs) {
 
@@ -1470,11 +1671,46 @@ bool serviceCommissioning(
     commissioningFrame.receivedUs =
         nowUs;
 
-    const esp_err_t result =
-        renderer.render(
-            commissioningFrame,
-            ambilight::RenderGainContext::unity(runtimeSettings.ledMappingProfile()),
-            ambilight::CorrectionMode::Disabled);
+    esp_err_t result = ESP_OK;
+
+    if (commissioningPattern ==
+        ambilight::
+            LedCommissioningPattern::
+                RawPhysicalRange) {
+
+        ledEngine.clear();
+
+        for (std::uint16_t offset = 0;
+             offset <
+                commissioningRangeCount;
+             ++offset) {
+
+            if (!ledEngine.setPhysicalPixel(
+                    commissioningRawLane,
+                    static_cast<std::uint16_t>(
+                        commissioningRangeStart +
+                        offset),
+                    static_cast<crgb_t>(
+                        0x00FFFFFFU))) {
+
+                result = ESP_FAIL;
+                break;
+            }
+        }
+
+        if (result == ESP_OK) {
+            result =
+                ledEngine.show();
+        }
+    } else {
+        result =
+            renderer.render(
+                commissioningFrame,
+                ambilight::RenderGainContext::unity(
+                    runtimeSettings.
+                        ledMappingProfile()),
+                ambilight::CorrectionMode::Disabled);
+    }
 
     if (result != ESP_OK) {
         fatal(
