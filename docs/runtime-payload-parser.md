@@ -19,13 +19,22 @@ Output:
 
     uint8_t brightness
 
-LED mapping:
+LED topology:
 
-    l0:0,1:0,2:0,3:0
+    l230:18:0,160:19:0,230:20:0,160:21:0
 
 Output:
 
-    LedMappingProfile
+    LedMappingProfile schema 2
+
+Commissioning range:
+
+    jside:2:100:10
+    jgpio:20:0:37
+
+Output:
+
+    CommissioningRangeRequest
 
 Spatial profile:
 
@@ -134,9 +143,11 @@ test/test_runtime_payload_parser covers:
 - brightness 0 and 255
 - invalid brightness characters
 - brightness out of range
-- LED lane permutation/reversal
-- duplicate lane rejection
-- LED mapping syntax errors
+- LED COUNT/GPIO/REV topology
+- duplicate GPIO rejection
+- side count bounds
+- LED topology syntax errors
+- logical/raw commissioning ranges
 - spatial fixed-point values
 - negative sensor offsets
 - one-decimal precision
