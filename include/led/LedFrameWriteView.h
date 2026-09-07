@@ -39,6 +39,36 @@ struct LedLaneWriteView {
         pixel[1] = color.r;
         pixel[2] = color.b;
     }
+
+    bool fill(
+        std::uint16_t start,
+        std::uint16_t count,
+        const Rgb8& color) const {
+
+        if (!valid() ||
+            count == 0 ||
+            start >= pixelCount ||
+            static_cast<std::uint32_t>(
+                start) +
+                count >
+                    pixelCount) {
+
+            return false;
+        }
+
+        for (std::uint16_t offset = 0;
+             offset < count;
+             ++offset) {
+
+            writeUnchecked(
+                static_cast<std::uint16_t>(
+                    start +
+                    offset),
+                color);
+        }
+
+        return true;
+    }
 };
 
 struct LedFrameWriteView {
