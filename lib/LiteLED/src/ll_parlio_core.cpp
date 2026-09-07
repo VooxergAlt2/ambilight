@@ -474,7 +474,7 @@ esp_err_t parlio_group_install( parlio_group_cfg_t *cfg ) {
         }
     }
     chan_cfg.output_clk_freq_hz  = p->clk_hz;
-    chan_cfg.trans_queue_depth   = 4;
+    chan_cfg.trans_queue_depth   = 1;
     chan_cfg.max_transfer_size   = total_bytes;
     chan_cfg.flags.clk_gate_en   = false;
 
