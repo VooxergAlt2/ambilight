@@ -114,37 +114,18 @@ bool LedEngine::fillPhysicalRange(
     const Rgb8& color) {
 
     if (lane >=
-            frameWriteView_.lane.size() ||
-        count == 0) {
+        frameWriteView_.lane.size()) {
 
         return false;
     }
 
-    const auto& target =
-        frameWriteView_.lane[lane];
-
-    if (!target.valid() ||
-        start >= target.pixelCount ||
-        static_cast<std::uint32_t>(
-            start) +
-            count >
-                target.pixelCount) {
-
-        return false;
-    }
-
-    for (std::uint16_t offset = 0;
-         offset < count;
-         ++offset) {
-
-        target.writeUnchecked(
-            static_cast<std::uint16_t>(
-                start +
-                offset),
-            color);
-    }
-
-    return true;
+    return
+        frameWriteView_.
+            lane[lane].
+                fill(
+                    start,
+                    count,
+                    color);
 }
 
 esp_err_t LedEngine::show() {
