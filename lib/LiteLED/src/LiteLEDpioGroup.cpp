@@ -172,6 +172,25 @@ esp_err_t LiteLEDpioLane::resetOrder() {
     return ESP_OK;
 }
 
+liteled_pixel_buffer_view_t
+LiteLEDpioLane::pixelBufferView() {
+    if ( _checkState() != ESP_OK ||
+         !_strip->buf ) {
+
+        return {};
+    }
+
+    return {
+        _strip->buf,
+        _strip->length,
+        static_cast<uint8_t>(
+            3 +
+            ( _strip->is_rgbw ? 1 : 0 ) ),
+        led_strip_get_color_order(
+            _strip )
+    };
+}
+
 // ==========================================================================
 // LiteLEDpioGroup — implementation
 // ==========================================================================
