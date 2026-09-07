@@ -188,8 +188,7 @@ void test_foreign_sender_is_dropped_without_extending_lease() {
         static_cast<int>(
             gate.evaluate(
                 kSenderB,
-                packet.data(),
-                packet.size(),
+                parsePacket(packet),
                 1900)));
 
     TEST_ASSERT_EQUAL_UINT64(
@@ -287,8 +286,7 @@ void test_runtime_frame_bound_changes_sender_validation() {
         static_cast<int>(
             gate.evaluate(
                 kSenderA,
-                inside.data(),
-                inside.size(),
+                parsePacket(inside),
                 1000)));
 
     gate.reset();
@@ -299,8 +297,7 @@ void test_runtime_frame_bound_changes_sender_validation() {
         static_cast<int>(
             gate.evaluate(
                 kSenderA,
-                outside.data(),
-                outside.size(),
+                parsePacket(outside),
                 1100)));
 }
 
@@ -328,8 +325,7 @@ void test_same_ip_different_port_is_foreign_sender() {
         static_cast<int>(
             gate.evaluate(
                 otherPort,
-                packet.data(),
-                packet.size(),
+                parsePacket(packet),
                 1100)));
 }
 
@@ -352,8 +348,7 @@ void test_new_sender_can_acquire_after_timeout() {
         static_cast<int>(
             gate.evaluate(
                 kSenderB,
-                packet.data(),
-                packet.size(),
+                parsePacket(packet),
                 2002)));
 
     TEST_ASSERT_TRUE(
