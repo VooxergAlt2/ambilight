@@ -352,6 +352,12 @@ SerialCommandParser::feed(
             SerialCommandKind::
                 DumpRender);
 
+    case 'u':
+    case 'U':
+        return emitImmediate(
+            SerialCommandKind::
+                DumpRuntimeStatus);
+
     case 'x':
     case 'X':
         return emitImmediate(
