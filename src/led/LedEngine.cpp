@@ -66,7 +66,18 @@ esp_err_t LedEngine::begin() {
     begun_ = true;
 
     clear();
-    return show();
+
+    // Startup must leave a completed black frame on the wire before the rest
+    // of the runtime starts scheduling DDP/commissioning work.
+    const esp_err_t showResult =
+        show();
+
+    if (showResult != ESP_OK) {
+        return showResult;
+    }
+
+    return
+        waitForIdle();
 }
 
 void LedEngine::setBrightness(
@@ -133,6 +144,15 @@ esp_err_t LedEngine::show() {
         static_cast<std::uint64_t>(
             esp_timer_get_time());
 
+    const bool hadInFlight =
+        group_.inFlight();
+
+    if (hadInFlight) {
+        ++overlappedShows_;
+    } else {
+        ++coldShows_;
+    }
+
     const std::uint64_t encodeStartedUs =
         showStartedUs;
 
@@ -151,11 +171,38 @@ esp_err_t LedEngine::show() {
         showMetric_.observe(
             encodeFinishedUs -
             showStartedUs);
+
         return result;
     }
 
+    if (hadInFlight) {
+        const std::uint64_t waitStartedUs =
+            static_cast<std::uint64_t>(
+                esp_timer_get_time());
+
+        result =
+            group_.wait();
+
+        const std::uint64_t waitFinishedUs =
+            static_cast<std::uint64_t>(
+                esp_timer_get_time());
+
+        waitMetric_.observe(
+            waitFinishedUs -
+            waitStartedUs);
+
+        if (result != ESP_OK) {
+            showMetric_.observe(
+                waitFinishedUs -
+                showStartedUs);
+
+            return result;
+        }
+    }
+
     const std::uint64_t submitStartedUs =
-        encodeFinishedUs;
+        static_cast<std::uint64_t>(
+            esp_timer_get_time());
 
     result =
         group_.transmit();
@@ -168,17 +215,23 @@ esp_err_t LedEngine::show() {
         submitFinishedUs -
         submitStartedUs);
 
-    if (result != ESP_OK) {
-        showMetric_.observe(
-            submitFinishedUs -
-            showStartedUs);
-        return result;
+    showMetric_.observe(
+        submitFinishedUs -
+        showStartedUs);
+
+    return result;
+}
+
+esp_err_t LedEngine::waitForIdle() {
+    if (!group_.inFlight()) {
+        return ESP_OK;
     }
 
     const std::uint64_t waitStartedUs =
-        submitFinishedUs;
+        static_cast<std::uint64_t>(
+            esp_timer_get_time());
 
-    result =
+    const esp_err_t result =
         group_.wait();
 
     const std::uint64_t waitFinishedUs =
@@ -188,10 +241,6 @@ esp_err_t LedEngine::show() {
     waitMetric_.observe(
         waitFinishedUs -
         waitStartedUs);
-
-    showMetric_.observe(
-        waitFinishedUs -
-        showStartedUs);
 
     return result;
 }
