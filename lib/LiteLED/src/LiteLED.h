@@ -477,8 +477,8 @@ class LiteLEDpioLane {
 //
 // Constraints:
 //   - All strips must use the same LED type, length and RGBW flag.
-//   - Maximum concurrent strips: PARLIO_TX_UNIT_MAX_DATA_WIDTH
-//     (8 on ESP32-C6 / ESP32-H2,  16 on ESP32-P4).
+//   - This byte-wide group backend exposes exactly
+//     LITELED_PARLIO_GROUP_DATA_WIDTH (8) concurrent lanes.
 //   - Only one LiteLEDpioGroup instance can be active at a time
 //     (one PARLIO TX unit per group on C6 / H2).
 // ===========================================================================
@@ -500,8 +500,8 @@ class LiteLEDpioGroup {
     LiteLEDpioLane &addStrip( uint8_t gpio );
 
     // @brief Register a strip on an explicit bit lane.
-    //        LANE is checked at compile time against PARLIO_TX_UNIT_MAX_DATA_WIDTH.
-    // @tparam LANE  Bit-lane index (0 … PARLIO_TX_UNIT_MAX_DATA_WIDTH-1).
+    //        LANE is checked against the configured byte-wide group width.
+    // @tparam LANE  Bit-lane index (0 … 7).
     // @param  gpio  GPIO pin connected to the strip DIN.
     template<uint8_t LANE>
     LiteLEDpioLane &addStrip( uint8_t gpio ) {
