@@ -27,6 +27,10 @@ struct DdpAssemblerStats {
     std::uint32_t sequenceResyncs = 0;
     std::uint32_t duplicateBytes = 0;
     std::uint32_t conflictingDatagrams = 0;
+
+    std::uint32_t sequentialFastPathDatagrams = 0;
+    std::uint32_t fallbackDatagrams = 0;
+    std::uint64_t sequentialFastPathBytes = 0;
 };
 
 class DdpAssembler {
@@ -59,6 +63,13 @@ public:
         std::uint64_t nowUs,
         RgbFrame& completedFrame);
 
+    // Parsed ingress used by DdpUdpService so the datagram is validated only
+    // once before sender arbitration and assembly.
+    DdpIngestResult ingestParsed(
+        const DdpPacketView& packet,
+        std::uint64_t nowUs,
+        RgbFrame& completedFrame);
+
     bool expire(std::uint64_t nowUs);
 
     // Start a new sender/transport epoch without erasing accumulated stats.
@@ -76,6 +87,13 @@ private:
     void resetActive();
     bool payloadFits(const DdpPacketView& packet) const;
     bool copyAndMark(const DdpPacketView& packet);
+    bool copySequentialFastPath(
+        const DdpPacketView& packet);
+    void markUncoveredRange(
+        std::size_t offset,
+        std::size_t length);
+    void refreshContiguousPrefix();
+
     bool isCovered(std::size_t index) const;
     void markCovered(std::size_t index);
     bool isComplete() const;
@@ -92,6 +110,7 @@ private:
     std::uint8_t lastCompletedSequence_ = 0;
 
     std::uint16_t coveredBytes_ = 0;
+    std::uint16_t contiguousPrefixBytes_ = 0;
 
     std::uint64_t lastPacketUs_ = 0;
     std::uint64_t lastCompletedUs_ = 0;
