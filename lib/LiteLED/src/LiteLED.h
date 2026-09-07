@@ -141,6 +141,17 @@ typedef struct {
     led_strip_cfg_t stripCfg;
 } led_strip_t;
 
+// Controlled view of a lane's persistent colour buffer. The buffer lifetime
+// is owned by LiteLEDpioGroup and remains stable between begin() and teardown.
+// Consumers can use this for bulk frame generation without depending on the
+// private led_strip_t layout.
+typedef struct {
+    uint8_t *data;
+    size_t pixel_count;
+    uint8_t bytes_per_pixel;
+    color_order_t order;
+} liteled_pixel_buffer_view_t;
+
 // PARLIO group structs — must follow led_strip_t (parlio_lane_t embeds one)
 #if SOC_PARLIO_SUPPORTED
 
@@ -446,6 +457,10 @@ class LiteLEDpioLane {
     esp_err_t fillRandom( bool show = false );
     esp_err_t setOrder( color_order_t led_order = ORDER_GRB );
     esp_err_t resetOrder();
+
+    // @brief Return a controlled mutable view of this lane's persistent pixel
+    // buffer. The view is invalid (data == nullptr) before group begin().
+    liteled_pixel_buffer_view_t pixelBufferView();
 
     // @brief Returns true if this lane is properly initialised.
     bool isValid() const {
