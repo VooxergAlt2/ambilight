@@ -556,6 +556,75 @@ void printLedMappingProfile() {
 
 void refreshRgbCache();
 
+struct LedTopologyOutputGuard {
+    std::uint8_t restoreBrightness = 0;
+    bool quiesced = false;
+};
+
+void restoreLedOutputAfterTopologyChange(
+    LedTopologyOutputGuard& guard) {
+
+    if (!guard.quiesced) {
+        return;
+    }
+
+    ledEngine.setBrightness(
+        guard.restoreBrightness);
+
+    // Re-render the current snapshot even when topology activation was
+    // refused after the blackout. On successful topology changes
+    // invalidateRuntimeAfterTopologyChange() also marks RGB dirty.
+    brightnessDirty = true;
+    guard.quiesced = false;
+}
+
+bool quiesceLedOutputForTopologyChange(
+    LedTopologyOutputGuard& guard) {
+
+    guard.restoreBrightness =
+        ledEngine.brightness();
+
+    // Lane RGB buffers are distinct from the encoded DMA buffers, but waiting
+    // first makes the transaction boundary explicit: no old-topology frame is
+    // still physically on the wire when we start the blackout.
+    esp_err_t result =
+        ledEngine.waitForIdle();
+
+    if (result != ESP_OK) {
+        Serial.printf(
+            "LED TOPOLOGY change refused: could not drain PARLIO before blackout (%s).\n",
+            esp_err_to_name(result));
+
+        return false;
+    }
+
+    ledEngine.setBrightness(0);
+    ledEngine.clear();
+
+    result =
+        ledEngine.show();
+
+    if (result == ESP_OK) {
+        result =
+            ledEngine.waitForIdle();
+    }
+
+    if (result != ESP_OK) {
+        Serial.printf(
+            "LED TOPOLOGY change refused: could not commit safety blackout (%s).\n",
+            esp_err_to_name(result));
+
+        ledEngine.setBrightness(
+            guard.restoreBrightness);
+
+        brightnessDirty = true;
+        return false;
+    }
+
+    guard.quiesced = true;
+    return true;
+}
+
 void invalidateRuntimeAfterTopologyChange(
     const ambilight::LedMappingProfile& profile) {
 
@@ -589,16 +658,19 @@ void invalidateRuntimeAfterTopologyChange(
     lastDdpGeneration = 0;
 }
 
-bool activateLedMappingProfile(
+bool activateLedMappingProfileWhileBlack(
     const ambilight::LedMappingProfile& profile,
     ambilight::LedPixelMaskProfile& effectiveMask,
     bool& maskChanged) {
 
     maskChanged = false;
 
+    // Topology mutation is allowed only inside the controlled blackout
+    // transaction. Keep this guard even though normal callers quiesce
+    // automatically, so future code cannot remap illuminated physical lanes.
     if (ledEngine.brightness() != 0) {
         Serial.println(
-            "LED TOPOLOGY change refused: set output brightness to 0 first.");
+            "LED TOPOLOGY internal safety contract violated: output is not black.");
         return false;
     }
 
@@ -719,13 +791,30 @@ void commitSanitizedMaskAfterTopology(
 bool applyLedMappingProfile(
     const ambilight::LedMappingProfile& profile) {
 
+    if (!profile.valid()) {
+        Serial.println(
+            "LED TOPOLOGY profile is invalid.");
+        return false;
+    }
+
+    LedTopologyOutputGuard outputGuard;
+
+    if (!quiesceLedOutputForTopologyChange(
+            outputGuard)) {
+
+        return false;
+    }
+
     ambilight::LedPixelMaskProfile effectiveMask;
     bool maskChanged = false;
 
-    if (!activateLedMappingProfile(
+    if (!activateLedMappingProfileWhileBlack(
             profile,
             effectiveMask,
             maskChanged)) {
+
+        restoreLedOutputAfterTopologyChange(
+            outputGuard);
 
         return false;
     }
@@ -741,17 +830,28 @@ bool applyLedMappingProfile(
     invalidateRuntimeAfterTopologyChange(
         profile);
 
+    restoreLedOutputAfterTopologyChange(
+        outputGuard);
+
     Serial.printf(
-        "LED TOPOLOGY applied; total=%u ddp_bytes=%u persisted=%s. DDP sender lease reset; HyperHDR must use the same LED count.\n",
+        "LED TOPOLOGY applied; total=%u ddp_bytes=%u persisted=%s. Safety blackout completed automatically; brightness restored to %u. DDP sender lease reset; HyperHDR must use the same LED count.\n",
         static_cast<unsigned>(
             profile.totalLedCount()),
         static_cast<unsigned>(
             profile.totalLedCount() *
             sizeof(ambilight::Rgb8)),
-        persisted ? "yes" : "no");
+        persisted ? "yes" : "no",
+        static_cast<unsigned>(
+            ledEngine.brightness()));
 
     printLedMappingProfile();
-    return true;
+
+    // Applying a live topology without durable persistence is useful for
+    // diagnostics, but the Web UI action must not masquerade as a successful
+    // save when NVS was available and the write failed.
+    return
+        persisted ||
+        !runtimeSettings.persistenceAvailable();
 }
 
 bool resetLedMappingProfile() {
@@ -761,13 +861,24 @@ bool resetLedMappingProfile() {
 
     const ambilight::LedMappingProfile profile;
 
+    LedTopologyOutputGuard outputGuard;
+
+    if (!quiesceLedOutputForTopologyChange(
+            outputGuard)) {
+
+        return false;
+    }
+
     ambilight::LedPixelMaskProfile effectiveMask;
     bool maskChanged = false;
 
-    if (!activateLedMappingProfile(
+    if (!activateLedMappingProfileWhileBlack(
             profile,
             effectiveMask,
             maskChanged)) {
+
+        restoreLedOutputAfterTopologyChange(
+            outputGuard);
 
         return false;
     }
@@ -781,27 +892,37 @@ bool resetLedMappingProfile() {
         ambilight::LedPixelMaskProfile rollbackMask;
         bool rollbackMaskChanged = false;
 
-        // Durable reset was refused before its version commit marker could be
-        // removed. Restore the live subsystems and original mask to the still
-        // authoritative previous runtime profile.
-        if (!activateLedMappingProfile(
+        if (!activateLedMappingProfileWhileBlack(
                 previous,
                 rollbackMask,
                 rollbackMaskChanged)) {
 
             Serial.println(
-                "LED TOPOLOGY reset failed and live rollback could not be completed; keep brightness=0 and reboot.");
-        } else {
-            renderer.setPixelMaskProfile(
-                runtimeSettings.
-                    ledPixelMaskProfile());
+                "LED TOPOLOGY reset failed and live rollback could not be completed; output remains black and reboot is required.");
 
-            invalidateRuntimeAfterTopologyChange(
-                previous);
+            // The topology state is uncertain. Do not automatically restore an
+            // illuminated output.
+            outputGuard.restoreBrightness = 0;
+
+            restoreLedOutputAfterTopologyChange(
+                outputGuard);
+
+            return false;
         }
+
+        renderer.setPixelMaskProfile(
+            runtimeSettings.
+                ledPixelMaskProfile());
+
+        invalidateRuntimeAfterTopologyChange(
+            previous);
+
+        restoreLedOutputAfterTopologyChange(
+            outputGuard);
 
         Serial.println(
             "LED TOPOLOGY reset failed: persisted custom topology remains authoritative.");
+
         return false;
     }
 
@@ -812,9 +933,14 @@ bool resetLedMappingProfile() {
     invalidateRuntimeAfterTopologyChange(
         profile);
 
+    restoreLedOutputAfterTopologyChange(
+        outputGuard);
+
     Serial.printf(
-        "LED TOPOLOGY reset to default; persisted=%s.\n",
-        persisted ? "yes" : "runtime-only");
+        "LED TOPOLOGY reset to measured default; persisted=%s; brightness restored to %u.\n",
+        persisted ? "yes" : "runtime-only",
+        static_cast<unsigned>(
+            ledEngine.brightness()));
 
     printLedMappingProfile();
     return true;
