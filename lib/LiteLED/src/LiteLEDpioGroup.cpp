@@ -201,11 +201,6 @@ LiteLEDpioGroup::LiteLEDpioGroup( led_strip_type_t led_type, size_t length, bool
       _is_rgbw( rgbw ),
       _brightness( 255 ),
       _valid( false ),
-      _encoded_ready( false ),
-      _in_flight( false ),
-      _next_encode_buffer( 0 ),
-      _ready_buffer( LITELED_PARLIO_INVALID_BUFFER_INDEX ),
-      _in_flight_buffer( LITELED_PARLIO_INVALID_BUFFER_INDEX ),
       _in_flight_brightness( 255 ) {
 
     _encoded_brightness[ 0 ] = 255;
@@ -362,14 +357,7 @@ esp_err_t LiteLEDpioGroup::begin( ll_psram_t psram_flag ) {
         perimanSetPinBusExtraType( gpio, "LiteLEDpioGroup" );
     }
 
-    _encoded_ready = false;
-    _in_flight = false;
-
-    _next_encode_buffer = 0;
-    _ready_buffer =
-        LITELED_PARLIO_INVALID_BUFFER_INDEX;
-    _in_flight_buffer =
-        LITELED_PARLIO_INVALID_BUFFER_INDEX;
+    _pipeline.reset();
 
     _encoded_brightness[ 0 ] =
         _brightness;
@@ -387,21 +375,14 @@ esp_err_t LiteLEDpioGroup::begin( ll_psram_t psram_flag ) {
 // -------------------------------------------------------------------------
 esp_err_t LiteLEDpioGroup::encode() {
     if ( !_valid ||
-         _encoded_ready ||
-         _next_encode_buffer >=
-            LITELED_PARLIO_GROUP_DMA_BUFFER_COUNT ||
-         (
-             _in_flight &&
-             _next_encode_buffer ==
-                _in_flight_buffer
-         ) ) {
+         !_pipeline.canEncode() ) {
 
         log_d( "LiteLEDpioGroup::encode: invalid state" );
         return ESP_ERR_INVALID_STATE;
     }
 
     const uint8_t buffer_index =
-        _next_encode_buffer;
+        _pipeline.nextEncodeBuffer();
 
     const esp_err_t res =
         parlio_group_encode(
@@ -409,14 +390,11 @@ esp_err_t LiteLEDpioGroup::encode() {
             buffer_index );
 
     if ( res == ESP_OK ) {
-        _ready_buffer =
-            buffer_index;
-
         _encoded_brightness[
             buffer_index ] =
             _brightness;
 
-        _encoded_ready = true;
+        _pipeline.markEncoded();
     }
 
     return res;
@@ -424,17 +402,14 @@ esp_err_t LiteLEDpioGroup::encode() {
 
 esp_err_t LiteLEDpioGroup::transmit() {
     if ( !_valid ||
-         !_encoded_ready ||
-         _in_flight ||
-         _ready_buffer >=
-            LITELED_PARLIO_GROUP_DMA_BUFFER_COUNT ) {
+         !_pipeline.canTransmit() ) {
 
         log_d( "LiteLEDpioGroup::transmit: invalid state" );
         return ESP_ERR_INVALID_STATE;
     }
 
     const uint8_t buffer_index =
-        _ready_buffer;
+        _pipeline.readyBuffer();
 
     const esp_err_t res =
         parlio_group_transmit(
@@ -442,21 +417,11 @@ esp_err_t LiteLEDpioGroup::transmit() {
             buffer_index );
 
     if ( res == ESP_OK ) {
-        _encoded_ready = false;
-        _ready_buffer =
-            LITELED_PARLIO_INVALID_BUFFER_INDEX;
-
-        _in_flight = true;
-        _in_flight_buffer =
-            buffer_index;
-
         _in_flight_brightness =
             _encoded_brightness[
                 buffer_index ];
 
-        _next_encode_buffer =
-            static_cast<uint8_t>(
-                buffer_index ^ 1U );
+        _pipeline.markTransmitted();
     }
 
     return res;
@@ -464,7 +429,7 @@ esp_err_t LiteLEDpioGroup::transmit() {
 
 esp_err_t LiteLEDpioGroup::wait() {
     if ( !_valid ||
-         !_in_flight ) {
+         !_pipeline.canWait() ) {
 
         log_d( "LiteLEDpioGroup::wait: invalid state" );
         return ESP_ERR_INVALID_STATE;
@@ -475,13 +440,8 @@ esp_err_t LiteLEDpioGroup::wait() {
             &_groupCfg );
 
     if ( res == ESP_OK ) {
-        _in_flight = false;
-        _in_flight_buffer =
-            LITELED_PARLIO_INVALID_BUFFER_INDEX;
+        _pipeline.markWaited();
 
-        // Report the brightness encoded into the frame that actually reached
-        // the wire, not a newer brightness value already staged for the next
-        // frame.
         for ( uint8_t n = 0;
               n < LITELED_PARLIO_GROUP_DATA_WIDTH;
               n++ ) {
@@ -505,7 +465,7 @@ esp_err_t LiteLEDpioGroup::showPipelined() {
         return res;
     }
 
-    if ( _in_flight ) {
+    if ( _pipeline.inFlight() ) {
         res =
             wait();
 
@@ -567,14 +527,7 @@ esp_err_t LiteLEDpioGroup::_free() {
     }
 
     _valid = false;
-    _encoded_ready = false;
-    _in_flight = false;
-
-    _next_encode_buffer = 0;
-    _ready_buffer =
-        LITELED_PARLIO_INVALID_BUFFER_INDEX;
-    _in_flight_buffer =
-        LITELED_PARLIO_INVALID_BUFFER_INDEX;
+    _pipeline.reset();
 
     // Unregister all GPIOs from Peripheral Manager.
     for ( uint8_t n = 0; n < PARLIO_TX_UNIT_MAX_DATA_WIDTH; n++ ) {
