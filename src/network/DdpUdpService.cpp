@@ -49,6 +49,8 @@ bool DdpUdpService::setLogicalLedCount(
     completedFrame_.clear();
     completedFrame_.pixelCount =
         logicalLedCount_;
+    completedFrame_.generation = 0;
+    publishedGeneration_ = 0;
 
     lastPacketUs_ = 0;
     lastCompleteFrameUs_ = 0;
@@ -257,6 +259,22 @@ DdpPollResult DdpUdpService::poll() {
             ntohs(sender.sin_port)
         };
 
+        DdpPacketView packet;
+
+        const DdpParseError parseResult =
+            parseDdpDatagram(
+                rxBuffer_.data(),
+                static_cast<std::size_t>(
+                    received),
+                packet);
+
+        if (parseResult !=
+            DdpParseError::None) {
+
+            ++result.senderRejectedDatagrams;
+            continue;
+        }
+
         const std::uint64_t senderGateStartedUs =
             static_cast<std::uint64_t>(
                 esp_timer_get_time());
@@ -264,9 +282,7 @@ DdpPollResult DdpUdpService::poll() {
         const DdpSenderDecision senderDecision =
             senderGate_.evaluate(
                 endpoint,
-                rxBuffer_.data(),
-                static_cast<std::size_t>(
-                    received),
+                packet,
                 packetUs);
 
         stats_.senderGateTime.observe(
@@ -289,10 +305,8 @@ DdpPollResult DdpUdpService::poll() {
                 esp_timer_get_time());
 
         const DdpIngestResult ingestResult =
-            assembler_.ingest(
-                rxBuffer_.data(),
-                static_cast<std::size_t>(
-                    received),
+            assembler_.ingestParsed(
+                packet,
                 packetUs,
                 completedFrame_);
 
@@ -318,37 +332,29 @@ DdpPollResult DdpUdpService::poll() {
             result.senderRejectedDatagrams == 0;
     }
 
-    // Publish at most once per socket drain. If several complete frames were
-    // assembled, only the newest one survives. This collapses backlog before
-    // taking the mailbox mutex and before paying PARLIO render cost.
+    // Publish at most once per socket drain. completedFrame_ already contains
+    // the newest assembled frame, so publication is an O(1) generation bump.
+    // Renderer takes one stable snapshot copy later in the same loopTask.
     if (haveCompletedFrame) {
-        const std::uint64_t publishStartedUs =
-            static_cast<std::uint64_t>(
-                esp_timer_get_time());
+        ++publishedGeneration_;
 
-        const bool published =
-            mailbox_.publish(
-                completedFrame_);
-
-        stats_.publishTime.observe(
-            static_cast<std::uint64_t>(
-                esp_timer_get_time()) -
-            publishStartedUs);
-
-        if (published) {
-            result.mailboxPublished = true;
-            ++stats_.mailboxPublications;
-
-            if (result.completeFrames > 1) {
-                stats_.collapsedCompleteFrames +=
-                    result.completeFrames - 1;
-            }
-
-            lastCompleteFrameUs_ =
-                completedFrame_.receivedUs;
-        } else {
-            ++stats_.publishFailures;
+        if (publishedGeneration_ == 0) {
+            ++publishedGeneration_;
         }
+
+        completedFrame_.generation =
+            publishedGeneration_;
+
+        result.framePublished = true;
+        ++stats_.framePublications;
+
+        if (result.completeFrames > 1) {
+            stats_.collapsedCompleteFrames +=
+                result.completeFrames - 1;
+        }
+
+        lastCompleteFrameUs_ =
+            completedFrame_.receivedUs;
     }
 
     const std::uint64_t pollFinishedUs =
@@ -372,6 +378,32 @@ DdpPollResult DdpUdpService::poll() {
     }
 
     return result;
+}
+
+bool DdpUdpService::copyLatest(
+    RgbFrame& destination,
+    std::uint32_t lastGeneration) {
+
+    if (publishedGeneration_ == 0 ||
+        publishedGeneration_ ==
+            lastGeneration) {
+
+        return false;
+    }
+
+    const std::uint64_t startedUs =
+        static_cast<std::uint64_t>(
+            esp_timer_get_time());
+
+    destination =
+        completedFrame_;
+
+    stats_.snapshotCopyTime.observe(
+        static_cast<std::uint64_t>(
+            esp_timer_get_time()) -
+        startedUs);
+
+    return true;
 }
 
 } // namespace ambilight
