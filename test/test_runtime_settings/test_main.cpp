@@ -16,6 +16,148 @@ void setUp() {
 
 void tearDown() {}
 
+void test_schema2_topology_is_invalidated_and_measured_default_wins() {
+    Preferences legacy;
+
+    TEST_ASSERT_TRUE(
+        legacy.begin(
+            "ambilight"));
+
+    LedMappingProfile stale;
+
+    stale.segment[0] = {230, 0, 0};
+    stale.segment[1] = {160, 1, 0};
+    stale.segment[2] = {230, 2, 0};
+    stale.segment[3] = {160, 3, 0};
+
+    TEST_ASSERT_EQUAL_UINT16(
+        sizeof(stale),
+        legacy.putBytes(
+            "led_map",
+            &stale,
+            sizeof(stale)));
+
+    TEST_ASSERT_EQUAL_UINT16(
+        sizeof(std::uint16_t),
+        legacy.putUShort(
+            "led_map_ver",
+            2));
+
+    legacy.end();
+
+    RuntimeSettings settings;
+
+    TEST_ASSERT_TRUE(
+        settings.begin());
+
+    TEST_ASSERT_EQUAL_UINT16(
+        3,
+        LedMappingProfile::
+            kSchemaVersion);
+
+    TEST_ASSERT_FALSE(
+        settings.
+            ledMappingProfileCustomized());
+
+    TEST_ASSERT_FALSE(
+        settings.
+            ledMappingProfilePersisted());
+
+    TEST_ASSERT_FALSE(
+        Preferences::testHasKey(
+            "led_map"));
+
+    TEST_ASSERT_FALSE(
+        Preferences::testHasKey(
+            "led_map_ver"));
+
+    const auto& profile =
+        settings.
+            ledMappingProfile();
+
+    TEST_ASSERT_EQUAL_UINT8(
+        20,
+        profile.gpioForSegment(
+            ambilight::SegmentId::Top));
+
+    TEST_ASSERT_EQUAL_UINT8(
+        19,
+        profile.gpioForSegment(
+            ambilight::SegmentId::Right));
+
+    TEST_ASSERT_EQUAL_UINT8(
+        21,
+        profile.gpioForSegment(
+            ambilight::SegmentId::Bottom));
+
+    TEST_ASSERT_EQUAL_UINT8(
+        18,
+        profile.gpioForSegment(
+            ambilight::SegmentId::Left));
+}
+
+void test_schema3_custom_topology_survives_reboot() {
+    LedMappingProfile custom;
+
+    custom.segment[0].logicalLength =
+        220;
+
+    custom.segment[1].logicalLength =
+        150;
+
+    {
+        RuntimeSettings settings;
+
+        TEST_ASSERT_TRUE(
+            settings.begin());
+
+        TEST_ASSERT_TRUE(
+            settings.setLedMappingProfile(
+                custom));
+    }
+
+    RuntimeSettings restored;
+
+    TEST_ASSERT_TRUE(
+        restored.begin());
+
+    TEST_ASSERT_TRUE(
+        restored.
+            ledMappingProfileCustomized());
+
+    TEST_ASSERT_TRUE(
+        restored.
+            ledMappingProfilePersisted());
+
+    TEST_ASSERT_EQUAL_UINT16(
+        220,
+        restored.
+            ledMappingProfile().
+            segment[0].
+            logicalLength);
+
+    TEST_ASSERT_EQUAL_UINT16(
+        150,
+        restored.
+            ledMappingProfile().
+            segment[1].
+            logicalLength);
+
+    TEST_ASSERT_EQUAL_UINT8(
+        custom.segment[0].lane,
+        restored.
+            ledMappingProfile().
+            segment[0].
+            lane);
+
+    TEST_ASSERT_EQUAL_UINT8(
+        custom.segment[0].reversed,
+        restored.
+            ledMappingProfile().
+            segment[0].
+            reversed);
+}
+
 void test_topology_reset_marker_failure_keeps_live_custom_state() {
     RuntimeSettings settings;
     TEST_ASSERT_TRUE(settings.begin());
@@ -264,6 +406,12 @@ void test_factory_reset_failure_leaves_live_runtime_untouched() {
 
 int main(int, char**) {
     UNITY_BEGIN();
+
+    RUN_TEST(
+        test_schema2_topology_is_invalidated_and_measured_default_wins);
+
+    RUN_TEST(
+        test_schema3_custom_topology_survives_reboot);
 
     RUN_TEST(
         test_topology_reset_marker_failure_keeps_live_custom_state);
