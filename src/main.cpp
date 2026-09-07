@@ -4351,6 +4351,10 @@ void dispatchSerialCommand(
         dumpRenderShadow();
         break;
 
+    case ambilight::SerialCommandKind::DumpRuntimeStatus:
+        dumpRuntimeStatus();
+        break;
+
     case ambilight::SerialCommandKind::StartShadowProbe:
         startShadowGainProbe();
         break;
@@ -4387,7 +4391,35 @@ void serviceDebugCommands() {
     }
 }
 
-void printRuntimeStatus() {
+void printRuntimeHeartbeat() {
+    const auto& udp =
+        ddp.stats();
+
+    Serial.printf(
+        "STAT corr=%s wifi=%s ddp=%lu render=%lu frame_p95<=%luus show_p95<=%luus loop_p95<=%luus heap=%lu minheap=%lu\n",
+        ambilight::correctionModeName(
+            correctionMode),
+        wifi.connected() ? "up" : "down",
+        static_cast<unsigned long>(
+            udp.completeFramesAssembled),
+        static_cast<unsigned long>(
+            renderer.renderedFrames()),
+        static_cast<unsigned long>(
+            frameAgeHistogram.
+                percentileUpperBoundUs(95)),
+        static_cast<unsigned long>(
+            ledEngine.showMetric().
+                percentileUpperBoundUs(95)),
+        static_cast<unsigned long>(
+            loopWallMetric.
+                percentileUpperBoundUs(95)),
+        static_cast<unsigned long>(
+            ESP.getFreeHeap()),
+        static_cast<unsigned long>(
+            ESP.getMinFreeHeap()));
+}
+
+void dumpRuntimeStatus() {
     char senderIp[INET_ADDRSTRLEN] = "none";
 
     const std::uint32_t sender =
@@ -4717,7 +4749,7 @@ void printConfiguration() {
             runtimeSettings.tofGainPointCount()));
 
     Serial.println(
-        "Debug: 't'=raw, 'g'=bands, 'p'=plane, 'k'=legacy gains, 's'=spatial gains, 'c'=capture, 'r'=render, 'x'=shadow probe, 'z'=ToF live debug toggle, 'v'=firmware.");
+        "Debug: 't'=raw, 'g'=bands, 'p'=plane, 'k'=legacy gains, 's'=spatial gains, 'c'=capture, 'r'=render/perf, 'u'=full runtime, 'x'=shadow probe, 'z'=ToF live debug toggle, 'v'=firmware.");
     Serial.println(
         "Output brightness: b0..b255 followed by Enter; b + Enter prints status.");
     Serial.println(
@@ -4973,7 +5005,7 @@ void loop() {
     const std::uint32_t nowMs = millis();
     if (static_cast<std::int32_t>(
             nowMs - (lastStatusMs + kStatusIntervalMs)) >= 0) {
-        printRuntimeStatus();
+        printRuntimeHeartbeat();
         lastStatusMs = nowMs;
     }
 
