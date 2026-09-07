@@ -105,29 +105,6 @@ struct RenderGainContext {
         };
     }
 
-    // Backward-compatible helper used by diagnostics/tests.
-    // The authoritative data source is logicalGainQ12.
-    std::uint16_t gainForPosition(
-        SegmentId segment,
-        std::uint16_t logicalOffset,
-        std::uint16_t) const {
-
-        const SegmentConfig configSegment =
-            topology.segmentConfig(
-                segment);
-
-        if (logicalOffset >=
-            configSegment.logicalLength) {
-
-            return kGainUnityQ12;
-        }
-
-        return gainForLogicalIndex(
-            static_cast<std::uint16_t>(
-                configSegment.logicalStart +
-                logicalOffset));
-    }
-
     void setSegmentUniform(
         SegmentId segment,
         std::uint16_t gainQ12) {
