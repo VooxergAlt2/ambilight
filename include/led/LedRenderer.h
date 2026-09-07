@@ -6,6 +6,7 @@
 
 #include <esp_err.h>
 
+#include "core/PerformanceMetric.h"
 #include "core/RgbFrame.h"
 #include "led/LedEngine.h"
 #include "led/LedMappingProfile.h"
@@ -124,6 +125,18 @@ public:
         return shadowStats_;
     }
 
+    const PerformanceMetric& prepareMetric() const {
+        return prepareMetric_;
+    }
+
+    const PerformanceMetric& postMetric() const {
+        return postMetric_;
+    }
+
+    const PerformanceMetric& renderMetric() const {
+        return renderMetric_;
+    }
+
     const RenderGainContext& lastGainContext() const {
         return lastGainContext_;
     }
@@ -146,6 +159,10 @@ private:
     RenderGainContext lastGainContext_{};
     CorrectionMode lastCorrectionMode_ =
         CorrectionMode::Disabled;
+
+    PerformanceMetric prepareMetric_{};
+    PerformanceMetric postMetric_{};
+    PerformanceMetric renderMetric_{};
 };
 
 } // namespace ambilight
