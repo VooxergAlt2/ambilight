@@ -220,23 +220,23 @@ struct LedMappingProfile {
         std::uint16_t gpio,
         std::uint8_t& lane) {
 
-        for (std::size_t index = 0;
-             index <
-                config::kLedGpios.size();
-             ++index) {
-
-            if (config::kLedGpios[index] ==
-                gpio) {
-
-                lane =
-                    static_cast<std::uint8_t>(
-                        index);
-
-                return true;
-            }
+        if (gpio > 0xFFU) {
+            return false;
         }
 
-        return false;
+        const std::uint8_t resolved =
+            config::laneForLedGpio(
+                static_cast<std::uint8_t>(
+                    gpio));
+
+        if (resolved >=
+            config::kParlioLaneCount) {
+
+            return false;
+        }
+
+        lane = resolved;
+        return true;
     }
 };
 
@@ -248,6 +248,10 @@ static_assert(
 static_assert(
     sizeof(LedMappingProfile) <= 24,
     "Persisted LED topology profile unexpectedly grew");
+
+static_assert(
+    LedMappingProfile{}.valid(),
+    "Measured default LED topology must remain valid");
 
 static_assert(
     LedMappingProfile{}.totalLedCount() ==
