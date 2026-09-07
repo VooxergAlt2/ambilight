@@ -2716,6 +2716,10 @@ void dumpPerformanceMetrics() {
         "render_service_total",
         renderServiceMetric);
 
+    printPerformanceMetric(
+        "render_diagnostics",
+        renderDiagnosticsMetric);
+
     Serial.println();
 }
 
@@ -4559,7 +4563,7 @@ void dumpRuntimeStatus() {
         "pcalc=%lu pskip=%lu pdelta=%u pfail=%lu "
         "spfail=%s spmin=%u spmax=%u "
         "gainfail=%s gl=%u gt=%u gb=%u gr=%u "
-        "shadow_usable=%lu shadow_nonunity=%lu shadow_changed=%u phys_changed=%u shadow_delta=%u shadowprep=%luus "
+        "diag_frames=%lu diag_usable=%lu diag_nonunity=%lu diag_changed=%u phys_changed=%u diag_delta=%u renderprep=%lluus diag_p95<=%luus "
         "slew_snap=%lu probe=%s sched_rgb=%lu sched_state=%lu sched_comb=%lu sched_state_def=%lu rgbgen=%lu "
         "tofinit=%lu toffail=%lu tofreadfail=%lu tofrestart=%lu black=%lu heap=%lu minheap=%lu\n",
         ambilight::correctionModeName(
@@ -4687,17 +4691,30 @@ void dumpRuntimeStatus() {
         haveTof ? tofSnapshot.gains.bottomQ12 : ambilight::kGainUnityQ12,
         haveTof ? tofSnapshot.gains.rightQ12 : ambilight::kGainUnityQ12,
         static_cast<unsigned long>(
-            renderer.shadowStats().sourceUsableFrames),
+            renderDiagnostics.stats().
+                diagnosticFrames),
         static_cast<unsigned long>(
-            renderer.shadowStats().nonUnityContextFrames),
-        renderer.shadowStats().lastWouldChangePixels,
-        renderer.shadowStats().lastPhysicalChangedPixels,
+            renderDiagnostics.stats().
+                sourceUsableFrames),
+        static_cast<unsigned long>(
+            renderDiagnostics.stats().
+                nonUnityContextFrames),
+        renderDiagnostics.stats().
+            lastWouldChangePixels,
+        renderDiagnostics.stats().
+            lastPhysicalChangedPixels,
         static_cast<unsigned>(
-            renderer.shadowStats().lastMaxChannelDelta),
+            renderDiagnostics.stats().
+                lastMaxChannelDelta),
+        static_cast<unsigned long long>(
+            renderer.prepareMetric().
+                lastUs()),
         static_cast<unsigned long>(
-            renderer.shadowStats().lastPrepareUs),
+            renderDiagnosticsMetric.
+                percentileUpperBoundUs(95)),
         static_cast<unsigned long>(
-            renderGainController.stats().failOpenUnitySnaps),
+            renderGainController.stats().
+                failOpenUnitySnaps),
         shadowGainProbeActive() ? "yes" : "no",
         static_cast<unsigned long>(
             renderScheduler.stats().rgbRenders),
@@ -5096,7 +5113,11 @@ void loop() {
     if (!serviceCommissioning(
             nowUs)) {
 
-        serviceRender(nowUs);
+        serviceRender(
+            nowUs);
+
+        serviceRenderDiagnostics(
+            nowUs);
     }
 
     const std::uint32_t nowMs = millis();
