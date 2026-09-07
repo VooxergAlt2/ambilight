@@ -19,7 +19,6 @@
 #include "config/RuntimeSettings.h"
 #include "config/TofCalibration.h"
 #include "config/WifiCredentials.h"
-#include "core/FrameMailbox.h"
 #include "core/LatencyHistogram.h"
 #include "core/PerformanceMetric.h"
 #include "core/RgbFrame.h"
@@ -58,9 +57,8 @@ constexpr std::uint64_t kTofDebugDurationUs = 60000000ULL;
 
 ambilight::LedEngine ledEngine;
 ambilight::LedRenderer renderer(ledEngine);
-ambilight::FrameMailbox mailbox;
 ambilight::WifiService wifi;
-ambilight::DdpUdpService ddp(mailbox);
+ambilight::DdpUdpService ddp;
 ambilight::LatencyHistogram frameAgeHistogram;
 ambilight::PerformanceMetric renderPreflightMetric;
 ambilight::PerformanceMetric renderServiceMetric;
@@ -126,7 +124,7 @@ std::uint32_t commissioningCancels = 0;
 
 bool haveCachedPerimeterGainSnapshot = false;
 
-std::uint32_t lastMailboxGeneration = 0;
+std::uint32_t lastDdpGeneration = 0;
 std::uint32_t lastRenderedRgbGeneration = 0;
 std::uint32_t lastObservedPublications = 0;
 std::uint32_t idleBlackouts = 0;
@@ -582,14 +580,14 @@ void invalidateRuntimeAfterTopologyChange(
         static_cast<std::uint64_t>(
             esp_timer_get_time());
 
-    if (!mailbox.publish(
-            black)) {
+    renderSnapshot =
+        black;
 
-        Serial.println(
-            "LED TOPOLOGY warning: could not publish topology blackout frame.");
-    } else {
-        refreshRgbCache();
-    }
+    rgbFrameValid = true;
+    rgbDirty = true;
+
+    // DDP starts a fresh publication epoch when topology changes.
+    lastDdpGeneration = 0;
 }
 
 bool activateLedMappingProfile(
@@ -1544,13 +1542,14 @@ const char* tofStateName(ambilight::TofState state) {
 }
 
 void refreshRgbCache() {
-    if (!mailbox.copyLatest(
+    if (!ddp.copyLatest(
             renderSnapshot,
-            lastMailboxGeneration)) {
+            lastDdpGeneration)) {
+
         return;
     }
 
-    lastMailboxGeneration =
+    lastDdpGeneration =
         renderSnapshot.generation;
 
     rgbFrameValid = true;
@@ -2420,9 +2419,11 @@ void serviceIdleBlackout(std::uint64_t nowUs) {
             totalLedCount();
     black.receivedUs = nowUs;
 
-    if (!mailbox.publish(black)) {
-        fatal("idle blackout publish failed", ESP_FAIL);
-    }
+    renderSnapshot =
+        black;
+
+    rgbFrameValid = true;
+    rgbDirty = true;
 
     idleBlanked = true;
     ++idleBlackouts;
@@ -2430,7 +2431,7 @@ void serviceIdleBlackout(std::uint64_t nowUs) {
 
 void updateDdpActivityState() {
     const std::uint32_t publications =
-        ddp.stats().mailboxPublications;
+        ddp.stats().framePublications;
 
     if (publications != lastObservedPublications) {
         lastObservedPublications = publications;
@@ -2680,8 +2681,8 @@ void dumpPerformanceMetrics() {
         udp.assemblerTime);
 
     printPerformanceMetric(
-        "ddp_publish",
-        udp.publishTime);
+        "ddp_snapshot_copy",
+        udp.snapshotCopyTime);
 
     printPerformanceMetric(
         "render_preflight",
@@ -2875,7 +2876,7 @@ void dumpRenderShadow() {
 
     Serial.printf(
         "RENDER SCHED rgb=%lu state_only=%lu combined=%lu state_deferred=%lu no_frame=%lu clean=%lu "
-        "last_rgb_gen=%lu mailbox_gen=%lu\n",
+        "last_rgb_gen=%lu ddp_gen=%lu\n",
         static_cast<unsigned long>(
             schedulerStats.rgbRenders),
         static_cast<unsigned long>(
@@ -2891,7 +2892,7 @@ void dumpRenderShadow() {
         static_cast<unsigned long>(
             lastRenderedRgbGeneration),
         static_cast<unsigned long>(
-            lastMailboxGeneration));
+            lastDdpGeneration));
 
     Serial.printf(
         "RENDER SLEW targets=%lu advances=%lu usable_targets=%lu failopen_targets=%lu gen_changes=%lu profile_changes=%lu "
@@ -3341,7 +3342,7 @@ bool fillWebUiSnapshot(
 
     snapshot.ddpPublications =
         ddp.stats().
-            mailboxPublications;
+            framePublications;
 
     snapshot.senderLocked =
         ddp.senderLocked();
@@ -4584,7 +4585,7 @@ void dumpRuntimeStatus() {
         wifi.connected() ? WiFi.RSSI() : 0,
         static_cast<unsigned long>(udp.datagramsReceived),
         static_cast<unsigned long>(udp.completeFramesAssembled),
-        static_cast<unsigned long>(udp.mailboxPublications),
+        static_cast<unsigned long>(udp.framePublications),
         static_cast<unsigned long>(udp.collapsedCompleteFrames),
         static_cast<unsigned long>(asmStats.rejected),
         static_cast<unsigned long>(asmStats.stale),
@@ -4985,10 +4986,6 @@ void setup() {
     }
 
     printConfiguration();
-
-    if (!mailbox.begin()) {
-        fatal("FrameMailbox::begin failed", ESP_ERR_NO_MEM);
-    }
 
     const esp_err_t ledResult = ledEngine.begin();
     if (ledResult != ESP_OK) {
