@@ -80,6 +80,71 @@ void test_frame_view_requires_all_physical_lanes() {
         view.valid());
 }
 
+void test_range_fill_validates_bounds_and_writes_grb() {
+    std::array<std::uint8_t, 15> buffer{};
+
+    LedLaneWriteView lane{
+        buffer.data(),
+        5
+    };
+
+    TEST_ASSERT_FALSE(
+        lane.fill(
+            0,
+            0,
+            Rgb8{1, 2, 3}));
+
+    TEST_ASSERT_FALSE(
+        lane.fill(
+            5,
+            1,
+            Rgb8{1, 2, 3}));
+
+    TEST_ASSERT_FALSE(
+        lane.fill(
+            4,
+            2,
+            Rgb8{1, 2, 3}));
+
+    TEST_ASSERT_TRUE(
+        lane.fill(
+            1,
+            3,
+            Rgb8{
+                0x10,
+                0x20,
+                0x30
+            }));
+
+    for (std::size_t pixel = 1;
+         pixel <= 3;
+         ++pixel) {
+
+        const std::size_t base =
+            pixel * 3U;
+
+        TEST_ASSERT_EQUAL_UINT8(
+            0x20,
+            buffer[base + 0]);
+
+        TEST_ASSERT_EQUAL_UINT8(
+            0x10,
+            buffer[base + 1]);
+
+        TEST_ASSERT_EQUAL_UINT8(
+            0x30,
+            buffer[base + 2]);
+    }
+
+    TEST_ASSERT_EQUAL_UINT8(
+        0,
+        buffer[0]);
+
+    TEST_ASSERT_EQUAL_UINT8(
+        0,
+        buffer[12]);
+}
+
 void test_write_view_can_address_full_physical_lane() {
     std::array<
         std::uint8_t,
@@ -135,6 +200,9 @@ int main(int, char**) {
 
     RUN_TEST(
         test_frame_view_requires_all_physical_lanes);
+
+    RUN_TEST(
+        test_range_fill_validates_bounds_and_writes_grb);
 
     RUN_TEST(
         test_write_view_can_address_full_physical_lane);
