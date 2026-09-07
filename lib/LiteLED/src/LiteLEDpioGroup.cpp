@@ -205,8 +205,8 @@ LiteLEDpioLane &LiteLEDpioGroup::_addStrip( uint8_t lane_idx, uint8_t gpio ) {
     if ( lane_idx >= LITELED_PARLIO_GROUP_DATA_WIDTH ) {
         // Should not be reachable from the template (caught at compile time),
         // but guards the non-template sequential path.
-        log_e( "LiteLEDpioGroup::addStrip: lane %u >= max (%d) — ignored",
-               lane_idx, PARLIO_TX_UNIT_MAX_DATA_WIDTH );
+        log_e( "LiteLEDpioGroup::addStrip: lane %u >= configured width (%d) — ignored",
+               lane_idx, LITELED_PARLIO_GROUP_DATA_WIDTH );
         return _null_lane;
     }
     if ( _groupCfg.lanes[ lane_idx ].assigned ) {
@@ -430,7 +430,7 @@ uint8_t LiteLEDpioGroup::getBrightness() {
 // operator[] — access lane by index
 // -------------------------------------------------------------------------
 LiteLEDpioLane &LiteLEDpioGroup::operator[]( uint8_t lane ) {
-    if ( lane >= PARLIO_TX_UNIT_MAX_DATA_WIDTH || !_groupCfg.lanes[ lane ].assigned ) {
+    if ( lane >= LITELED_PARLIO_GROUP_DATA_WIDTH || !_groupCfg.lanes[ lane ].assigned ) {
         log_d( "LiteLEDpioGroup[]: lane %u not assigned — returning null lane", lane );
         return _null_lane;
     }
