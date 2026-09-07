@@ -1,0 +1,635 @@
+//
+/*
+    LiteLED PARLIO Core Operations — Implementation
+*/
+
+#include "ll_parlio_core.h"
+
+#if SOC_PARLIO_SUPPORTED
+
+#include "llrgb.h"
+#include "ll_led_timings.h"
+#include <string.h>
+
+// -------------------------------------------------------------------------
+// Peripheral Manager PARLIO bus type — defined in ll_parlio_core.h
+// (LL_PARLIO_BUS_TYPE resolves to ESP32_BUS_TYPE_PARLIO_TX when available,
+//  falling back to ESP32_BUS_TYPE_GPIO on all current arduino-esp32 releases.)
+// -------------------------------------------------------------------------
+// Utility macros — identical names to ll_strip_core.h so they read naturally
+#define PIO_COLOR_SIZE( strip ) ( 3 + ( (strip)->is_rgbw != 0 ) )
+#define PIO_PIXEL_SIZE( strip ) ( PIO_COLOR_SIZE( strip ) * (strip)->length )
+
+// -------------------------------------------------------------------------
+// Internal: encode one LED colour byte → PARLIO_BYTES_PER_BIT * 8 = 24 DMA bytes.
+//
+// data_width=8: each DMA byte = 1 PARLIO clock across all 8 lines.
+// Only data_gpio_nums[0] (bit 0) is wired to the LED strip:
+//   0x01 = bit0 HIGH = LED data high
+//   0x00 = bit0 LOW  = LED data low
+//
+// Each of the 8 input bits → 3 DMA bytes using the 3-bit sample pattern:
+//   bit-0 (0b100): 0x01 0x00 0x00  (T0H=400ns, T0L=800ns)
+//   bit-1 (0b110): 0x01 0x01 0x00  (T1H=800ns, T1L=400ns)
+//
+// No bit-packing, no DMA endianness issue.
+// -------------------------------------------------------------------------
+static IRAM_ATTR void parlio_encode_byte( uint8_t b,
+        uint8_t bit0_pat,
+        uint8_t bit1_pat,
+        uint8_t *out ) {
+    for ( int i = 7; i >= 0; i-- ) {
+        uint8_t pat = ( ( b >> i ) & 1 ) ? bit1_pat : bit0_pat;
+        // expand 3-bit sample pattern, each bit → one full DMA byte on bit0
+        *out++ = ( pat >> 2 ) & 1;  // sample 0 (MSB of pattern)
+        *out++ = ( pat >> 1 ) & 1;  // sample 1
+        *out++ =   pat        & 1;  // sample 2 (LSB of pattern)
+    }
+}
+
+// -------------------------------------------------------------------------
+esp_err_t parlio_strip_init( led_strip_t *strip, parlio_strip_cfg_t *cfg ) {
+    if ( !( strip && cfg && strip->length > 0 && strip->type < LED_STRIP_TYPE_MAX ) ) {
+        log_d( "parlio_strip_init: invalid arguments" );
+        return ESP_ERR_INVALID_ARG;
+    }
+    cfg->parlio_chan      = NULL;
+    cfg->parlio_buf       = NULL;
+    cfg->parlio_buf_bytes = 0;
+    log_d( "parlio_strip_init: OK" );
+    return ESP_OK;
+}
+
+// -------------------------------------------------------------------------
+esp_err_t parlio_strip_install( led_strip_t *strip, parlio_strip_cfg_t *cfg ) {
+    // ---- allocate pixel colour buffer (obeys PSRAM preference) -----------
+    size_t pixel_bytes = strip->length * PIO_COLOR_SIZE( strip );
+
+    if ( strip->use_psram ) {
+        #if CONFIG_SPIRAM
+        if ( psramFound() ) {
+            strip->buf = ( uint8_t* )heap_caps_calloc( strip->length,
+                         PIO_COLOR_SIZE( strip ),
+                         MALLOC_CAP_SPIRAM );
+            if ( strip->buf ) {
+                log_d( "PARLIO pixel buffer in PSRAM (%u bytes)", pixel_bytes );
+            }
+            else {
+                log_d( "PSRAM alloc failed, falling back to internal RAM" );
+            }
+        }
+        #endif
+        if ( !strip->buf ) {
+            strip->buf = ( uint8_t* )calloc( strip->length, PIO_COLOR_SIZE( strip ) );
+            if ( strip->buf ) {
+                log_d( "PARLIO pixel buffer in internal RAM (%u bytes)", pixel_bytes );
+            }
+        }
+    }
+    else {
+        strip->buf = ( uint8_t* )calloc( strip->length, PIO_COLOR_SIZE( strip ) );
+        if ( strip->buf ) {
+            log_d( "PARLIO pixel buffer in internal RAM (%u bytes)", pixel_bytes );
+        }
+    }
+
+    if ( !strip->buf ) {
+        log_d( "parlio_strip_install: failed to allocate pixel buffer" );
+        return ESP_ERR_NO_MEM;
+    }
+
+    // ---- allocate DMA bitstream buffer (must be internal DMA-capable RAM) -
+    const parlio_led_params_t *p = &parlio_led_params[ strip->type ];
+    // data_width=8: each input byte expands to (samples_per_bit × 8) = 24 DMA bytes
+    size_t encoded_bytes  = pixel_bytes * p->samples_per_bit * 8;
+    size_t total_bytes    = encoded_bytes + PARLIO_RESET_BYTES;  // + 400 µs LOW
+    total_bytes           = ( total_bytes + 3 ) & ~( size_t )3;  // 4-byte aligned
+
+    cfg->parlio_buf = ( uint8_t* )heap_caps_calloc( 1, total_bytes,
+                      MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL );
+    if ( !cfg->parlio_buf ) {
+        log_d( "parlio_strip_install: failed to allocate DMA bitstream buffer (%u bytes)", total_bytes );
+        free( strip->buf );
+        strip->buf = NULL;
+        return ESP_ERR_NO_MEM;
+    }
+    cfg->parlio_buf_bytes = total_bytes;
+    log_d( "PARLIO DMA buffer: %u bytes (%u encoded + %u reset, aligned)",
+           total_bytes, encoded_bytes, PARLIO_RESET_BYTES );
+
+    // ---- create PARLIO TX unit -------------------------------------------
+    parlio_tx_unit_config_t chan_cfg = {};
+    chan_cfg.clk_src             = PARLIO_CLK_SRC_DEFAULT;
+    chan_cfg.data_width           = 8;    // 1 byte = 1 clock; bit0 = LED data pin
+    chan_cfg.clk_in_gpio_num      = GPIO_NUM_NC;  // no external clock input
+    chan_cfg.clk_out_gpio_num     = GPIO_NUM_NC;  // no clock output (clockless protocol)
+    chan_cfg.valid_gpio_num       = GPIO_NUM_NC;  // no valid signal output
+    for ( int i = 0; i < PARLIO_TX_UNIT_MAX_DATA_WIDTH; i++ ) {
+        chan_cfg.data_gpio_nums[ i ] = GPIO_NUM_NC;  // not connected
+    }
+    chan_cfg.data_gpio_nums[ 0 ]  = ( gpio_num_t )strip->gpio;
+    chan_cfg.output_clk_freq_hz   = p->clk_hz;
+    chan_cfg.trans_queue_depth    = 4;
+    chan_cfg.max_transfer_size    = total_bytes;
+    // No bit_pack_order setting needed for data_width=8 (no packing occurs)
+    // idle_value is set per-transmit in parlio_transmit_config_t
+    chan_cfg.flags.clk_gate_en    = false;
+
+    esp_err_t res = parlio_new_tx_unit( &chan_cfg, &cfg->parlio_chan );
+    if ( res != ESP_OK ) {
+        log_d( "parlio_strip_install: parlio_new_tx_unit() failed - %s", esp_err_to_name( res ) );
+        heap_caps_free( cfg->parlio_buf );
+        cfg->parlio_buf = NULL;
+        free( strip->buf );
+        strip->buf = NULL;
+        return res;
+    }
+
+    if ( ( res = parlio_tx_unit_enable( cfg->parlio_chan ) ) != ESP_OK ) {
+        log_d( "parlio_strip_install: parlio_tx_unit_enable() failed - %s", esp_err_to_name( res ) );
+        parlio_del_tx_unit( cfg->parlio_chan );
+        cfg->parlio_chan = NULL;
+        heap_caps_free( cfg->parlio_buf );
+        cfg->parlio_buf = NULL;
+        free( strip->buf );
+        strip->buf = NULL;
+        return res;
+    }
+
+    log_d( "parlio_strip_install: PARLIO TX channel ready on GPIO %u at %.2f MHz",
+           strip->gpio, p->clk_hz / 1e6f );
+
+    #if ARDUHAL_LOG_LEVEL >= ARDUHAL_LOG_LEVEL_VERBOSE
+    parlio_strip_debug_dump( strip, cfg );
+    #endif
+
+    return ESP_OK;
+}
+
+// -------------------------------------------------------------------------
+esp_err_t parlio_strip_free( led_strip_t *strip, parlio_strip_cfg_t *cfg ) {
+    if ( !cfg || !cfg->parlio_chan ) {
+        log_d( "parlio_strip_free: called on uninitialized config" );
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    esp_err_t res;
+
+    // Wait for any in-progress DMA transfer (including reset period)
+    if ( ( res = parlio_tx_unit_wait_all_done( cfg->parlio_chan, -1 ) ) != ESP_OK ) {
+        log_d( "parlio_strip_free: wait_all_done failed - %s", esp_err_to_name( res ) );
+        return res;
+    }
+    if ( ( res = parlio_tx_unit_disable( cfg->parlio_chan ) ) != ESP_OK ) {
+        log_d( "parlio_strip_free: disable failed - %s", esp_err_to_name( res ) );
+        return res;
+    }
+    if ( ( res = parlio_del_tx_unit( cfg->parlio_chan ) ) != ESP_OK ) {
+        log_d( "parlio_strip_free: delete failed - %s", esp_err_to_name( res ) );
+        return res;
+    }
+    cfg->parlio_chan = NULL;
+
+    if ( cfg->parlio_buf ) {
+        heap_caps_free( cfg->parlio_buf );
+        cfg->parlio_buf       = NULL;
+        cfg->parlio_buf_bytes = 0;
+    }
+    if ( strip && strip->buf ) {
+        free( strip->buf );
+        strip->buf = NULL;
+    }
+    return ESP_OK;
+}
+
+// -------------------------------------------------------------------------
+esp_err_t parlio_strip_flush( led_strip_t *strip, parlio_strip_cfg_t *cfg ) {
+    if ( !( strip && strip->buf && cfg && cfg->parlio_chan && cfg->parlio_buf ) ) {
+        log_d( "parlio_strip_flush: called on uninitialized strip or config" );
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    const parlio_led_params_t *p     = &parlio_led_params[ strip->type ];
+    const size_t               pixel_bytes = strip->length * PIO_COLOR_SIZE( strip );
+    const uint8_t              brightness  = strip->brightness;
+    uint8_t                   *out         = cfg->parlio_buf;
+
+    // Encode each pixel colour byte → 3 PARLIO bytes, with brightness scaling.
+    // The reset region (trailing PARLIO_RESET_BYTES bytes = 0x00) is never
+    // written here; it was zeroed by calloc and stays zero across calls.
+    for ( size_t i = 0; i < pixel_bytes; i++ ) {
+        parlio_encode_byte( scale8_video( strip->buf[ i ], brightness ),
+                            p->bit0_pattern, p->bit1_pattern,
+                            &out[ i * p->samples_per_bit * 8 ] );
+    }
+
+    // Transmit bitstream (pixel data + reset) via DMA.
+    // total_bytes includes PARLIO_RESET_BYTES of trailing zeros.
+    parlio_transmit_config_t tx_cfg = { .idle_value = 0 };
+    esp_err_t res = parlio_tx_unit_transmit( cfg->parlio_chan,
+                    cfg->parlio_buf,
+                    cfg->parlio_buf_bytes * 8,
+                    &tx_cfg );
+    if ( res != ESP_OK ) {
+        log_d( "parlio_strip_flush: transmit failed - %s", esp_err_to_name( res ) );
+        return res;
+    }
+
+    // Block until the full frame (including the reset period) is done.
+    if ( ( res = parlio_tx_unit_wait_all_done( cfg->parlio_chan, -1 ) ) != ESP_OK ) {
+        log_d( "parlio_strip_flush: wait_all_done failed - %s", esp_err_to_name( res ) );
+    }
+    return res;
+}
+
+// -------------------------------------------------------------------------
+void parlio_strip_debug_dump( led_strip_t *strip, parlio_strip_cfg_t *cfg ) {
+    #if ARDUHAL_LOG_LEVEL >= ARDUHAL_LOG_LEVEL_VERBOSE
+    if ( strip && cfg ) {
+        const parlio_led_params_t *p = &parlio_led_params[ strip->type ];
+        log_printf( "\n" );
+        log_printf( "========= LiteLED PARLIO Debug Report =========\n" );
+        log_printf( "LiteLED version: %s\n", LITELED_VERSION_STR );
+        log_printf( "led_strip_t at: %p\n", strip );
+        log_printf( "    type: %u, is_rgbw: %d, auto_w: %d\n",
+                    strip->type, strip->is_rgbw, strip->auto_w );
+        log_printf( "    length: %u, gpio: %u\n", strip->length, strip->gpio );
+        log_printf( "    brightness: %u, bright_act: %u\n",
+                    strip->brightness, strip->bright_act );
+        log_printf( "    pixel buf: %p (%u bytes)\n",
+                    strip->buf, PIO_PIXEL_SIZE( strip ) );
+        log_printf( "parlio_strip_cfg_t at: %p\n", cfg );
+        log_printf( "    parlio_chan: %p\n",  cfg->parlio_chan );
+        log_printf( "    parlio_buf:  %p (%u bytes)\n",
+                    cfg->parlio_buf, cfg->parlio_buf_bytes );
+        log_printf( "parlio_led_params:\n" );
+        log_printf( "    clk_hz:          %lu\n",  p->clk_hz );
+        log_printf( "    samples_per_bit: %u\n",   p->samples_per_bit );
+        log_printf( "    bit0_pattern:    0x%02X\n", p->bit0_pattern );
+        log_printf( "    bit1_pattern:    0x%02X\n", p->bit1_pattern );
+        log_printf( "    PARLIO_RESET_BYTES: %u (%.1f us)\n",
+                    PARLIO_RESET_BYTES,
+                    ( float )PARLIO_RESET_BYTES * 8.0f / ( p->clk_hz / 1e6f ) );
+        log_printf( "================================================\n" );
+        log_printf( "\n" );
+    }
+    else {
+        log_printf( "parlio_strip_debug_dump: NULL pointer\n" );
+    }
+    #endif
+}
+
+// ==========================================================================
+// Multi-strip group functions
+// ==========================================================================
+
+// --------------------------------------------------------------------------
+// parlio_group_install
+//
+// Expects cfg->lanes[n].assigned == true and cfg->lanes[n].strip populated
+// (type, length, is_rgbw, gpio, use_psram) for every registered lane.
+// Allocates per-lane pixel colour buffers and one shared DMA bitstream buffer,
+// then creates and enables the PARLIO TX unit.
+// --------------------------------------------------------------------------
+esp_err_t parlio_group_install( parlio_group_cfg_t *cfg ) {
+    if ( !cfg || cfg->lane_count == 0 ) {
+        log_d( "parlio_group_install: invalid args" );
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    // Find first assigned lane to derive shared timing params.
+    uint8_t first = 0;
+    while ( first < PARLIO_TX_UNIT_MAX_DATA_WIDTH && !cfg->lanes[ first ].assigned ) {
+        first++;
+    }
+    if ( first >= PARLIO_TX_UNIT_MAX_DATA_WIDTH ) {
+        log_d( "parlio_group_install: no assigned lanes found" );
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    const parlio_led_params_t *p          = &parlio_led_params[ cfg->lanes[ first ].strip.type ];
+    const size_t               color_size = 3 + ( cfg->lanes[ first ].strip.is_rgbw ? 1 : 0 );
+    const size_t               length     = cfg->lanes[ first ].strip.length;
+    const size_t               pixel_bytes = length * color_size;
+
+    // Allocate pixel colour buffer for each assigned lane.
+    for ( uint8_t n = 0; n < PARLIO_TX_UNIT_MAX_DATA_WIDTH; n++ ) {
+        if ( !cfg->lanes[ n ].assigned ) {
+            continue;
+        }
+        led_strip_t *strip = &cfg->lanes[ n ].strip;
+        if ( strip->use_psram ) {
+            #if CONFIG_SPIRAM
+            if ( psramFound() ) {
+                strip->buf = ( uint8_t * )heap_caps_calloc( length, color_size, MALLOC_CAP_SPIRAM );
+                if ( strip->buf ) {
+                    log_d( "PARLIO group lane %u pixel buffer in PSRAM (%u bytes)", n, pixel_bytes );
+                }
+            }
+            #endif
+        }
+        if ( !strip->buf ) {
+            strip->buf = ( uint8_t * )calloc( length, color_size );
+            if ( strip->buf ) {
+                log_d( "PARLIO group lane %u pixel buffer in internal RAM (%u bytes)", n, pixel_bytes );
+            }
+        }
+        if ( !strip->buf ) {
+            log_d( "parlio_group_install: pixel buffer alloc failed for lane %u", n );
+            // Free any already-allocated lane buffers.
+            for ( uint8_t k = 0; k < n; k++ ) {
+                if ( cfg->lanes[ k ].assigned && cfg->lanes[ k ].strip.buf ) {
+                    free( cfg->lanes[ k ].strip.buf );
+                    cfg->lanes[ k ].strip.buf = NULL;
+                }
+            }
+            return ESP_ERR_NO_MEM;
+        }
+    }
+
+    // Allocate shared DMA bitstream buffer (always internal DMA-capable RAM).
+    size_t encoded_bytes = pixel_bytes * p->samples_per_bit * 8;
+    size_t total_bytes   = ( encoded_bytes + PARLIO_RESET_BYTES + 3 ) & ~( size_t )3;
+
+    cfg->parlio_buf = ( uint8_t * )heap_caps_calloc( 1, total_bytes,
+                      MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL );
+    if ( !cfg->parlio_buf ) {
+        log_d( "parlio_group_install: DMA buffer alloc failed (%u bytes)", total_bytes );
+        for ( uint8_t n = 0; n < PARLIO_TX_UNIT_MAX_DATA_WIDTH; n++ ) {
+            if ( cfg->lanes[ n ].assigned && cfg->lanes[ n ].strip.buf ) {
+                free( cfg->lanes[ n ].strip.buf );
+                cfg->lanes[ n ].strip.buf = NULL;
+            }
+        }
+        return ESP_ERR_NO_MEM;
+    }
+    cfg->parlio_buf_bytes = total_bytes;
+    log_d( "PARLIO group DMA buffer: %u bytes (%u encoded + %u reset, %u lanes)",
+           total_bytes, encoded_bytes, PARLIO_RESET_BYTES, cfg->lane_count );
+
+    // Create PARLIO TX unit — data_width=8, one GPIO per assigned lane.
+    parlio_tx_unit_config_t chan_cfg = {};
+    chan_cfg.clk_src            = PARLIO_CLK_SRC_DEFAULT;
+    chan_cfg.data_width          = 8;
+    chan_cfg.clk_in_gpio_num     = GPIO_NUM_NC;
+    chan_cfg.clk_out_gpio_num    = GPIO_NUM_NC;
+    chan_cfg.valid_gpio_num      = GPIO_NUM_NC;
+    for ( int i = 0; i < PARLIO_TX_UNIT_MAX_DATA_WIDTH; i++ ) {
+        chan_cfg.data_gpio_nums[ i ] = GPIO_NUM_NC;
+    }
+    for ( uint8_t n = 0; n < PARLIO_TX_UNIT_MAX_DATA_WIDTH; n++ ) {
+        if ( cfg->lanes[ n ].assigned ) {
+            chan_cfg.data_gpio_nums[ n ] = ( gpio_num_t )cfg->lanes[ n ].strip.gpio;
+        }
+    }
+    chan_cfg.output_clk_freq_hz  = p->clk_hz;
+    chan_cfg.trans_queue_depth   = 4;
+    chan_cfg.max_transfer_size   = total_bytes;
+    chan_cfg.flags.clk_gate_en   = false;
+
+    esp_err_t res = parlio_new_tx_unit( &chan_cfg, &cfg->parlio_chan );
+    if ( res != ESP_OK ) {
+        log_d( "parlio_group_install: parlio_new_tx_unit failed - %s", esp_err_to_name( res ) );
+        heap_caps_free( cfg->parlio_buf );
+        cfg->parlio_buf = NULL;
+        for ( uint8_t n = 0; n < PARLIO_TX_UNIT_MAX_DATA_WIDTH; n++ ) {
+            if ( cfg->lanes[ n ].assigned && cfg->lanes[ n ].strip.buf ) {
+                free( cfg->lanes[ n ].strip.buf );
+                cfg->lanes[ n ].strip.buf = NULL;
+            }
+        }
+        return res;
+    }
+
+    if ( ( res = parlio_tx_unit_enable( cfg->parlio_chan ) ) != ESP_OK ) {
+        log_d( "parlio_group_install: parlio_tx_unit_enable failed - %s", esp_err_to_name( res ) );
+        parlio_del_tx_unit( cfg->parlio_chan );
+        cfg->parlio_chan = NULL;
+        heap_caps_free( cfg->parlio_buf );
+        cfg->parlio_buf = NULL;
+        for ( uint8_t n = 0; n < PARLIO_TX_UNIT_MAX_DATA_WIDTH; n++ ) {
+            if ( cfg->lanes[ n ].assigned && cfg->lanes[ n ].strip.buf ) {
+                free( cfg->lanes[ n ].strip.buf );
+                cfg->lanes[ n ].strip.buf = NULL;
+            }
+        }
+        return res;
+    }
+
+    log_d( "parlio_group_install: %u-lane PARLIO TX unit ready at %.2f MHz",
+           cfg->lane_count, p->clk_hz / 1e6f );
+    return ESP_OK;
+}
+
+// --------------------------------------------------------------------------
+// parlio_group_flush
+//
+// Zeros the shared DMA buffer, then for each assigned lane ORs that lane's
+// waveform bits (with brightness applied) into the appropriate bit position
+// of each DMA byte.  After all lanes are encoded, transmits and blocks.
+//
+// Encoding layout (per input byte b, bit j MSB-first, sample s in 0..2):
+//   DMA byte index = b * (samples_per_bit * 8) + (7 - j) * samples_per_bit + s
+//   bit N of that byte = lane N's waveform sample value at that time slot
+// --------------------------------------------------------------------------
+esp_err_t parlio_group_flush( parlio_group_cfg_t *cfg ) {
+    if ( !cfg || !cfg->parlio_chan || !cfg->parlio_buf || cfg->lane_count == 0 ) {
+        log_d( "parlio_group_flush: invalid args" );
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    // Find first assigned lane for shared params.
+    uint8_t first = 0;
+    while ( first < PARLIO_TX_UNIT_MAX_DATA_WIDTH && !cfg->lanes[ first ].assigned ) {
+        first++;
+    }
+
+    const parlio_led_params_t *p          = &parlio_led_params[ cfg->lanes[ first ].strip.type ];
+    const size_t               color_size = 3 + ( cfg->lanes[ first ].strip.is_rgbw ? 1 : 0 );
+    const size_t               pixel_bytes = cfg->lanes[ first ].strip.length * color_size;
+    const size_t               spb         = p->samples_per_bit;  // 3
+
+    // Zero entire DMA buffer.  The encoded region gets |= filled per lane;
+    // the reset tail (trailing PARLIO_RESET_BYTES) stays zero.
+    memset( cfg->parlio_buf, 0, cfg->parlio_buf_bytes );
+
+    // Encode each lane into its bit position.
+    for ( uint8_t n = 0; n < PARLIO_TX_UNIT_MAX_DATA_WIDTH; n++ ) {
+        if ( !cfg->lanes[ n ].assigned ) {
+            continue;
+        }
+        led_strip_t *strip  = &cfg->lanes[ n ].strip;
+        uint8_t      bright = strip->brightness;
+
+        for ( size_t b = 0; b < pixel_bytes; b++ ) {
+            uint8_t val = scale8_video( strip->buf[ b ], bright );
+            // Expand all 8 bits of val, MSB first.
+            for ( int bit = 7; bit >= 0; bit-- ) {
+                uint8_t pat    = ( ( val >> bit ) & 1 ) ? p->bit1_pattern : p->bit0_pattern;
+                // DMA byte index for the first sample of this bit slot.
+                size_t  offset = b * spb * 8 + ( size_t )( 7 - bit ) * spb;
+                cfg->parlio_buf[ offset + 0 ] |= ( uint8_t )( ( ( pat >> 2 ) & 1 ) << n );
+                cfg->parlio_buf[ offset + 1 ] |= ( uint8_t )( ( ( pat >> 1 ) & 1 ) << n );
+                cfg->parlio_buf[ offset + 2 ] |= ( uint8_t )( (   pat        & 1 ) << n );
+            }
+        }
+    }
+
+    // Transmit — buf_bytes * 8 because the IDF API counts in bits.
+    parlio_transmit_config_t tx_cfg = { .idle_value = 0 };
+    esp_err_t res = parlio_tx_unit_transmit( cfg->parlio_chan,
+                    cfg->parlio_buf,
+                    cfg->parlio_buf_bytes * 8,
+                    &tx_cfg );
+    if ( res != ESP_OK ) {
+        log_d( "parlio_group_flush: transmit failed - %s", esp_err_to_name( res ) );
+        return res;
+    }
+    if ( ( res = parlio_tx_unit_wait_all_done( cfg->parlio_chan, -1 ) ) != ESP_OK ) {
+        log_d( "parlio_group_flush: wait_all_done failed - %s", esp_err_to_name( res ) );
+    }
+    return res;
+}
+
+// --------------------------------------------------------------------------
+// parlio_group_free
+// --------------------------------------------------------------------------
+esp_err_t parlio_group_free( parlio_group_cfg_t *cfg ) {
+    if ( !cfg || !cfg->parlio_chan ) {
+        log_d( "parlio_group_free: called on uninitialized config" );
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    esp_err_t res;
+    if ( ( res = parlio_tx_unit_wait_all_done( cfg->parlio_chan, -1 ) ) != ESP_OK ) {
+        log_d( "parlio_group_free: wait_all_done failed - %s", esp_err_to_name( res ) );
+        return res;
+    }
+    if ( ( res = parlio_tx_unit_disable( cfg->parlio_chan ) ) != ESP_OK ) {
+        log_d( "parlio_group_free: disable failed - %s", esp_err_to_name( res ) );
+        return res;
+    }
+    if ( ( res = parlio_del_tx_unit( cfg->parlio_chan ) ) != ESP_OK ) {
+        log_d( "parlio_group_free: delete failed - %s", esp_err_to_name( res ) );
+        return res;
+    }
+    cfg->parlio_chan = NULL;
+
+    if ( cfg->parlio_buf ) {
+        heap_caps_free( cfg->parlio_buf );
+        cfg->parlio_buf       = NULL;
+        cfg->parlio_buf_bytes = 0;
+    }
+    for ( uint8_t n = 0; n < PARLIO_TX_UNIT_MAX_DATA_WIDTH; n++ ) {
+        if ( cfg->lanes[ n ].assigned && cfg->lanes[ n ].strip.buf ) {
+            free( cfg->lanes[ n ].strip.buf );
+            cfg->lanes[ n ].strip.buf = NULL;
+        }
+    }
+    return ESP_OK;
+}
+
+// --------------------------------------------------------------------------
+// PARLIO instance registry — Peripheral Manager deinit support
+//
+// Maps parlio_tx_unit_handle_t → bool* (the owning instance's valid flag).
+// ll_parlio_deinit_cb is registered with the Peripheral Manager so that
+// perimanSetPinBus(..., ESP32_BUS_TYPE_INIT, ...) can succeed when releasing
+// a PARLIO-owned GPIO.  Without this, periman refuses to clear the GPIO
+// because no deinit callback is registered for LL_PARLIO_BUS_TYPE, which
+// permanently blocks any subsequent begin() on the same GPIO.
+// --------------------------------------------------------------------------
+
+static struct {
+    parlio_tx_unit_handle_t chan;
+    bool                   *valid_flag;
+} s_parlio_inst[ LL_PARLIO_MAX_INSTANCES ];
+
+static bool s_parlio_inst_initialized = false;
+
+void ll_parlio_register_instance( parlio_tx_unit_handle_t chan, bool *valid_flag ) {
+    if ( !s_parlio_inst_initialized ) {
+        memset( s_parlio_inst, 0, sizeof( s_parlio_inst ) );
+        s_parlio_inst_initialized = true;
+    }
+    // Update if already registered (e.g., begin() called without a matching free()).
+    for ( int i = 0; i < LL_PARLIO_MAX_INSTANCES; i++ ) {
+        if ( s_parlio_inst[ i ].chan == chan ) {
+            s_parlio_inst[ i ].valid_flag = valid_flag;
+            return;
+        }
+    }
+    // Add a new entry in the first empty slot.
+    for ( int i = 0; i < LL_PARLIO_MAX_INSTANCES; i++ ) {
+        if ( s_parlio_inst[ i ].chan == NULL ) {
+            s_parlio_inst[ i ].chan       = chan;
+            s_parlio_inst[ i ].valid_flag = valid_flag;
+            return;
+        }
+    }
+    log_w( "ll_parlio_register_instance: registry full, instance not tracked" );
+}
+
+void ll_parlio_unregister_instance( parlio_tx_unit_handle_t chan ) {
+    for ( int i = 0; i < LL_PARLIO_MAX_INSTANCES; i++ ) {
+        if ( s_parlio_inst[ i ].chan == chan ) {
+            s_parlio_inst[ i ].chan       = NULL;
+            s_parlio_inst[ i ].valid_flag = NULL;
+            return;
+        }
+    }
+}
+
+bool ll_parlio_deinit_cb( void *bus_handle ) {
+    parlio_tx_unit_handle_t chan = ( parlio_tx_unit_handle_t )bus_handle;
+    for ( int i = 0; i < LL_PARLIO_MAX_INSTANCES; i++ ) {
+        if ( s_parlio_inst[ i ].chan == chan ) {
+            if ( s_parlio_inst[ i ].valid_flag ) {
+                *s_parlio_inst[ i ].valid_flag = false;
+            }
+            s_parlio_inst[ i ].chan       = NULL;
+            s_parlio_inst[ i ].valid_flag = NULL;
+            break;
+        }
+    }
+    return true;
+}
+
+// -------------------------------------------------------------------------
+// ll_parlio_periman_begin / ll_parlio_periman_end
+//
+// Public wrappers called by LiteLEDpio / LiteLEDpioGroup.
+//
+// When ESP32_BUS_TYPE_PARLIO_TX is available (dedicated bus type):
+//   begin() registers the deinit callback with periman (idempotent) and
+//   adds chan → valid_flag to our instance registry so the callback can
+//   mark the instance invalid if periman forcibly reassigns the GPIO.
+//   end() removes the registry entry as a cleanup safety net.
+//
+// When falling back to ESP32_BUS_TYPE_GPIO (all current arduino-esp32 ≤ 3.3.8):
+//   begin() and end() are no-ops.  ll_parlio_bus_handle() returns NULL, so
+//   periman stores NULL as the bus handle and will never call a deinit
+//   callback when the pin is cleared — no registration is needed and
+//   arduino-esp32's own gpioDetachBus callback is left undisturbed.
+// -------------------------------------------------------------------------
+void ll_parlio_periman_begin( parlio_tx_unit_handle_t chan, bool *valid_flag ) {
+    #ifdef ESP32_BUS_TYPE_PARLIO_TX
+    perimanSetBusDeinit( LL_PARLIO_BUS_TYPE, ll_parlio_deinit_cb );
+    ll_parlio_register_instance( chan, valid_flag );
+    #else
+    ( void )chan;
+    ( void )valid_flag;
+    #endif
+}
+
+void ll_parlio_periman_end( parlio_tx_unit_handle_t chan ) {
+    #ifdef ESP32_BUS_TYPE_PARLIO_TX
+    ll_parlio_unregister_instance( chan );
+    #else
+    ( void )chan;
+    #endif
+}
+
+#endif /* SOC_PARLIO_SUPPORTED */
+
+//  --- EOF --- //
