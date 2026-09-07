@@ -80,6 +80,82 @@ void test_hyperhdr_two_packet_frame_completes() {
     assertFramePattern(frame);
     TEST_ASSERT_EQUAL_UINT32(1, assembler.stats().completed);
     TEST_ASSERT_EQUAL_UINT16(0, assembler.coveredBytes());
+
+    TEST_ASSERT_EQUAL_UINT32(
+        2,
+        assembler.stats().
+            sequentialFastPathDatagrams);
+
+    TEST_ASSERT_EQUAL_UINT32(
+        0,
+        assembler.stats().
+            fallbackDatagrams);
+
+    TEST_ASSERT_EQUAL_UINT64(
+        DdpAssembler::kDefaultFrameBytes,
+        assembler.stats().
+            sequentialFastPathBytes);
+}
+
+void test_parsed_ingress_matches_raw_ingress() {
+    DdpAssembler assembler;
+    RgbFrame frame;
+
+    auto first =
+        makePacket(
+            1,
+            0,
+            1440,
+            false);
+
+    auto second =
+        makePacket(
+            1,
+            1440,
+            900,
+            true);
+
+    ambilight::DdpPacketView firstView;
+    ambilight::DdpPacketView secondView;
+
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(
+            ambilight::DdpParseError::None),
+        static_cast<int>(
+            ambilight::parseDdpDatagram(
+                first.data(),
+                first.size(),
+                firstView)));
+
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(
+            ambilight::DdpParseError::None),
+        static_cast<int>(
+            ambilight::parseDdpDatagram(
+                second.data(),
+                second.size(),
+                secondView)));
+
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(
+            DdpIngestResult::Partial),
+        static_cast<int>(
+            assembler.ingestParsed(
+                firstView,
+                1000,
+                frame)));
+
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(
+            DdpIngestResult::Complete),
+        static_cast<int>(
+            assembler.ingestParsed(
+                secondView,
+                1200,
+                frame)));
+
+    assertFramePattern(
+        frame);
 }
 
 void test_push_packet_can_arrive_first() {
@@ -126,7 +202,14 @@ void test_duplicate_packet_does_not_fake_completion() {
         static_cast<int>(assembler.ingest(
             second.data(), second.size(), 3200, frame)));
 
-    TEST_ASSERT_EQUAL_UINT32(1440, assembler.stats().duplicateBytes);
+    TEST_ASSERT_EQUAL_UINT32(
+        1440,
+        assembler.stats().duplicateBytes);
+
+    TEST_ASSERT_EQUAL_UINT32(
+        1,
+        assembler.stats().
+            fallbackDatagrams);
 }
 
 void test_new_sequence_supersedes_incomplete_frame() {
@@ -479,6 +562,7 @@ int main(int, char**) {
     UNITY_BEGIN();
 
     RUN_TEST(test_hyperhdr_two_packet_frame_completes);
+    RUN_TEST(test_parsed_ingress_matches_raw_ingress);
     RUN_TEST(test_push_packet_can_arrive_first);
     RUN_TEST(test_duplicate_packet_does_not_fake_completion);
     RUN_TEST(test_new_sequence_supersedes_incomplete_frame);
