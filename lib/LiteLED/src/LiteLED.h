@@ -143,6 +143,16 @@ typedef struct {
 
 // PARLIO group structs — must follow led_strip_t (parlio_lane_t embeds one)
 #if SOC_PARLIO_SUPPORTED
+
+// LiteLEDpioGroup currently uses byte-wide PARLIO samples: one DMA byte is
+// one clock sample across eight physical data lines. Keep the public lane
+// contract aligned with the configured hardware data_width even on SoCs whose
+// PARLIO peripheral exposes more lines.
+#define LITELED_PARLIO_GROUP_DATA_WIDTH 8
+static_assert(
+    PARLIO_TX_UNIT_MAX_DATA_WIDTH >=
+        LITELED_PARLIO_GROUP_DATA_WIDTH,
+    "LiteLEDpioGroup requires at least eight PARLIO TX data lines");
 // Per-lane state for LiteLEDpioGroup (one entry per PARLIO bit lane)
 typedef struct {
     led_strip_t   strip;     /* pixel colour buffer and LED metadata for this lane */
@@ -495,10 +505,9 @@ class LiteLEDpioGroup {
     // @param  gpio  GPIO pin connected to the strip DIN.
     template<uint8_t LANE>
     LiteLEDpioLane &addStrip( uint8_t gpio ) {
-        static_assert( LANE < PARLIO_TX_UNIT_MAX_DATA_WIDTH,
-                       "LiteLEDpioGroup::addStrip<LANE>: lane index exceeds PARLIO "
-                       "data_width for this SoC "
-                       "(ESP32-C6/H2 max is 7; ESP32-P4 max is 15)." );
+        static_assert( LANE < LITELED_PARLIO_GROUP_DATA_WIDTH,
+                       "LiteLEDpioGroup::addStrip<LANE>: lane index exceeds the "
+                       "configured 8-bit PARLIO group data width." );
         return _addStrip( LANE, gpio );
     }
 
@@ -509,8 +518,19 @@ class LiteLEDpioGroup {
     // @return ESP_OK on success.
     esp_err_t begin( ll_psram_t psram_flag = PSRAM_DISABLE );
 
-    // @brief Encode all lane pixel buffers into the shared DMA buffer and
-    //        transmit.  Blocks until the full frame (including reset) is done.
+    // @brief Encode all lane pixel buffers into the shared DMA buffer.
+    // Does not start a hardware transfer.
+    esp_err_t encode();
+
+    // @brief Queue the already encoded DMA buffer for PARLIO transmission.
+    // Does not wait for the transfer to finish.
+    esp_err_t transmit();
+
+    // @brief Wait until all queued PARLIO transmissions have completed.
+    esp_err_t wait();
+
+    // @brief Encode, transmit and wait. Convenience blocking API retained for
+    // callers that do not need Stage 40/41 pipeline control.
     esp_err_t show();
 
     // @brief Set the same brightness level on every lane simultaneously.
