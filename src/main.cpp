@@ -5053,6 +5053,9 @@ void loop() {
         static_cast<std::uint64_t>(
             esp_timer_get_time());
 
+    const std::uint64_t showSamplesBefore =
+        ledEngine.showMetric().samples();
+
     wifi.tick(millis());
     serviceDebugCommands();
     serviceCalibrationCapture();
@@ -5113,7 +5116,18 @@ void loop() {
             esp_timer_get_time()) -
         loopStartedUs);
 
-    delay(1);
+    const bool physicalFrameShown =
+        ledEngine.showMetric().samples() !=
+        showSamplesBefore;
+
+    // A rendered frame already spent roughly one WS2812 wire interval blocked
+    // in PARLIO wait_all_done(), which yields the loop task. Avoid adding a
+    // fixed extra tick to every output frame. Idle/no-render loops retain a
+    // one-tick delay so Wi-Fi/idle/WDT service is never replaced by a spin.
+    delay(
+        physicalFrameShown
+            ? 0
+            : 1);
 
     loopWallMetric.observe(
         static_cast<std::uint64_t>(
