@@ -1,5 +1,7 @@
 #include "led/LedEngine.h"
 
+#include <cstring>
+
 #include <esp_timer.h>
 
 namespace ambilight {
@@ -8,21 +10,60 @@ LedEngine::LedEngine()
     : group_(LED_STRIP_WS2812, config::kPhysicalLaneLength, false) {}
 
 esp_err_t LedEngine::begin() {
-    for (std::size_t lane = 0; lane < config::kParlioLaneCount; ++lane) {
-        lanes_[lane] = &group_.addStrip(config::kLedGpios[lane]);
+    for (std::size_t lane = 0;
+         lane < config::kParlioLaneCount;
+         ++lane) {
 
-        if (lanes_[lane] == nullptr || !lanes_[lane]->isValid()) {
+        lanes_[lane] =
+            &group_.addStrip(
+                config::kLedGpios[lane]);
+
+        if (lanes_[lane] == nullptr ||
+            !lanes_[lane]->isValid()) {
+
             return ESP_ERR_INVALID_STATE;
         }
     }
 
-    const esp_err_t result = group_.begin();
+    const esp_err_t result =
+        group_.begin();
+
     if (result != ESP_OK) {
         return result;
     }
 
+    group_.brightness(
+        brightness_);
+
+    for (std::size_t lane = 0;
+         lane < config::kParlioLaneCount;
+         ++lane) {
+
+        const auto buffer =
+            lanes_[lane]->
+                pixelBufferView();
+
+        if (buffer.data == nullptr ||
+            buffer.pixel_count !=
+                config::kPhysicalLaneLength ||
+            buffer.bytes_per_pixel != 3 ||
+            buffer.order != ORDER_GRB) {
+
+            return ESP_ERR_INVALID_STATE;
+        }
+
+        frameWriteView_.lane[lane] = {
+            buffer.data,
+            static_cast<std::uint16_t>(
+                buffer.pixel_count)
+        };
+    }
+
+    if (!frameWriteView_.valid()) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
     begun_ = true;
-    group_.brightness(brightness_);
 
     clear();
     return show();
@@ -40,25 +81,70 @@ void LedEngine::setBrightness(
 }
 
 void LedEngine::clear() {
-    for (auto* lane : lanes_) {
+    if (frameWriteView_.valid()) {
+        for (const auto& lane :
+             frameWriteView_.lane) {
+
+            std::memset(
+                lane.grb,
+                0,
+                static_cast<std::size_t>(
+                    lane.pixelCount) *
+                    3U);
+        }
+
+        return;
+    }
+
+    // Before begin() there is no allocated pixel buffer yet. Preserve the
+    // historical no-op behavior for early topology setup.
+    for (auto* lane :
+         lanes_) {
+
         if (lane != nullptr) {
             lane->clear();
         }
     }
 }
 
-bool LedEngine::setPhysicalPixel(
+bool LedEngine::fillPhysicalRange(
     std::uint8_t lane,
-    std::uint16_t physicalIndex,
-    crgb_t color) {
+    std::uint16_t start,
+    std::uint16_t count,
+    const Rgb8& color) {
 
-    if (lane >= lanes_.size() ||
-        physicalIndex >= config::kPhysicalLaneLength ||
-        lanes_[lane] == nullptr) {
+    if (lane >=
+            frameWriteView_.lane.size() ||
+        count == 0) {
+
         return false;
     }
 
-    return lanes_[lane]->setPixel(physicalIndex, color) == ESP_OK;
+    const auto& target =
+        frameWriteView_.lane[lane];
+
+    if (!target.valid() ||
+        start >= target.pixelCount ||
+        static_cast<std::uint32_t>(
+            start) +
+            count >
+                target.pixelCount) {
+
+        return false;
+    }
+
+    for (std::uint16_t offset = 0;
+         offset < count;
+         ++offset) {
+
+        target.writeUnchecked(
+            static_cast<std::uint16_t>(
+                start +
+                offset),
+            color);
+    }
+
+    return true;
 }
 
 esp_err_t LedEngine::show() {
