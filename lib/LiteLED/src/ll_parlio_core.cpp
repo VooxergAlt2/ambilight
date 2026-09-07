@@ -481,8 +481,19 @@ esp_err_t parlio_group_install( parlio_group_cfg_t *cfg ) {
     esp_err_t res = parlio_new_tx_unit( &chan_cfg, &cfg->parlio_chan );
     if ( res != ESP_OK ) {
         log_d( "parlio_group_install: parlio_new_tx_unit failed - %s", esp_err_to_name( res ) );
-        heap_caps_free( cfg->parlio_buf );
-        cfg->parlio_buf = NULL;
+
+        for ( uint8_t buffer_index = 0;
+              buffer_index < LITELED_PARLIO_GROUP_DMA_BUFFER_COUNT;
+              buffer_index++ ) {
+
+            if ( cfg->parlio_buf[ buffer_index ] ) {
+                heap_caps_free( cfg->parlio_buf[ buffer_index ] );
+                cfg->parlio_buf[ buffer_index ] = NULL;
+            }
+        }
+
+        cfg->parlio_buf_bytes = 0;
+
         for ( uint8_t n = 0; n < PARLIO_TX_UNIT_MAX_DATA_WIDTH; n++ ) {
             if ( cfg->lanes[ n ].assigned && cfg->lanes[ n ].strip.buf ) {
                 free( cfg->lanes[ n ].strip.buf );
@@ -496,8 +507,19 @@ esp_err_t parlio_group_install( parlio_group_cfg_t *cfg ) {
         log_d( "parlio_group_install: parlio_tx_unit_enable failed - %s", esp_err_to_name( res ) );
         parlio_del_tx_unit( cfg->parlio_chan );
         cfg->parlio_chan = NULL;
-        heap_caps_free( cfg->parlio_buf );
-        cfg->parlio_buf = NULL;
+
+        for ( uint8_t buffer_index = 0;
+              buffer_index < LITELED_PARLIO_GROUP_DMA_BUFFER_COUNT;
+              buffer_index++ ) {
+
+            if ( cfg->parlio_buf[ buffer_index ] ) {
+                heap_caps_free( cfg->parlio_buf[ buffer_index ] );
+                cfg->parlio_buf[ buffer_index ] = NULL;
+            }
+        }
+
+        cfg->parlio_buf_bytes = 0;
+
         for ( uint8_t n = 0; n < PARLIO_TX_UNIT_MAX_DATA_WIDTH; n++ ) {
             if ( cfg->lanes[ n ].assigned && cfg->lanes[ n ].strip.buf ) {
                 free( cfg->lanes[ n ].strip.buf );
@@ -715,11 +737,18 @@ esp_err_t parlio_group_free( parlio_group_cfg_t *cfg ) {
     }
     cfg->parlio_chan = NULL;
 
-    if ( cfg->parlio_buf ) {
-        heap_caps_free( cfg->parlio_buf );
-        cfg->parlio_buf       = NULL;
-        cfg->parlio_buf_bytes = 0;
+    for ( uint8_t buffer_index = 0;
+          buffer_index < LITELED_PARLIO_GROUP_DMA_BUFFER_COUNT;
+          buffer_index++ ) {
+
+        if ( cfg->parlio_buf[ buffer_index ] ) {
+            heap_caps_free( cfg->parlio_buf[ buffer_index ] );
+            cfg->parlio_buf[ buffer_index ] = NULL;
+        }
     }
+
+    cfg->parlio_buf_bytes = 0;
+
     for ( uint8_t n = 0; n < PARLIO_TX_UNIT_MAX_DATA_WIDTH; n++ ) {
         if ( cfg->lanes[ n ].assigned && cfg->lanes[ n ].strip.buf ) {
             free( cfg->lanes[ n ].strip.buf );
