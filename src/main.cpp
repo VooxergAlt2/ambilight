@@ -797,6 +797,10 @@ bool applyLedMappingProfile(
         return false;
     }
 
+    const ambilight::LedMappingProfile previous =
+        runtimeSettings.
+            ledMappingProfile();
+
     LedTopologyOutputGuard outputGuard;
 
     if (!quiesceLedOutputForTopologyChange(
@@ -823,6 +827,41 @@ bool applyLedMappingProfile(
         runtimeSettings.setLedMappingProfile(
             profile);
 
+    if (!persisted &&
+        runtimeSettings.persistenceAvailable()) {
+
+        ambilight::LedPixelMaskProfile rollbackMask;
+        bool rollbackMaskChanged = false;
+
+        if (!activateLedMappingProfileWhileBlack(
+                previous,
+                rollbackMask,
+                rollbackMaskChanged)) {
+
+            Serial.println(
+                "LED TOPOLOGY save failed and live rollback could not be completed; output remains black and reboot is required.");
+
+            outputGuard.restoreBrightness = 0;
+
+            restoreLedOutputAfterTopologyChange(
+                outputGuard);
+
+            return false;
+        }
+
+        invalidateRuntimeAfterTopologyChange(
+            previous);
+
+        restoreLedOutputAfterTopologyChange(
+            outputGuard);
+
+        Serial.println(
+            "LED TOPOLOGY save failed: live mapping rolled back; NVS did not commit the requested topology.");
+
+        printLedMappingProfile();
+        return false;
+    }
+
     commitSanitizedMaskAfterTopology(
         effectiveMask,
         maskChanged);
@@ -846,12 +885,10 @@ bool applyLedMappingProfile(
 
     printLedMappingProfile();
 
-    // Applying a live topology without durable persistence is useful for
-    // diagnostics, but the Web UI action must not masquerade as a successful
-    // save when NVS was available and the write failed.
-    return
-        persisted ||
-        !runtimeSettings.persistenceAvailable();
+    // If NVS itself is unavailable, retain the long-standing runtime-only
+    // commissioning capability. With NVS available, the failure path above is
+    // transactional and has already rolled the live topology back.
+    return true;
 }
 
 bool resetLedMappingProfile() {
