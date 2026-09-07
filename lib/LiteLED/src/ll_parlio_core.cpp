@@ -9,6 +9,7 @@
 
 #include "llrgb.h"
 #include "ll_led_timings.h"
+#include "ll_parlio_encoder.h"
 #include <string.h>
 
 // -------------------------------------------------------------------------
@@ -292,9 +293,19 @@ void parlio_strip_debug_dump( led_strip_t *strip, parlio_strip_cfg_t *cfg ) {
 // then creates and enables the PARLIO TX unit.
 // --------------------------------------------------------------------------
 esp_err_t parlio_group_install( parlio_group_cfg_t *cfg ) {
-    if ( !cfg || cfg->lane_count == 0 ) {
+    if ( !cfg || cfg->lane_count == 0 ||
+         cfg->lane_count > LITELED_PARLIO_GROUP_DATA_WIDTH ) {
         log_d( "parlio_group_install: invalid args" );
         return ESP_ERR_INVALID_ARG;
+    }
+
+    for ( uint8_t n = LITELED_PARLIO_GROUP_DATA_WIDTH;
+          n < PARLIO_TX_UNIT_MAX_DATA_WIDTH; n++ ) {
+        if ( cfg->lanes[ n ].assigned ) {
+            log_d( "parlio_group_install: lane %u exceeds configured data width %u",
+                   n, LITELED_PARLIO_GROUP_DATA_WIDTH );
+            return ESP_ERR_INVALID_ARG;
+        }
     }
 
     // Find first assigned lane to derive shared timing params.
@@ -364,20 +375,59 @@ esp_err_t parlio_group_install( parlio_group_cfg_t *cfg ) {
         return ESP_ERR_NO_MEM;
     }
     cfg->parlio_buf_bytes = total_bytes;
+
+    uint8_t active_lane_mask = 0;
+    for ( uint8_t n = 0; n < LITELED_PARLIO_GROUP_DATA_WIDTH; n++ ) {
+        if ( cfg->lanes[ n ].assigned ) {
+            active_lane_mask |= ( uint8_t )( 1U << n );
+        }
+    }
+
+    const auto sample_plan =
+        liteled_parlio::makeSamplePlan(
+            p->bit0_pattern,
+            p->bit1_pattern,
+            p->samples_per_bit );
+
+    if ( !sample_plan.valid() ) {
+        log_d( "parlio_group_install: unsupported sample plan" );
+        heap_caps_free( cfg->parlio_buf );
+        cfg->parlio_buf = NULL;
+        cfg->parlio_buf_bytes = 0;
+        for ( uint8_t n = 0; n < PARLIO_TX_UNIT_MAX_DATA_WIDTH; n++ ) {
+            if ( cfg->lanes[ n ].assigned && cfg->lanes[ n ].strip.buf ) {
+                free( cfg->lanes[ n ].strip.buf );
+                cfg->lanes[ n ].strip.buf = NULL;
+            }
+        }
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+
+    // The DMA buffer was zeroed by calloc. Initialize waveform samples that
+    // are constant for every possible frame exactly once. Dynamic sample
+    // positions are overwritten by parlio_group_encode().
+    for ( size_t b = 0; b < pixel_bytes; b++ ) {
+        liteled_parlio::initializeEncodedByte(
+            &cfg->parlio_buf[
+                b * p->samples_per_bit * 8 ],
+            sample_plan,
+            active_lane_mask );
+    }
+
     log_d( "PARLIO group DMA buffer: %u bytes (%u encoded + %u reset, %u lanes)",
            total_bytes, encoded_bytes, PARLIO_RESET_BYTES, cfg->lane_count );
 
-    // Create PARLIO TX unit — data_width=8, one GPIO per assigned lane.
+    // Create PARLIO TX unit — byte-wide samples, one GPIO per assigned lane.
     parlio_tx_unit_config_t chan_cfg = {};
     chan_cfg.clk_src            = PARLIO_CLK_SRC_DEFAULT;
-    chan_cfg.data_width          = 8;
+    chan_cfg.data_width          = LITELED_PARLIO_GROUP_DATA_WIDTH;
     chan_cfg.clk_in_gpio_num     = GPIO_NUM_NC;
     chan_cfg.clk_out_gpio_num    = GPIO_NUM_NC;
     chan_cfg.valid_gpio_num      = GPIO_NUM_NC;
     for ( int i = 0; i < PARLIO_TX_UNIT_MAX_DATA_WIDTH; i++ ) {
         chan_cfg.data_gpio_nums[ i ] = GPIO_NUM_NC;
     }
-    for ( uint8_t n = 0; n < PARLIO_TX_UNIT_MAX_DATA_WIDTH; n++ ) {
+    for ( uint8_t n = 0; n < LITELED_PARLIO_GROUP_DATA_WIDTH; n++ ) {
         if ( cfg->lanes[ n ].assigned ) {
             chan_cfg.data_gpio_nums[ n ] = ( gpio_num_t )cfg->lanes[ n ].strip.gpio;
         }
@@ -422,73 +472,176 @@ esp_err_t parlio_group_install( parlio_group_cfg_t *cfg ) {
 }
 
 // --------------------------------------------------------------------------
-// parlio_group_flush
+// parlio_group_encode
 //
-// Zeros the shared DMA buffer, then for each assigned lane ORs that lane's
-// waveform bits (with brightness applied) into the appropriate bit position
-// of each DMA byte.  After all lanes are encoded, transmits and blocks.
+// Pixel buffers are lane-major RGB/GRB bytes. The shared PARLIO DMA buffer is
+// time-major: each byte represents one simultaneous clock sample on up to
+// eight output lanes.
 //
-// Encoding layout (per input byte b, bit j MSB-first, sample s in 0..2):
-//   DMA byte index = b * (samples_per_bit * 8) + (7 - j) * samples_per_bit + s
-//   bit N of that byte = lane N's waveform sample value at that time slot
+// Constant waveform samples were initialized once by parlio_group_install().
+// Per frame we only update samples whose level depends on the LED data bit.
 // --------------------------------------------------------------------------
-esp_err_t parlio_group_flush( parlio_group_cfg_t *cfg ) {
-    if ( !cfg || !cfg->parlio_chan || !cfg->parlio_buf || cfg->lane_count == 0 ) {
-        log_d( "parlio_group_flush: invalid args" );
+esp_err_t parlio_group_encode( parlio_group_cfg_t *cfg ) {
+    if ( !cfg || !cfg->parlio_chan || !cfg->parlio_buf ||
+         cfg->lane_count == 0 ||
+         cfg->lane_count > LITELED_PARLIO_GROUP_DATA_WIDTH ) {
+        log_d( "parlio_group_encode: invalid args" );
         return ESP_ERR_INVALID_ARG;
     }
 
-    // Find first assigned lane for shared params.
     uint8_t first = 0;
-    while ( first < PARLIO_TX_UNIT_MAX_DATA_WIDTH && !cfg->lanes[ first ].assigned ) {
+    while ( first < LITELED_PARLIO_GROUP_DATA_WIDTH &&
+            !cfg->lanes[ first ].assigned ) {
         first++;
     }
 
-    const parlio_led_params_t *p          = &parlio_led_params[ cfg->lanes[ first ].strip.type ];
-    const size_t               color_size = 3 + ( cfg->lanes[ first ].strip.is_rgbw ? 1 : 0 );
-    const size_t               pixel_bytes = cfg->lanes[ first ].strip.length * color_size;
-    const size_t               spb         = p->samples_per_bit;  // 3
+    if ( first >= LITELED_PARLIO_GROUP_DATA_WIDTH ) {
+        return ESP_ERR_INVALID_ARG;
+    }
 
-    // Zero entire DMA buffer.  The encoded region gets |= filled per lane;
-    // the reset tail (trailing PARLIO_RESET_BYTES) stays zero.
-    memset( cfg->parlio_buf, 0, cfg->parlio_buf_bytes );
+    const parlio_led_params_t *p =
+        &parlio_led_params[
+            cfg->lanes[ first ].strip.type ];
 
-    // Encode each lane into its bit position.
-    for ( uint8_t n = 0; n < PARLIO_TX_UNIT_MAX_DATA_WIDTH; n++ ) {
-        if ( !cfg->lanes[ n ].assigned ) {
-            continue;
-        }
-        led_strip_t *strip  = &cfg->lanes[ n ].strip;
-        uint8_t      bright = strip->brightness;
+    const size_t color_size =
+        3 +
+        ( cfg->lanes[ first ].strip.is_rgbw
+            ? 1
+            : 0 );
 
-        for ( size_t b = 0; b < pixel_bytes; b++ ) {
-            uint8_t val = scale8_video( strip->buf[ b ], bright );
-            // Expand all 8 bits of val, MSB first.
-            for ( int bit = 7; bit >= 0; bit-- ) {
-                uint8_t pat    = ( ( val >> bit ) & 1 ) ? p->bit1_pattern : p->bit0_pattern;
-                // DMA byte index for the first sample of this bit slot.
-                size_t  offset = b * spb * 8 + ( size_t )( 7 - bit ) * spb;
-                cfg->parlio_buf[ offset + 0 ] |= ( uint8_t )( ( ( pat >> 2 ) & 1 ) << n );
-                cfg->parlio_buf[ offset + 1 ] |= ( uint8_t )( ( ( pat >> 1 ) & 1 ) << n );
-                cfg->parlio_buf[ offset + 2 ] |= ( uint8_t )( (   pat        & 1 ) << n );
-            }
+    const size_t pixel_bytes =
+        cfg->lanes[ first ].strip.length *
+        color_size;
+
+    const auto sample_plan =
+        liteled_parlio::makeSamplePlan(
+            p->bit0_pattern,
+            p->bit1_pattern,
+            p->samples_per_bit );
+
+    if ( !sample_plan.valid() ) {
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+
+    uint8_t active_lane_mask = 0;
+    for ( uint8_t n = 0;
+          n < LITELED_PARLIO_GROUP_DATA_WIDTH;
+          n++ ) {
+
+        if ( cfg->lanes[ n ].assigned ) {
+            active_lane_mask |=
+                ( uint8_t )( 1U << n );
         }
     }
 
-    // Transmit — buf_bytes * 8 because the IDF API counts in bits.
-    parlio_transmit_config_t tx_cfg = { .idle_value = 0 };
-    esp_err_t res = parlio_tx_unit_transmit( cfg->parlio_chan,
-                    cfg->parlio_buf,
-                    cfg->parlio_buf_bytes * 8,
-                    &tx_cfg );
+    for ( size_t b = 0;
+          b < pixel_bytes;
+          b++ ) {
+
+        uint8_t lane_value[
+            liteled_parlio::kDataWidth ] = {};
+
+        for ( uint8_t n = 0;
+              n < LITELED_PARLIO_GROUP_DATA_WIDTH;
+              n++ ) {
+
+            if ( !cfg->lanes[ n ].assigned ) {
+                continue;
+            }
+
+            led_strip_t *strip =
+                &cfg->lanes[ n ].strip;
+
+            lane_value[ n ] =
+                scale8_video(
+                    strip->buf[ b ],
+                    strip->brightness );
+        }
+
+        liteled_parlio::encodeDynamicByte(
+            &cfg->parlio_buf[
+                b *
+                p->samples_per_bit *
+                8 ],
+            sample_plan,
+            active_lane_mask,
+            lane_value );
+    }
+
+    return ESP_OK;
+}
+
+// --------------------------------------------------------------------------
+// parlio_group_transmit
+// --------------------------------------------------------------------------
+esp_err_t parlio_group_transmit( parlio_group_cfg_t *cfg ) {
+    if ( !cfg || !cfg->parlio_chan || !cfg->parlio_buf ||
+         cfg->lane_count == 0 ) {
+        log_d( "parlio_group_transmit: invalid args" );
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    parlio_transmit_config_t tx_cfg = {
+        .idle_value = 0
+    };
+
+    const esp_err_t res =
+        parlio_tx_unit_transmit(
+            cfg->parlio_chan,
+            cfg->parlio_buf,
+            cfg->parlio_buf_bytes * 8,
+            &tx_cfg );
+
     if ( res != ESP_OK ) {
-        log_d( "parlio_group_flush: transmit failed - %s", esp_err_to_name( res ) );
+        log_d( "parlio_group_transmit: failed - %s",
+               esp_err_to_name( res ) );
+    }
+
+    return res;
+}
+
+// --------------------------------------------------------------------------
+// parlio_group_wait
+// --------------------------------------------------------------------------
+esp_err_t parlio_group_wait( parlio_group_cfg_t *cfg ) {
+    if ( !cfg || !cfg->parlio_chan ) {
+        log_d( "parlio_group_wait: invalid args" );
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    const esp_err_t res =
+        parlio_tx_unit_wait_all_done(
+            cfg->parlio_chan,
+            -1 );
+
+    if ( res != ESP_OK ) {
+        log_d( "parlio_group_wait: failed - %s",
+               esp_err_to_name( res ) );
+    }
+
+    return res;
+}
+
+// --------------------------------------------------------------------------
+// parlio_group_flush — blocking compatibility wrapper
+// --------------------------------------------------------------------------
+esp_err_t parlio_group_flush( parlio_group_cfg_t *cfg ) {
+    esp_err_t res =
+        parlio_group_encode( cfg );
+
+    if ( res != ESP_OK ) {
         return res;
     }
-    if ( ( res = parlio_tx_unit_wait_all_done( cfg->parlio_chan, -1 ) ) != ESP_OK ) {
-        log_d( "parlio_group_flush: wait_all_done failed - %s", esp_err_to_name( res ) );
+
+    res =
+        parlio_group_transmit( cfg );
+
+    if ( res != ESP_OK ) {
+        return res;
     }
-    return res;
+
+    return
+        parlio_group_wait( cfg );
 }
 
 // --------------------------------------------------------------------------
