@@ -11,6 +11,7 @@
 #include "led/LedEngine.h"
 #include "led/LedMappingProfile.h"
 #include "led/LedPixelMaskProfile.h"
+#include "led/LedRenderPlan.h"
 #include "render/CorrectionMode.h"
 #include "render/RenderGainContext.h"
 
@@ -59,43 +60,14 @@ public:
         : engine_(engine) {}
 
     bool setMappingProfile(
-        const LedMappingProfile& profile) {
-
-        if (!profile.valid()) {
-            return false;
-        }
-
-        // PARLIO owns a fixed 230-pixel buffer for every physical lane.
-        // When runtime topology shrinks a side or moves it to another lane,
-        // pixels outside the new active span would otherwise retain their
-        // previous RGB values and could reappear on the next show().
-        //
-        // Clear only on an actual topology change, never on every RGB frame.
-        // Startup is safe too: LedEngine::clear() ignores lanes until begin().
-        if (mappingProfile_.segment !=
-            profile.segment) {
-
-            engine_.clear();
-        }
-
-        mappingProfile_ = profile;
-        return true;
-    }
+        const LedMappingProfile& profile);
 
     const LedMappingProfile& mappingProfile() const {
         return mappingProfile_;
     }
 
     bool setPixelMaskProfile(
-        const LedPixelMaskProfile& profile) {
-
-        if (!profile.valid()) {
-            return false;
-        }
-
-        pixelMaskProfile_ = profile;
-        return true;
-    }
+        const LedPixelMaskProfile& profile);
 
     const LedPixelMaskProfile& pixelMaskProfile() const {
         return pixelMaskProfile_;
@@ -146,8 +118,6 @@ public:
     }
 
 private:
-    static crgb_t toCrgb(const Rgb8& color);
-
     LedEngine& engine_;
 
     std::uint32_t renderedFrames_ = 0;
@@ -156,6 +126,7 @@ private:
     RenderShadowStats shadowStats_{};
     LedMappingProfile mappingProfile_{};
     LedPixelMaskProfile pixelMaskProfile_{};
+    LedRenderPlan renderPlan_{};
     RenderGainContext lastGainContext_{};
     CorrectionMode lastCorrectionMode_ =
         CorrectionMode::Disabled;
