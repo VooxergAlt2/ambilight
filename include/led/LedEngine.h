@@ -8,6 +8,7 @@
 #include <esp_err.h>
 
 #include "config/BoardConfig.h"
+#include "core/PerformanceMetric.h"
 
 namespace ambilight {
 
@@ -35,8 +36,21 @@ public:
         std::uint16_t physicalIndex,
         crgb_t color);
 
-    std::uint32_t lastShowTimeUs() const { return lastShowTimeUs_; }
-    std::uint32_t maxShowTimeUs() const { return maxShowTimeUs_; }
+    const PerformanceMetric& showMetric() const {
+        return showMetric_;
+    }
+
+    // Compatibility accessors retained while Stage 40 replaces the old STAT
+    // surface with percentile-based performance diagnostics.
+    std::uint32_t lastShowTimeUs() const {
+        return static_cast<std::uint32_t>(
+            showMetric_.lastUs());
+    }
+
+    std::uint32_t maxShowTimeUs() const {
+        return static_cast<std::uint32_t>(
+            showMetric_.maxUs());
+    }
 
 private:
     LiteLEDpioGroup group_;
@@ -47,8 +61,7 @@ private:
 
     bool begun_ = false;
 
-    std::uint32_t lastShowTimeUs_ = 0;
-    std::uint32_t maxShowTimeUs_ = 0;
+    PerformanceMetric showMetric_{};
 };
 
 } // namespace ambilight
