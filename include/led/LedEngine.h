@@ -36,6 +36,18 @@ public:
         std::uint16_t physicalIndex,
         crgb_t color);
 
+    const PerformanceMetric& encodeMetric() const {
+        return encodeMetric_;
+    }
+
+    const PerformanceMetric& submitMetric() const {
+        return submitMetric_;
+    }
+
+    const PerformanceMetric& waitMetric() const {
+        return waitMetric_;
+    }
+
     const PerformanceMetric& showMetric() const {
         return showMetric_;
     }
@@ -61,6 +73,9 @@ private:
 
     bool begun_ = false;
 
+    PerformanceMetric encodeMetric_{};
+    PerformanceMetric submitMetric_{};
+    PerformanceMetric waitMetric_{};
     PerformanceMetric showMetric_{};
 };
 
