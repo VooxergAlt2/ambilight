@@ -70,14 +70,32 @@ constexpr DdpSenderEndpoint kSenderB{
     50001
 };
 
+ambilight::DdpPacketView parsePacket(
+    const std::vector<std::uint8_t>& packet) {
+
+    ambilight::DdpPacketView view;
+
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(
+            ambilight::DdpParseError::None),
+        static_cast<int>(
+            ambilight::parseDdpDatagram(
+                packet.data(),
+                packet.size(),
+                view)));
+
+    return view;
+}
+
 } // namespace
 
-void test_invalid_datagram_does_not_acquire_lock() {
+void test_invalid_packet_view_does_not_acquire_lock() {
     DdpSenderGate gate;
 
-    std::vector<std::uint8_t> invalid{
-        1, 2, 3
-    };
+    ambilight::DdpPacketView invalid;
+    invalid.offset = 0;
+    invalid.dataLength = 100;
+    invalid.payload = nullptr;
 
     TEST_ASSERT_EQUAL_INT(
         static_cast<int>(
@@ -85,8 +103,7 @@ void test_invalid_datagram_does_not_acquire_lock() {
         static_cast<int>(
             gate.evaluate(
                 kSenderA,
-                invalid.data(),
-                invalid.size(),
+                invalid,
                 1000)));
 
     TEST_ASSERT_FALSE(
@@ -108,8 +125,7 @@ void test_first_structurally_valid_packet_acquires_sender() {
         static_cast<int>(
             gate.evaluate(
                 kSenderA,
-                packet.data(),
-                packet.size(),
+                parsePacket(packet),
                 1000)));
 
     TEST_ASSERT_TRUE(
@@ -135,14 +151,12 @@ void test_same_sender_extends_lease() {
 
     gate.evaluate(
         kSenderA,
-        packet.data(),
-        packet.size(),
+        parsePacket(packet),
         1000);
 
     gate.evaluate(
         kSenderA,
-        packet.data(),
-        packet.size(),
+        parsePacket(packet),
         1800);
 
     TEST_ASSERT_FALSE(
@@ -165,8 +179,7 @@ void test_foreign_sender_is_dropped_without_extending_lease() {
 
     gate.evaluate(
         kSenderA,
-        packet.data(),
-        packet.size(),
+        parsePacket(packet),
         1000);
 
     TEST_ASSERT_EQUAL_INT(
@@ -191,21 +204,21 @@ void test_foreign_sender_is_dropped_without_extending_lease() {
         gate.stats().foreignSenderDrops);
 }
 
-void test_invalid_packet_from_owner_does_not_extend_lease() {
+void test_invalid_packet_view_from_owner_does_not_extend_lease() {
     DdpSenderGate gate(1000);
+
     const auto valid =
         makePacket();
 
-    auto invalid =
-        makePacket();
-
-    invalid[0] = 0;
-
     gate.evaluate(
         kSenderA,
-        valid.data(),
-        valid.size(),
+        parsePacket(valid),
         1000);
+
+    ambilight::DdpPacketView invalid;
+    invalid.offset = 0;
+    invalid.dataLength = 100;
+    invalid.payload = nullptr;
 
     TEST_ASSERT_EQUAL_INT(
         static_cast<int>(
@@ -213,8 +226,7 @@ void test_invalid_packet_from_owner_does_not_extend_lease() {
         static_cast<int>(
             gate.evaluate(
                 kSenderA,
-                invalid.data(),
-                invalid.size(),
+                invalid,
                 1900)));
 
     TEST_ASSERT_EQUAL_UINT64(
@@ -241,8 +253,7 @@ void test_out_of_frame_payload_does_not_acquire_lock() {
         static_cast<int>(
             gate.evaluate(
                 kSenderA,
-                packet.data(),
-                packet.size(),
+                parsePacket(packet),
                 1000)));
 
     TEST_ASSERT_FALSE(
@@ -308,8 +319,7 @@ void test_same_ip_different_port_is_foreign_sender() {
 
     gate.evaluate(
         kSenderA,
-        packet.data(),
-        packet.size(),
+        parsePacket(packet),
         1000);
 
     TEST_ASSERT_EQUAL_INT(
@@ -330,8 +340,7 @@ void test_new_sender_can_acquire_after_timeout() {
 
     gate.evaluate(
         kSenderA,
-        packet.data(),
-        packet.size(),
+        parsePacket(packet),
         1000);
 
     TEST_ASSERT_TRUE(
@@ -363,11 +372,11 @@ void test_new_sender_can_acquire_after_timeout() {
 int main(int, char**) {
     UNITY_BEGIN();
 
-    RUN_TEST(test_invalid_datagram_does_not_acquire_lock);
+    RUN_TEST(test_invalid_packet_view_does_not_acquire_lock);
     RUN_TEST(test_first_structurally_valid_packet_acquires_sender);
     RUN_TEST(test_same_sender_extends_lease);
     RUN_TEST(test_foreign_sender_is_dropped_without_extending_lease);
-    RUN_TEST(test_invalid_packet_from_owner_does_not_extend_lease);
+    RUN_TEST(test_invalid_packet_view_from_owner_does_not_extend_lease);
     RUN_TEST(test_out_of_frame_payload_does_not_acquire_lock);
     RUN_TEST(test_runtime_frame_bound_changes_sender_validation);
     RUN_TEST(test_same_ip_different_port_is_foreign_sender);
