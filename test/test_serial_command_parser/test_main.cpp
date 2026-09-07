@@ -111,6 +111,10 @@ void test_immediate_debug_commands_are_case_insensitive() {
         SerialCommandKind::DumpRender);
 
     assertEvent(
+        parser.feed('U'),
+        SerialCommandKind::DumpRuntimeStatus);
+
+    assertEvent(
         parser.feed('X'),
         SerialCommandKind::StartShadowProbe);
 
