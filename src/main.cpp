@@ -2304,7 +2304,9 @@ bool serviceRender(
         }
     }
 
-    if (activeCorrection) {
+    if (activeCorrection &&
+        !renderGainController.settled()) {
+
         renderGainController.advance(
             nowUs);
     }
@@ -2377,7 +2379,8 @@ void serviceRenderDiagnostics(
     // diagnostic cadence so gain changes never create physical state-only
     // renders. ACTIVE advances in serviceRender() because it affects output.
     if (correctionMode ==
-        ambilight::CorrectionMode::Shadow) {
+            ambilight::CorrectionMode::Shadow &&
+        !renderGainController.settled()) {
 
         renderGainController.advance(
             nowUs);
