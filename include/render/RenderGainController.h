@@ -52,7 +52,9 @@ public:
     bool advance(
         std::uint64_t nowUs);
 
-    void reset();
+    void reset(
+        const LedMappingProfile& topology =
+            LedMappingProfile{});
 
     const RenderGainContext& current() const {
         return current_;
