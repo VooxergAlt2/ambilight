@@ -4531,36 +4531,6 @@ void printRuntimeHeartbeat() {
         static_cast<unsigned long>(
             ESP.getMinFreeHeap()));
 
-    Serial.printf(
-        "PIPE submitted=%lu completed=%lu overlapped=%lu cold=%lu overlap=%lu.%lu%% "
-        "encode_p95<=%luus wait_residual_p95<=%luus submit_p95<=%luus service_p95<=%luus flush_wait_p95<=%luus\n",
-        static_cast<unsigned long>(
-            ledEngine.submittedFrames()),
-        static_cast<unsigned long>(
-            ledEngine.completedFrames()),
-        static_cast<unsigned long>(
-            ledEngine.overlappedShows()),
-        static_cast<unsigned long>(
-            ledEngine.coldShows()),
-        static_cast<unsigned long>(
-            overlapPermille / 10U),
-        static_cast<unsigned long>(
-            overlapPermille % 10U),
-        static_cast<unsigned long>(
-            ledEngine.encodeMetric().
-                percentileUpperBoundUs(95)),
-        static_cast<unsigned long>(
-            ledEngine.waitMetric().
-                percentileUpperBoundUs(95)),
-        static_cast<unsigned long>(
-            ledEngine.submitMetric().
-                percentileUpperBoundUs(95)),
-        static_cast<unsigned long>(
-            ledEngine.showMetric().
-                percentileUpperBoundUs(95)),
-        static_cast<unsigned long>(
-            ledEngine.flushWaitMetric().
-                percentileUpperBoundUs(95)));
 }
 
 void dumpRuntimeStatus() {
@@ -4838,6 +4808,37 @@ void dumpRuntimeStatus() {
         tofDebugActive()
             ? "yes"
             : "no");
+
+    Serial.printf(
+        "PIPE submitted=%lu completed=%lu overlapped=%lu cold=%lu overlap=%lu.%lu%% "
+        "encode_p95<=%luus wait_residual_p95<=%luus submit_p95<=%luus service_p95<=%luus flush_wait_p95<=%luus\n",
+        static_cast<unsigned long>(
+            ledEngine.submittedFrames()),
+        static_cast<unsigned long>(
+            ledEngine.completedFrames()),
+        static_cast<unsigned long>(
+            ledEngine.overlappedShows()),
+        static_cast<unsigned long>(
+            ledEngine.coldShows()),
+        static_cast<unsigned long>(
+            overlapPermille / 10U),
+        static_cast<unsigned long>(
+            overlapPermille % 10U),
+        static_cast<unsigned long>(
+            ledEngine.encodeMetric().
+                percentileUpperBoundUs(95)),
+        static_cast<unsigned long>(
+            ledEngine.waitMetric().
+                percentileUpperBoundUs(95)),
+        static_cast<unsigned long>(
+            ledEngine.submitMetric().
+                percentileUpperBoundUs(95)),
+        static_cast<unsigned long>(
+            ledEngine.showMetric().
+                percentileUpperBoundUs(95)),
+        static_cast<unsigned long>(
+            ledEngine.flushWaitMetric().
+                percentileUpperBoundUs(95)));
 }
 
 void printConfiguration() {
