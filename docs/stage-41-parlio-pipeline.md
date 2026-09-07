@@ -1,5 +1,10 @@
 # Stage 41: PARLIO double-buffer pipeline
 
+> Historical note for Stage 42+: the manual topology cherry-pick prerequisite
+> described below is superseded by `PanelConfig.h` and
+> `LedMappingProfile::kSchemaVersion == 3` in Stage 42. The remainder of this
+> document still describes the Stage 41 PARLIO pipeline and its acceptance gate.
+
 ## Goal
 
 Overlap CPU preparation and encoding of LED frame N+1 with the physical WS2812
