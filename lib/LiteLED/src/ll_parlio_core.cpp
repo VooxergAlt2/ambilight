@@ -139,16 +139,8 @@ esp_err_t parlio_strip_install( led_strip_t *strip, parlio_strip_cfg_t *cfg ) {
     esp_err_t res = parlio_new_tx_unit( &chan_cfg, &cfg->parlio_chan );
     if ( res != ESP_OK ) {
         log_d( "parlio_strip_install: parlio_new_tx_unit() failed - %s", esp_err_to_name( res ) );
-        for ( uint8_t buffer_index = 0;
-              buffer_index < LITELED_PARLIO_GROUP_DMA_BUFFER_COUNT;
-              buffer_index++ ) {
-
-            if ( cfg->parlio_buf[ buffer_index ] ) {
-                heap_caps_free( cfg->parlio_buf[ buffer_index ] );
-                cfg->parlio_buf[ buffer_index ] = NULL;
-            }
-        }
-        cfg->parlio_buf_bytes = 0;
+        heap_caps_free( cfg->parlio_buf );
+        cfg->parlio_buf = NULL;
         free( strip->buf );
         strip->buf = NULL;
         return res;
@@ -158,16 +150,8 @@ esp_err_t parlio_strip_install( led_strip_t *strip, parlio_strip_cfg_t *cfg ) {
         log_d( "parlio_strip_install: parlio_tx_unit_enable() failed - %s", esp_err_to_name( res ) );
         parlio_del_tx_unit( cfg->parlio_chan );
         cfg->parlio_chan = NULL;
-        for ( uint8_t buffer_index = 0;
-              buffer_index < LITELED_PARLIO_GROUP_DMA_BUFFER_COUNT;
-              buffer_index++ ) {
-
-            if ( cfg->parlio_buf[ buffer_index ] ) {
-                heap_caps_free( cfg->parlio_buf[ buffer_index ] );
-                cfg->parlio_buf[ buffer_index ] = NULL;
-            }
-        }
-        cfg->parlio_buf_bytes = 0;
+        heap_caps_free( cfg->parlio_buf );
+        cfg->parlio_buf = NULL;
         free( strip->buf );
         strip->buf = NULL;
         return res;
@@ -207,17 +191,11 @@ esp_err_t parlio_strip_free( led_strip_t *strip, parlio_strip_cfg_t *cfg ) {
     }
     cfg->parlio_chan = NULL;
 
-    for ( uint8_t buffer_index = 0;
-          buffer_index < LITELED_PARLIO_GROUP_DMA_BUFFER_COUNT;
-          buffer_index++ ) {
-
-        if ( cfg->parlio_buf[ buffer_index ] ) {
-            heap_caps_free( cfg->parlio_buf[ buffer_index ] );
-            cfg->parlio_buf[ buffer_index ] = NULL;
-        }
+    if ( cfg->parlio_buf ) {
+        heap_caps_free( cfg->parlio_buf );
+        cfg->parlio_buf       = NULL;
+        cfg->parlio_buf_bytes = 0;
     }
-
-    cfg->parlio_buf_bytes = 0;
     if ( strip && strip->buf ) {
         free( strip->buf );
         strip->buf = NULL;
