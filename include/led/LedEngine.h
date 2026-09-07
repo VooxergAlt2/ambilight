@@ -64,6 +64,10 @@ public:
         return waitMetric_;
     }
 
+    const PerformanceMetric& flushWaitMetric() const {
+        return flushWaitMetric_;
+    }
+
     const PerformanceMetric& showMetric() const {
         return showMetric_;
     }
@@ -74,6 +78,14 @@ public:
 
     std::uint32_t coldShows() const {
         return coldShows_;
+    }
+
+    std::uint32_t submittedFrames() const {
+        return submittedFrames_;
+    }
+
+    std::uint32_t completedFrames() const {
+        return completedFrames_;
     }
 
     // Compatibility accessors retained while Stage 40 replaces the old STAT
@@ -101,10 +113,13 @@ private:
     PerformanceMetric encodeMetric_{};
     PerformanceMetric submitMetric_{};
     PerformanceMetric waitMetric_{};
+    PerformanceMetric flushWaitMetric_{};
     PerformanceMetric showMetric_{};
 
     std::uint32_t overlappedShows_ = 0;
     std::uint32_t coldShows_ = 0;
+    std::uint32_t submittedFrames_ = 0;
+    std::uint32_t completedFrames_ = 0;
 };
 
 } // namespace ambilight
