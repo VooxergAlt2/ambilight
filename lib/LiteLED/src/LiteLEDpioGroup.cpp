@@ -206,8 +206,10 @@ LiteLEDpioGroup::LiteLEDpioGroup( led_strip_type_t led_type, size_t length, bool
       _next_encode_buffer( 0 ),
       _ready_buffer( LITELED_PARLIO_INVALID_BUFFER_INDEX ),
       _in_flight_buffer( LITELED_PARLIO_INVALID_BUFFER_INDEX ),
-      _encoded_brightness{ 255, 255 },
       _in_flight_brightness( 255 ) {
+
+    _encoded_brightness[ 0 ] = 255;
+    _encoded_brightness[ 1 ] = 255;
 
     // Zero the group config struct.
     memset( &_groupCfg, 0, sizeof( _groupCfg ) );
