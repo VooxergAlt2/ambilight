@@ -4811,7 +4811,7 @@ void dumpRuntimeStatus() {
 
     Serial.printf(
         "PIPE submitted=%lu completed=%lu overlapped=%lu cold=%lu overlap=%lu.%lu%% "
-        "encode_p95<=%luus wait_residual_p95<=%luus submit_p95<=%luus service_p95<=%luus flush_wait_p95<=%luus\n",
+        "dma=%ux%uB total=%luB encode_p95<=%luus wait_residual_p95<=%luus submit_p95<=%luus service_p95<=%luus flush_wait_p95<=%luus\n",
         static_cast<unsigned long>(
             ledEngine.submittedFrames()),
         static_cast<unsigned long>(
@@ -4824,6 +4824,13 @@ void dumpRuntimeStatus() {
             overlapPermille / 10U),
         static_cast<unsigned long>(
             overlapPermille % 10U),
+        static_cast<unsigned>(
+            ledEngine.dmaBufferCount()),
+        static_cast<unsigned>(
+            ledEngine.dmaBufferBytes()),
+        static_cast<unsigned long>(
+            ledEngine.dmaBufferCount() *
+            ledEngine.dmaBufferBytes()),
         static_cast<unsigned long>(
             ledEngine.encodeMetric().
                 percentileUpperBoundUs(95)),
