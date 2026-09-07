@@ -261,6 +261,10 @@ DdpPollResult DdpUdpService::poll() {
 
         DdpPacketView packet;
 
+        const std::uint64_t parseStartedUs =
+            static_cast<std::uint64_t>(
+                esp_timer_get_time());
+
         const DdpParseError parseResult =
             parseDdpDatagram(
                 rxBuffer_.data(),
@@ -268,9 +272,15 @@ DdpPollResult DdpUdpService::poll() {
                     received),
                 packet);
 
+        stats_.parseTime.observe(
+            static_cast<std::uint64_t>(
+                esp_timer_get_time()) -
+            parseStartedUs);
+
         if (parseResult !=
             DdpParseError::None) {
 
+            ++stats_.parseFailures;
             ++result.senderRejectedDatagrams;
             continue;
         }
