@@ -50,8 +50,8 @@ constexpr std::uint64_t kIdleBlackoutUs = 1000000;
 constexpr std::uint32_t kStatusIntervalMs = 30000;
 constexpr std::uint64_t kGainTargetPollIntervalUs = 1000000;
 constexpr std::uint64_t kRenderDiagnosticsIntervalUs = 100000;
-constexpr std::uint64_t kCommissioningDurationUs = 15000000ULL;
-constexpr std::uint8_t kCommissioningMaxBrightness = 64;
+constexpr std::uint64_t kCommissioningDurationUs = 120000000ULL;
+constexpr std::uint8_t kCommissioningMaxBrightness = 255;
 constexpr std::uint64_t kTofDebugDurationUs = 60000000ULL;
 
 ambilight::LedEngine ledEngine;
