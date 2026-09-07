@@ -2661,6 +2661,18 @@ void dumpPerformanceMetrics() {
         renderer.prepareMetric());
 
     printPerformanceMetric(
+        "parlio_encode",
+        ledEngine.encodeMetric());
+
+    printPerformanceMetric(
+        "parlio_submit",
+        ledEngine.submitMetric());
+
+    printPerformanceMetric(
+        "parlio_wait",
+        ledEngine.waitMetric());
+
+    printPerformanceMetric(
         "parlio_show_total",
         ledEngine.showMetric());
 
