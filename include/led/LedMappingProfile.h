@@ -6,6 +6,7 @@
 #include <type_traits>
 
 #include "config/BoardConfig.h"
+#include "config/PanelConfig.h"
 #include "core/Geometry.h"
 
 namespace ambilight {
@@ -32,21 +33,49 @@ struct LedSegmentMapping {
     }
 };
 
-// Historical name retained to avoid needless churn. Since schema 2 this is
-// the authoritative runtime LED topology: logical side lengths plus the
-// side-to-physical-lane assignment and direction.
-struct LedMappingProfile {
-    static constexpr std::uint16_t kSchemaVersion = 2;
+constexpr std::array<
+    LedSegmentMapping,
+    static_cast<std::size_t>(SegmentId::Count)>
+makeDefaultLedMappingSegments() {
 
     std::array<
         LedSegmentMapping,
         static_cast<std::size_t>(SegmentId::Count)>
-        segment{{
-            {230, 0, 0}, // TOP
-            {160, 1, 0}, // RIGHT
-            {230, 2, 0}, // BOTTOM
-            {160, 3, 0}  // LEFT
-        }};
+        result{};
+
+    for (std::size_t index = 0;
+         index < result.size();
+         ++index) {
+
+        const auto& hardware =
+            config::kPanelLedSegments[
+                index];
+
+        result[index] = {
+            hardware.logicalLength,
+            config::laneForLedGpio(
+                hardware.gpio),
+            static_cast<std::uint8_t>(
+                hardware.reversed
+                    ? 1
+                    : 0)
+        };
+    }
+
+    return result;
+}
+
+// Historical name retained to avoid needless churn. Schema 3 makes the
+// hardware-measured panel wiring the canonical default and invalidates stale
+// schema-2 topology persisted by older firmware.
+struct LedMappingProfile {
+    static constexpr std::uint16_t kSchemaVersion = 3;
+
+    std::array<
+        LedSegmentMapping,
+        static_cast<std::size_t>(SegmentId::Count)>
+        segment =
+            makeDefaultLedMappingSegments();
 
     constexpr bool valid() const {
         std::array<
@@ -224,5 +253,39 @@ static_assert(
     LedMappingProfile{}.totalLedCount() ==
         config::kDefaultLogicalLedCount,
     "Default LED topology total changed unexpectedly");
+
+static_assert(
+    LedMappingProfile{}.
+        gpioForSegment(
+            SegmentId::Top) == 20 &&
+    LedMappingProfile{}.
+        gpioForSegment(
+            SegmentId::Right) == 19 &&
+    LedMappingProfile{}.
+        gpioForSegment(
+            SegmentId::Bottom) == 21 &&
+    LedMappingProfile{}.
+        gpioForSegment(
+            SegmentId::Left) == 18,
+    "Default LED topology must match measured panel side-to-GPIO wiring");
+
+static_assert(
+    LedMappingProfile{}.
+        forSegment(
+            SegmentId::Top).
+        reversed == 1 &&
+    LedMappingProfile{}.
+        forSegment(
+            SegmentId::Right).
+        reversed == 1 &&
+    LedMappingProfile{}.
+        forSegment(
+            SegmentId::Bottom).
+        reversed == 1 &&
+    LedMappingProfile{}.
+        forSegment(
+            SegmentId::Left).
+        reversed == 0,
+    "Default LED directions must match measured panel wiring");
 
 } // namespace ambilight
