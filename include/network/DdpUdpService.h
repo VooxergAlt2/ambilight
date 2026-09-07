@@ -33,6 +33,7 @@ struct DdpUdpStats {
     std::uint32_t collapsedCompleteFrames = 0;
 
     std::uint32_t socketErrors = 0;
+    std::uint32_t parseFailures = 0;
 
     std::uint32_t socketOptionWarnings = 0;
     std::uint32_t reuseAddrSetFailures = 0;
@@ -56,6 +57,7 @@ struct DdpUdpStats {
 
     PerformanceMetric pollTime{};
     PerformanceMetric receiveCallTime{};
+    PerformanceMetric parseTime{};
     PerformanceMetric senderGateTime{};
     PerformanceMetric assemblerTime{};
     PerformanceMetric snapshotCopyTime{};
