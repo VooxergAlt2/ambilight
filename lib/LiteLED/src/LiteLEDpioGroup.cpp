@@ -202,7 +202,7 @@ LiteLEDpioLane &LiteLEDpioGroup::_addStrip( uint8_t lane_idx, uint8_t gpio ) {
         log_e( "LiteLEDpioGroup::addStrip: cannot add strips after begin() — ignored" );
         return _null_lane;
     }
-    if ( lane_idx >= PARLIO_TX_UNIT_MAX_DATA_WIDTH ) {
+    if ( lane_idx >= LITELED_PARLIO_GROUP_DATA_WIDTH ) {
         // Should not be reachable from the template (caught at compile time),
         // but guards the non-template sequential path.
         log_e( "LiteLEDpioGroup::addStrip: lane %u >= max (%d) — ignored",
@@ -240,13 +240,13 @@ LiteLEDpioLane &LiteLEDpioGroup::_addStrip( uint8_t lane_idx, uint8_t gpio ) {
 // addStrip — sequential: assigns the next available lane
 // -------------------------------------------------------------------------
 LiteLEDpioLane &LiteLEDpioGroup::addStrip( uint8_t gpio ) {
-    for ( uint8_t n = 0; n < PARLIO_TX_UNIT_MAX_DATA_WIDTH; n++ ) {
+    for ( uint8_t n = 0; n < LITELED_PARLIO_GROUP_DATA_WIDTH; n++ ) {
         if ( !_groupCfg.lanes[ n ].assigned ) {
             return _addStrip( n, gpio );
         }
     }
-    log_e( "LiteLEDpioGroup::addStrip: all %d lanes assigned — ignored",
-           PARLIO_TX_UNIT_MAX_DATA_WIDTH );
+    log_e( "LiteLEDpioGroup::addStrip: all %d configured lanes assigned — ignored",
+           LITELED_PARLIO_GROUP_DATA_WIDTH );
     return _null_lane;
 }
 
@@ -339,24 +339,74 @@ esp_err_t LiteLEDpioGroup::begin( ll_psram_t psram_flag ) {
 }
 
 // -------------------------------------------------------------------------
-// show
+// staged PARLIO frame API
 // -------------------------------------------------------------------------
-esp_err_t LiteLEDpioGroup::show() {
+esp_err_t LiteLEDpioGroup::encode() {
     if ( !_valid ) {
-        log_d( "LiteLEDpioGroup::show: not initialized" );
+        log_d( "LiteLEDpioGroup::encode: not initialized" );
         return ESP_ERR_INVALID_STATE;
     }
-    esp_err_t res = parlio_group_flush( &_groupCfg );
+
+    return
+        parlio_group_encode(
+            &_groupCfg );
+}
+
+esp_err_t LiteLEDpioGroup::transmit() {
+    if ( !_valid ) {
+        log_d( "LiteLEDpioGroup::transmit: not initialized" );
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    return
+        parlio_group_transmit(
+            &_groupCfg );
+}
+
+esp_err_t LiteLEDpioGroup::wait() {
+    if ( !_valid ) {
+        log_d( "LiteLEDpioGroup::wait: not initialized" );
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    const esp_err_t res =
+        parlio_group_wait(
+            &_groupCfg );
+
     if ( res == ESP_OK ) {
-        // Sync bright_act for all lanes.
-        for ( uint8_t n = 0; n < PARLIO_TX_UNIT_MAX_DATA_WIDTH; n++ ) {
+        // Brightness becomes physically active only after the frame completed.
+        for ( uint8_t n = 0;
+              n < LITELED_PARLIO_GROUP_DATA_WIDTH;
+              n++ ) {
+
             if ( _groupCfg.lanes[ n ].assigned ) {
-                _groupCfg.lanes[ n ].strip.bright_act =
-                    _groupCfg.lanes[ n ].strip.brightness;
+                _groupCfg.lanes[ n ].
+                    strip.bright_act =
+                    _groupCfg.lanes[ n ].
+                        strip.brightness;
             }
         }
     }
+
     return res;
+}
+
+esp_err_t LiteLEDpioGroup::show() {
+    esp_err_t res =
+        encode();
+
+    if ( res != ESP_OK ) {
+        return res;
+    }
+
+    res =
+        transmit();
+
+    if ( res != ESP_OK ) {
+        return res;
+    }
+
+    return wait();
 }
 
 // -------------------------------------------------------------------------
