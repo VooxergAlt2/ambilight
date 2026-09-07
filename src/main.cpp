@@ -21,6 +21,7 @@
 #include "config/WifiCredentials.h"
 #include "core/FrameMailbox.h"
 #include "core/LatencyHistogram.h"
+#include "core/PerformanceMetric.h"
 #include "core/RgbFrame.h"
 #include "led/LedCommissioningPattern.h"
 #include "led/LedEngine.h"
@@ -59,6 +60,10 @@ ambilight::FrameMailbox mailbox;
 ambilight::WifiService wifi;
 ambilight::DdpUdpService ddp(mailbox);
 ambilight::LatencyHistogram frameAgeHistogram;
+ambilight::PerformanceMetric renderPreflightMetric;
+ambilight::PerformanceMetric renderServiceMetric;
+ambilight::PerformanceMetric loopWorkMetric;
+ambilight::PerformanceMetric loopWallMetric;
 ambilight::TofService tof;
 ambilight::TofCalibrationCapture calibrationCapture;
 ambilight::RenderGainController renderGainController;
@@ -2256,6 +2261,10 @@ void refreshTargetGainContext(
 }
 
 bool serviceRender(std::uint64_t nowUs) {
+    const std::uint64_t serviceStartedUs =
+        static_cast<std::uint64_t>(
+            esp_timer_get_time());
+
     refreshRgbCache();
     refreshTargetGainContext(nowUs);
 
@@ -2326,6 +2335,11 @@ bool serviceRender(std::uint64_t nowUs) {
                 nowUs);
     }
 
+    renderPreflightMetric.observe(
+        static_cast<std::uint64_t>(
+            esp_timer_get_time()) -
+        serviceStartedUs);
+
     const esp_err_t result =
         renderer.render(
             renderSnapshot,
@@ -2349,6 +2363,11 @@ bool serviceRender(std::uint64_t nowUs) {
         lastRenderedRgbGeneration =
             renderSnapshot.generation;
     }
+
+    renderServiceMetric.observe(
+        static_cast<std::uint64_t>(
+            esp_timer_get_time()) -
+        serviceStartedUs);
 
     return true;
 }
@@ -2573,6 +2592,93 @@ void printRenderSegmentGain(
             gainPercentX10(endpoints.endQ12) % 10U));
 }
 
+void printPerformanceMetric(
+    const char* name,
+    const ambilight::PerformanceMetric& metric) {
+
+    Serial.printf(
+        "PERF %s n=%llu last=%lluus mean=%lluus p50<=%luus p95<=%luus p99<=%luus max=%lluus ovf=%llu\n",
+        name != nullptr ? name : "unknown",
+        static_cast<unsigned long long>(
+            metric.samples()),
+        static_cast<unsigned long long>(
+            metric.lastUs()),
+        static_cast<unsigned long long>(
+            metric.meanUs()),
+        static_cast<unsigned long>(
+            metric.percentileUpperBoundUs(50)),
+        static_cast<unsigned long>(
+            metric.percentileUpperBoundUs(95)),
+        static_cast<unsigned long>(
+            metric.percentileUpperBoundUs(99)),
+        static_cast<unsigned long long>(
+            metric.maxUs()),
+        static_cast<unsigned long long>(
+            metric.percentileOverflow()));
+}
+
+void dumpPerformanceMetrics() {
+    const auto& udp =
+        ddp.stats();
+
+    Serial.println(
+        "PERF note: percentiles are histogram upper bounds; max values include scheduler/Wi-Fi preemption.");
+
+    printPerformanceMetric(
+        "loop_work",
+        loopWorkMetric);
+
+    printPerformanceMetric(
+        "loop_wall",
+        loopWallMetric);
+
+    printPerformanceMetric(
+        "ddp_poll",
+        udp.pollTime);
+
+    printPerformanceMetric(
+        "ddp_recv_call",
+        udp.receiveCallTime);
+
+    printPerformanceMetric(
+        "ddp_sender_gate",
+        udp.senderGateTime);
+
+    printPerformanceMetric(
+        "ddp_assembler",
+        udp.assemblerTime);
+
+    printPerformanceMetric(
+        "ddp_publish",
+        udp.publishTime);
+
+    printPerformanceMetric(
+        "render_preflight",
+        renderPreflightMetric);
+
+    printPerformanceMetric(
+        "renderer_prepare",
+        renderer.prepareMetric());
+
+    printPerformanceMetric(
+        "parlio_show_total",
+        ledEngine.showMetric());
+
+    printPerformanceMetric(
+        "renderer_post",
+        renderer.postMetric());
+
+    printPerformanceMetric(
+        "renderer_total",
+        renderer.renderMetric());
+
+    printPerformanceMetric(
+        "render_service_total",
+        renderServiceMetric);
+
+    Serial.println();
+}
+
 void dumpRenderShadow() {
     const auto& stats =
         renderer.shadowStats();
@@ -2734,6 +2840,8 @@ void dumpRenderShadow() {
             ? "candidate RGB may reach physical LEDs; fail-open still resolves to original RGB"
             : "physical LEDs receive original HyperHDR RGB");
     Serial.println();
+
+    dumpPerformanceMetrics();
 }
 
 void printPerimeterSegmentGain(
@@ -4796,6 +4904,10 @@ void setup() {
 }
 
 void loop() {
+    const std::uint64_t loopStartedUs =
+        static_cast<std::uint64_t>(
+            esp_timer_get_time());
+
     wifi.tick(millis());
     serviceDebugCommands();
     serviceCalibrationCapture();
@@ -4815,7 +4927,18 @@ void loop() {
         ++consecutiveBacklogRenderSkips;
         ++backlogRenderSkips;
 
+        loopWorkMetric.observe(
+            static_cast<std::uint64_t>(
+                esp_timer_get_time()) -
+            loopStartedUs);
+
         delay(0);
+
+        loopWallMetric.observe(
+            static_cast<std::uint64_t>(
+                esp_timer_get_time()) -
+            loopStartedUs);
+
         return;
     }
 
@@ -4854,5 +4977,15 @@ void loop() {
         lastStatusMs = nowMs;
     }
 
+    loopWorkMetric.observe(
+        static_cast<std::uint64_t>(
+            esp_timer_get_time()) -
+        loopStartedUs);
+
     delay(1);
+
+    loopWallMetric.observe(
+        static_cast<std::uint64_t>(
+            esp_timer_get_time()) -
+        loopStartedUs);
 }
