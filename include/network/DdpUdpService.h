@@ -5,6 +5,7 @@
 #include <cstdint>
 
 #include "core/FrameMailbox.h"
+#include "core/PerformanceMetric.h"
 #include "core/RgbFrame.h"
 #include "network/DdpSenderGate.h"
 #include "transport/DdpAssembler.h"
@@ -54,6 +55,12 @@ struct DdpUdpStats {
 
     bool rxBufferSetOk = false;
     bool rxBufferQueryOk = false;
+
+    PerformanceMetric pollTime{};
+    PerformanceMetric receiveCallTime{};
+    PerformanceMetric senderGateTime{};
+    PerformanceMetric assemblerTime{};
+    PerformanceMetric publishTime{};
 };
 
 class DdpUdpService {
