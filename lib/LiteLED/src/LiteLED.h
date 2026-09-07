@@ -172,8 +172,8 @@ typedef struct {
     bool          assigned;  /* true once addStrip() claims this lane */
 } parlio_lane_t;
 
-// Group hardware configuration — owns the PARLIO TX unit and shared DMA buffer,
-// plus per-lane pixel colour buffers for up to PARLIO_TX_UNIT_MAX_DATA_WIDTH strips.
+// Group hardware configuration — owns the PARLIO TX unit and two shared DMA
+// bitstream buffers, plus per-lane pixel colour buffers.
 typedef struct {
     parlio_tx_unit_handle_t  parlio_chan;                              /* PARLIO TX unit handle */
     uint8_t                 *parlio_buf[ LITELED_PARLIO_GROUP_DMA_BUFFER_COUNT ];
@@ -486,11 +486,11 @@ class LiteLEDpioLane {
 // ===========================================================================
 // LiteLEDpioGroup — multi-strip PARLIO driver.
 //
-// Owns one PARLIO TX unit and one DMA bitstream buffer shared by all lanes.
-// Each strip is registered via addStrip() before begin() is called.  Every
-// show() call (on the group or on any of its lanes) encodes ALL lane pixel
-// buffers into the DMA buffer and performs a single PARLIO transmission,
-// guaranteeing perfectly synchronised output across all strips.
+// Owns one PARLIO TX unit and two DMA bitstream buffers shared by all lanes.
+// Each strip is registered via addStrip() before begin() is called. The
+// blocking show() API preserves ordinary LiteLED semantics; showPipelined()
+// allows the CPU to encode the next frame into the free DMA buffer while the
+// previous buffer is still owned by PARLIO.
 //
 // Constraints:
 //   - All strips must use the same LED type, length and RGBW flag.
@@ -531,7 +531,7 @@ class LiteLEDpioGroup {
     // @brief Allocate hardware.  Must be called after all addStrip() calls
     //        and before any pixel operations or show().
     // @param psram_flag  PSRAM preference for ALL lane pixel colour buffers.
-    //                    The DMA bitstream buffer is always in internal RAM.
+    //                    Both DMA bitstream buffers remain in internal RAM.
     // @return ESP_OK on success.
     esp_err_t begin( ll_psram_t psram_flag = PSRAM_DISABLE );
 
