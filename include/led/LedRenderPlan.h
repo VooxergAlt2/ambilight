@@ -42,7 +42,7 @@ struct LedRenderPlan {
     std::uint16_t totalLedCount = 0;
     bool valid = false;
 
-    static constexpr bool build(
+    static bool build(
         const LedMappingProfile& profile,
         LedRenderPlan& output) {
 
