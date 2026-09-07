@@ -25,6 +25,16 @@ uint8_t led_strip_get_brightness( led_strip_t *strip ) {
     return strip->bright_act;
 }
 
+color_order_t led_strip_get_color_order( led_strip_t *strip ) {
+    if ( !( strip && strip->type < LED_STRIP_TYPE_MAX ) ) {
+        return ORDER_MAX;
+    }
+
+    return use_custom_color_order
+        ? custom_color_order
+        : led_params[ strip->type ].order;
+}
+
 esp_err_t led_strip_set_pixel( led_strip_t *strip, size_t num, rgb_t color ) {
     /* Sets the color of an individual LED in the strip as per the specified LED color order */
     if ( !( strip && strip->buf && num <= strip->length ) ) {
