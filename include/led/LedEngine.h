@@ -9,13 +9,59 @@
 
 #include "config/BoardConfig.h"
 #include "core/PerformanceMetric.h"
+#include "core/RgbFrame.h"
 
 namespace ambilight {
+
+struct LedLaneWriteView {
+    std::uint8_t* grb = nullptr;
+    std::uint16_t pixelCount = 0;
+
+    bool valid() const {
+        return
+            grb != nullptr &&
+            pixelCount > 0;
+    }
+
+    void writeUnchecked(
+        std::uint16_t physicalIndex,
+        const Rgb8& color) const {
+
+        std::uint8_t* pixel =
+            grb +
+            static_cast<std::size_t>(
+                physicalIndex) *
+            3U;
+
+        pixel[0] = color.g;
+        pixel[1] = color.r;
+        pixel[2] = color.b;
+    }
+};
+
+struct LedFrameWriteView {
+    std::array<
+        LedLaneWriteView,
+        config::kParlioLaneCount>
+        lane{};
+
+    bool valid() const {
+        for (const auto& current :
+             lane) {
+
+            if (!current.valid()) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+};
 
 // Thin owner of the ESP32-C6 PARLIO hardware.
 //
 // This class knows only physical lanes. Logical LED geometry belongs to
-// SegmentMapper/LedRenderer.
+// LedRenderer and its prevalidated render plan.
 class LedEngine {
 public:
     LedEngine();
@@ -31,10 +77,16 @@ public:
     }
 
     void clear();
-    bool setPhysicalPixel(
+
+    const LedFrameWriteView& frameWriteView() const {
+        return frameWriteView_;
+    }
+
+    bool fillPhysicalRange(
         std::uint8_t lane,
-        std::uint16_t physicalIndex,
-        crgb_t color);
+        std::uint16_t start,
+        std::uint16_t count,
+        const Rgb8& color);
 
     const PerformanceMetric& encodeMetric() const {
         return encodeMetric_;
@@ -72,6 +124,7 @@ private:
         config::kDefaultOutputBrightness;
 
     bool begun_ = false;
+    LedFrameWriteView frameWriteView_{};
 
     PerformanceMetric encodeMetric_{};
     PerformanceMetric submitMetric_{};
