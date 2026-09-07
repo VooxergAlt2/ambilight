@@ -564,6 +564,15 @@ class LiteLEDpioGroup {
         return _pipeline.encodedReady();
     }
 
+    size_t dmaBufferBytes() const {
+        return _groupCfg.parlio_buf_bytes;
+    }
+
+    static constexpr uint8_t dmaBufferCount() {
+        return
+            LITELED_PARLIO_GROUP_DMA_BUFFER_COUNT;
+    }
+
     // @brief Set the same brightness level on every lane simultaneously.
     esp_err_t brightness( uint8_t bright, bool show = false );
 
