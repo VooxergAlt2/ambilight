@@ -162,6 +162,17 @@ void test_ws2812_plan_classifies_constant_and_data_samples() {
                     ConstantZero),
         static_cast<int>(
             plan.mode[2]));
+
+    TEST_ASSERT_EQUAL_UINT8(
+        1,
+        plan.dynamicCount);
+
+    TEST_ASSERT_EQUAL_UINT8(
+        1,
+        plan.dynamicSample[0]);
+
+    TEST_ASSERT_FALSE(
+        plan.dynamicInverted[0]);
 }
 
 void test_black_white_and_sparse_lane_patterns_match_reference() {
