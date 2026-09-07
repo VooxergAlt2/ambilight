@@ -62,15 +62,19 @@ bool LedEngine::setPhysicalPixel(
 }
 
 esp_err_t LedEngine::show() {
-    const std::int64_t startedUs = esp_timer_get_time();
-    const esp_err_t result = group_.show();
-    const std::int64_t finishedUs = esp_timer_get_time();
+    const std::uint64_t startedUs =
+        static_cast<std::uint64_t>(
+            esp_timer_get_time());
 
-    const auto elapsed = static_cast<std::uint32_t>(finishedUs - startedUs);
-    lastShowTimeUs_ = elapsed;
-    if (elapsed > maxShowTimeUs_) {
-        maxShowTimeUs_ = elapsed;
-    }
+    const esp_err_t result =
+        group_.show();
+
+    const std::uint64_t finishedUs =
+        static_cast<std::uint64_t>(
+            esp_timer_get_time());
+
+    showMetric_.observe(
+        finishedUs - startedUs);
 
     return result;
 }
