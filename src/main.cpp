@@ -2670,6 +2670,10 @@ void dumpPerformanceMetrics() {
         udp.receiveCallTime);
 
     printPerformanceMetric(
+        "ddp_parse",
+        udp.parseTime);
+
+    printPerformanceMetric(
         "ddp_sender_gate",
         udp.senderGateTime);
 
@@ -4555,7 +4559,7 @@ void dumpRuntimeStatus() {
     const auto& geometry = tofSnapshot.geometry;
 
     Serial.printf(
-        "STAT corr=%s brightness=%u persist=%s wifi=%s wsrc=%s rssi=%d pkt=%lu asm=%lu pub=%lu collapse=%lu rej=%lu stale=%lu timeout=%lu "
+        "STAT corr=%s brightness=%u persist=%s wifi=%s wsrc=%s rssi=%d pkt=%lu asm=%lu pub=%lu collapse=%lu parsefail=%lu rej=%lu stale=%lu timeout=%lu fastpkt=%lu fallback=%lu "
         "budget=%lu lim=%lu pollmax=%luus rxreq=%ld rxactual=%ld rxset=%s rxget=%s optwarn=%lu "
         "sender_lock=%s sender=%s:%u "
         "saccept=%lu sinvalid=%lu sforeign=%lu sacq=%lu srel=%lu render=%lu backlog=%lu "
@@ -4584,9 +4588,14 @@ void dumpRuntimeStatus() {
         static_cast<unsigned long>(udp.completeFramesAssembled),
         static_cast<unsigned long>(udp.framePublications),
         static_cast<unsigned long>(udp.collapsedCompleteFrames),
+        static_cast<unsigned long>(udp.parseFailures),
         static_cast<unsigned long>(asmStats.rejected),
         static_cast<unsigned long>(asmStats.stale),
         static_cast<unsigned long>(asmStats.timedOut),
+        static_cast<unsigned long>(
+            asmStats.sequentialFastPathDatagrams),
+        static_cast<unsigned long>(
+            asmStats.fallbackDatagrams),
         static_cast<unsigned long>(udp.pollBudgetExhaustions),
         static_cast<unsigned long>(udp.pollDatagramLimitHits),
         static_cast<unsigned long>(udp.maxPollUs),
