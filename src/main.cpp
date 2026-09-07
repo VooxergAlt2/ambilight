@@ -4583,7 +4583,7 @@ void dumpRuntimeStatus() {
         "budget=%lu lim=%lu pollmax=%luus rxreq=%ld rxactual=%ld rxset=%s rxget=%s optwarn=%lu "
         "sender_lock=%s sender=%s:%u "
         "saccept=%lu sinvalid=%lu sforeign=%lu sacq=%lu srel=%lu render=%lu backlog=%lu "
-        "p50<=%luus p95<=%luus p99<=%luus ovf=%llu agemax=%lluus showmax=%luus "
+        "p50<=%luus p95<=%luus p99<=%luus ovf=%llu agemax=%lluus pipemax=%luus "
         "tof=%s tofgen=%lu rawvalid=%u rawmed=%u tofage=%llums tofread=%luus tofreadmax=%luus "
         "geom=%s l=%u c=%u r=%u delta=%d acc=%u "
         "plane=%s pyaw=%d ppitch=%d pacc=%u pmad=%u "
