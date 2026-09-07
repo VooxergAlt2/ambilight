@@ -601,9 +601,11 @@ class LiteLEDpioGroup {
                             _pipeline;
 
     uint8_t             _encoded_brightness[
-                            LITELED_PARLIO_GROUP_DMA_BUFFER_COUNT ];
+                            LITELED_PARLIO_GROUP_DMA_BUFFER_COUNT ][
+                            LITELED_PARLIO_GROUP_DATA_WIDTH ];
 
-    uint8_t             _in_flight_brightness;
+    uint8_t             _in_flight_brightness[
+                            LITELED_PARLIO_GROUP_DATA_WIDTH ];
 
     parlio_group_cfg_t  _groupCfg;
     LiteLEDpioLane      _lanes[ PARLIO_TX_UNIT_MAX_DATA_WIDTH ];
