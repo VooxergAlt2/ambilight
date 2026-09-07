@@ -139,8 +139,16 @@ esp_err_t parlio_strip_install( led_strip_t *strip, parlio_strip_cfg_t *cfg ) {
     esp_err_t res = parlio_new_tx_unit( &chan_cfg, &cfg->parlio_chan );
     if ( res != ESP_OK ) {
         log_d( "parlio_strip_install: parlio_new_tx_unit() failed - %s", esp_err_to_name( res ) );
-        heap_caps_free( cfg->parlio_buf );
-        cfg->parlio_buf = NULL;
+        for ( uint8_t buffer_index = 0;
+              buffer_index < LITELED_PARLIO_GROUP_DMA_BUFFER_COUNT;
+              buffer_index++ ) {
+
+            if ( cfg->parlio_buf[ buffer_index ] ) {
+                heap_caps_free( cfg->parlio_buf[ buffer_index ] );
+                cfg->parlio_buf[ buffer_index ] = NULL;
+            }
+        }
+        cfg->parlio_buf_bytes = 0;
         free( strip->buf );
         strip->buf = NULL;
         return res;
@@ -150,8 +158,16 @@ esp_err_t parlio_strip_install( led_strip_t *strip, parlio_strip_cfg_t *cfg ) {
         log_d( "parlio_strip_install: parlio_tx_unit_enable() failed - %s", esp_err_to_name( res ) );
         parlio_del_tx_unit( cfg->parlio_chan );
         cfg->parlio_chan = NULL;
-        heap_caps_free( cfg->parlio_buf );
-        cfg->parlio_buf = NULL;
+        for ( uint8_t buffer_index = 0;
+              buffer_index < LITELED_PARLIO_GROUP_DMA_BUFFER_COUNT;
+              buffer_index++ ) {
+
+            if ( cfg->parlio_buf[ buffer_index ] ) {
+                heap_caps_free( cfg->parlio_buf[ buffer_index ] );
+                cfg->parlio_buf[ buffer_index ] = NULL;
+            }
+        }
+        cfg->parlio_buf_bytes = 0;
         free( strip->buf );
         strip->buf = NULL;
         return res;
@@ -191,11 +207,17 @@ esp_err_t parlio_strip_free( led_strip_t *strip, parlio_strip_cfg_t *cfg ) {
     }
     cfg->parlio_chan = NULL;
 
-    if ( cfg->parlio_buf ) {
-        heap_caps_free( cfg->parlio_buf );
-        cfg->parlio_buf       = NULL;
-        cfg->parlio_buf_bytes = 0;
+    for ( uint8_t buffer_index = 0;
+          buffer_index < LITELED_PARLIO_GROUP_DMA_BUFFER_COUNT;
+          buffer_index++ ) {
+
+        if ( cfg->parlio_buf[ buffer_index ] ) {
+            heap_caps_free( cfg->parlio_buf[ buffer_index ] );
+            cfg->parlio_buf[ buffer_index ] = NULL;
+        }
     }
+
+    cfg->parlio_buf_bytes = 0;
     if ( strip && strip->buf ) {
         free( strip->buf );
         strip->buf = NULL;
@@ -358,23 +380,48 @@ esp_err_t parlio_group_install( parlio_group_cfg_t *cfg ) {
         }
     }
 
-    // Allocate shared DMA bitstream buffer (always internal DMA-capable RAM).
+    // Allocate two internal DMA-capable bitstream buffers. One may be owned by
+    // PARLIO while the CPU encodes the next frame into the other.
     size_t encoded_bytes = pixel_bytes * p->samples_per_bit * 8;
     size_t total_bytes   = ( encoded_bytes + PARLIO_RESET_BYTES + 3 ) & ~( size_t )3;
 
-    cfg->parlio_buf = ( uint8_t * )heap_caps_calloc( 1, total_bytes,
-                      MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL );
-    if ( !cfg->parlio_buf ) {
-        log_d( "parlio_group_install: DMA buffer alloc failed (%u bytes)", total_bytes );
-        for ( uint8_t n = 0; n < PARLIO_TX_UNIT_MAX_DATA_WIDTH; n++ ) {
-            if ( cfg->lanes[ n ].assigned && cfg->lanes[ n ].strip.buf ) {
-                free( cfg->lanes[ n ].strip.buf );
-                cfg->lanes[ n ].strip.buf = NULL;
-            }
-        }
-        return ESP_ERR_NO_MEM;
-    }
     cfg->parlio_buf_bytes = total_bytes;
+
+    for ( uint8_t buffer_index = 0;
+          buffer_index < LITELED_PARLIO_GROUP_DMA_BUFFER_COUNT;
+          buffer_index++ ) {
+
+        cfg->parlio_buf[ buffer_index ] =
+            ( uint8_t * )heap_caps_calloc(
+                1,
+                total_bytes,
+                MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL );
+
+        if ( !cfg->parlio_buf[ buffer_index ] ) {
+            log_d( "parlio_group_install: DMA buffer %u alloc failed (%u bytes)",
+                   buffer_index, total_bytes );
+
+            for ( uint8_t release = 0;
+                  release < LITELED_PARLIO_GROUP_DMA_BUFFER_COUNT;
+                  release++ ) {
+
+                if ( cfg->parlio_buf[ release ] ) {
+                    heap_caps_free( cfg->parlio_buf[ release ] );
+                    cfg->parlio_buf[ release ] = NULL;
+                }
+            }
+
+            cfg->parlio_buf_bytes = 0;
+
+            for ( uint8_t n = 0; n < PARLIO_TX_UNIT_MAX_DATA_WIDTH; n++ ) {
+                if ( cfg->lanes[ n ].assigned && cfg->lanes[ n ].strip.buf ) {
+                    free( cfg->lanes[ n ].strip.buf );
+                    cfg->lanes[ n ].strip.buf = NULL;
+                }
+            }
+            return ESP_ERR_NO_MEM;
+        }
+    }
 
     uint8_t active_lane_mask = 0;
     for ( uint8_t n = 0; n < LITELED_PARLIO_GROUP_DATA_WIDTH; n++ ) {
@@ -391,8 +438,16 @@ esp_err_t parlio_group_install( parlio_group_cfg_t *cfg ) {
 
     if ( !sample_plan.valid() ) {
         log_d( "parlio_group_install: unsupported sample plan" );
-        heap_caps_free( cfg->parlio_buf );
-        cfg->parlio_buf = NULL;
+        for ( uint8_t buffer_index = 0;
+              buffer_index < LITELED_PARLIO_GROUP_DMA_BUFFER_COUNT;
+              buffer_index++ ) {
+
+            if ( cfg->parlio_buf[ buffer_index ] ) {
+                heap_caps_free( cfg->parlio_buf[ buffer_index ] );
+                cfg->parlio_buf[ buffer_index ] = NULL;
+            }
+        }
+
         cfg->parlio_buf_bytes = 0;
         for ( uint8_t n = 0; n < PARLIO_TX_UNIT_MAX_DATA_WIDTH; n++ ) {
             if ( cfg->lanes[ n ].assigned && cfg->lanes[ n ].strip.buf ) {
@@ -403,19 +458,27 @@ esp_err_t parlio_group_install( parlio_group_cfg_t *cfg ) {
         return ESP_ERR_NOT_SUPPORTED;
     }
 
-    // The DMA buffer was zeroed by calloc. Initialize waveform samples that
-    // are constant for every possible frame exactly once. Dynamic sample
-    // positions are overwritten by parlio_group_encode().
-    for ( size_t b = 0; b < pixel_bytes; b++ ) {
-        liteled_parlio::initializeEncodedByte(
-            &cfg->parlio_buf[
-                b * p->samples_per_bit * 8 ],
-            sample_plan,
-            active_lane_mask );
+    // Both DMA buffers were zeroed by calloc. Initialize waveform samples
+    // that never depend on RGB data once in each buffer.
+    for ( uint8_t buffer_index = 0;
+          buffer_index < LITELED_PARLIO_GROUP_DMA_BUFFER_COUNT;
+          buffer_index++ ) {
+
+        for ( size_t b = 0; b < pixel_bytes; b++ ) {
+            liteled_parlio::initializeEncodedByte(
+                &cfg->parlio_buf[ buffer_index ][
+                    b * p->samples_per_bit * 8 ],
+                sample_plan,
+                active_lane_mask );
+        }
     }
 
-    log_d( "PARLIO group DMA buffer: %u bytes (%u encoded + %u reset, %u lanes)",
-           total_bytes, encoded_bytes, PARLIO_RESET_BYTES, cfg->lane_count );
+    log_d( "PARLIO group DMA buffers: %u x %u bytes (%u encoded + %u reset, %u lanes)",
+           LITELED_PARLIO_GROUP_DMA_BUFFER_COUNT,
+           total_bytes,
+           encoded_bytes,
+           PARLIO_RESET_BYTES,
+           cfg->lane_count );
 
     // Create PARLIO TX unit — byte-wide samples, one GPIO per assigned lane.
     parlio_tx_unit_config_t chan_cfg = {};
@@ -481,8 +544,11 @@ esp_err_t parlio_group_install( parlio_group_cfg_t *cfg ) {
 // Constant waveform samples were initialized once by parlio_group_install().
 // Per frame we only update samples whose level depends on the LED data bit.
 // --------------------------------------------------------------------------
-esp_err_t parlio_group_encode( parlio_group_cfg_t *cfg ) {
-    if ( !cfg || !cfg->parlio_chan || !cfg->parlio_buf ||
+esp_err_t parlio_group_encode( parlio_group_cfg_t *cfg,
+                                 uint8_t buffer_index ) {
+    if ( !cfg || !cfg->parlio_chan ||
+         buffer_index >= LITELED_PARLIO_GROUP_DMA_BUFFER_COUNT ||
+         !cfg->parlio_buf[ buffer_index ] ||
          cfg->lane_count == 0 ||
          cfg->lane_count > LITELED_PARLIO_GROUP_DATA_WIDTH ) {
         log_d( "parlio_group_encode: invalid args" );
@@ -559,7 +625,7 @@ esp_err_t parlio_group_encode( parlio_group_cfg_t *cfg ) {
         }
 
         liteled_parlio::encodeDynamicByte(
-            &cfg->parlio_buf[
+            &cfg->parlio_buf[ buffer_index ][
                 b *
                 p->samples_per_bit *
                 8 ],
@@ -574,8 +640,11 @@ esp_err_t parlio_group_encode( parlio_group_cfg_t *cfg ) {
 // --------------------------------------------------------------------------
 // parlio_group_transmit
 // --------------------------------------------------------------------------
-esp_err_t parlio_group_transmit( parlio_group_cfg_t *cfg ) {
-    if ( !cfg || !cfg->parlio_chan || !cfg->parlio_buf ||
+esp_err_t parlio_group_transmit( parlio_group_cfg_t *cfg,
+                                   uint8_t buffer_index ) {
+    if ( !cfg || !cfg->parlio_chan ||
+         buffer_index >= LITELED_PARLIO_GROUP_DMA_BUFFER_COUNT ||
+         !cfg->parlio_buf[ buffer_index ] ||
          cfg->lane_count == 0 ) {
         log_d( "parlio_group_transmit: invalid args" );
         return ESP_ERR_INVALID_ARG;
@@ -588,7 +657,7 @@ esp_err_t parlio_group_transmit( parlio_group_cfg_t *cfg ) {
     const esp_err_t res =
         parlio_tx_unit_transmit(
             cfg->parlio_chan,
-            cfg->parlio_buf,
+            cfg->parlio_buf[ buffer_index ],
             cfg->parlio_buf_bytes * 8,
             &tx_cfg );
 
@@ -627,14 +696,14 @@ esp_err_t parlio_group_wait( parlio_group_cfg_t *cfg ) {
 // --------------------------------------------------------------------------
 esp_err_t parlio_group_flush( parlio_group_cfg_t *cfg ) {
     esp_err_t res =
-        parlio_group_encode( cfg );
+        parlio_group_encode( cfg, 0 );
 
     if ( res != ESP_OK ) {
         return res;
     }
 
     res =
-        parlio_group_transmit( cfg );
+        parlio_group_transmit( cfg, 0 );
 
     if ( res != ESP_OK ) {
         return res;
