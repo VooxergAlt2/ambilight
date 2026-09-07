@@ -2182,34 +2182,38 @@ bool serviceCommissioning(
     return true;
 }
 
-void refreshTargetGainContext(
+bool refreshTargetGainContext(
     std::uint64_t nowUs) {
 
     if (nextGainTargetPollUs != 0 &&
         nowUs < nextGainTargetPollUs) {
-        return;
+
+        return false;
     }
 
-    if (!ambilight::CorrectionOutputPolicy::evaluatesGain(
-            correctionMode)) {
+    nextGainTargetPollUs =
+        nowUs +
+        kGainTargetPollIntervalUs;
 
-        cachedTargetGainContext =
-            ambilight::RenderGainContext::unity(runtimeSettings.ledMappingProfile());
+    if (correctionMode ==
+        ambilight::CorrectionMode::Disabled) {
 
-        nextGainTargetPollUs =
-            nowUs + kGainTargetPollIntervalUs;
-
-        return;
+        return false;
     }
 
     ambilight::PerimeterGainSnapshot latest{};
 
-    if (tof.copyPerimeterGainSnapshot(latest)) {
-        cachedPerimeterGainSnapshot = latest;
-        haveCachedPerimeterGainSnapshot = true;
+    if (tof.copyPerimeterGainSnapshot(
+            latest)) {
+
+        cachedPerimeterGainSnapshot =
+            latest;
+
+        haveCachedPerimeterGainSnapshot =
+            true;
     }
 
-    cachedTargetGainContext =
+    ambilight::RenderGainContext target =
         ambilight::TofRenderGainBridge::make(
             cachedPerimeterGainSnapshot,
             haveCachedPerimeterGainSnapshot,
@@ -2220,7 +2224,7 @@ void refreshTargetGainContext(
         correctionMode !=
             ambilight::CorrectionMode::Active) {
 
-        cachedTargetGainContext =
+        target =
             ambilight::ShadowGainProbe::make(
                 shadowProbeGeneration,
                 nowUs,
@@ -2228,26 +2232,28 @@ void refreshTargetGainContext(
                     ledMappingProfile());
     }
 
-    nextGainTargetPollUs =
-        nowUs + kGainTargetPollIntervalUs;
+    return
+        renderGainController.setTarget(
+            target,
+            nowUs);
 }
 
-bool serviceRender(std::uint64_t nowUs) {
+bool serviceRender(
+    std::uint64_t nowUs) {
+
     const std::uint64_t serviceStartedUs =
         static_cast<std::uint64_t>(
             esp_timer_get_time());
 
     refreshRgbCache();
-    refreshTargetGainContext(nowUs);
 
-    const bool gainPipelineEnabled =
-        ambilight::CorrectionOutputPolicy::evaluatesGain(
-            correctionMode);
+    const bool gainTargetChanged =
+        refreshTargetGainContext(
+            nowUs);
 
-    const bool targetProfileChanged =
-        gainPipelineEnabled &&
-        !cachedTargetGainContext.sameRenderProfileAs(
-            renderGainController.target());
+    const bool activeCorrection =
+        correctionMode ==
+            ambilight::CorrectionMode::Active;
 
     const bool renderStateDirty =
         correctionModeDirty ||
@@ -2255,10 +2261,11 @@ bool serviceRender(std::uint64_t nowUs) {
         ledMappingDirty ||
         ledPixelMaskDirty ||
         (
-            gainPipelineEnabled &&
+            activeCorrection &&
             (
-                targetProfileChanged ||
-                !renderGainController.settled()
+                gainTargetChanged ||
+                !renderGainController.
+                    settled()
             )
         );
 
@@ -2275,19 +2282,19 @@ bool serviceRender(std::uint64_t nowUs) {
 
     if (decision.dueToRgb) {
         lastFrameAgeUs =
-            nowUs >= renderSnapshot.receivedUs
-                ? nowUs - renderSnapshot.receivedUs
+            nowUs >=
+                    renderSnapshot.receivedUs
+                ? nowUs -
+                    renderSnapshot.receivedUs
                 : 0;
 
         if (lastFrameAgeUs >
             maxFrameAgeUs) {
+
             maxFrameAgeUs =
                 lastFrameAgeUs;
         }
 
-        // Only a genuinely new DDP frame belongs in the transport latency
-        // histogram. State-only rerenders intentionally reuse an old RGB frame
-        // and must not look like network queue latency.
         if (renderSnapshot.receivedUs != 0 &&
             renderSnapshot.receivedUs ==
                 ddp.lastCompleteFrameUs()) {
@@ -2297,14 +2304,9 @@ bool serviceRender(std::uint64_t nowUs) {
         }
     }
 
-    ambilight::RenderGainContext effectiveGainContext =
-        ambilight::RenderGainContext::unity(runtimeSettings.ledMappingProfile());
-
-    if (gainPipelineEnabled) {
-        effectiveGainContext =
-            renderGainController.update(
-                cachedTargetGainContext,
-                nowUs);
+    if (activeCorrection) {
+        renderGainController.advance(
+            nowUs);
     }
 
     renderPreflightMetric.observe(
@@ -2313,18 +2315,25 @@ bool serviceRender(std::uint64_t nowUs) {
         serviceStartedUs);
 
     const esp_err_t result =
-        renderer.render(
-            renderSnapshot,
-            effectiveGainContext,
-            correctionMode);
+        activeCorrection
+            ? renderer.renderActive(
+                  renderSnapshot,
+                  renderGainController.
+                      current())
+            : renderer.render(
+                  renderSnapshot);
 
     if (result != ESP_OK) {
         fatal(
-            "LedRenderer::render failed",
+            activeCorrection
+                ? "LedRenderer::renderActive failed"
+                : "LedRenderer::render failed",
             result);
     }
 
-    renderScheduler.markRendered(nowUs);
+    renderScheduler.markRendered(
+        nowUs);
+
     correctionModeDirty = false;
     brightnessDirty = false;
     ledMappingDirty = false;
@@ -2332,6 +2341,7 @@ bool serviceRender(std::uint64_t nowUs) {
 
     if (decision.dueToRgb) {
         rgbDirty = false;
+
         lastRenderedRgbGeneration =
             renderSnapshot.generation;
     }
@@ -2342,6 +2352,52 @@ bool serviceRender(std::uint64_t nowUs) {
         serviceStartedUs);
 
     return true;
+}
+
+void serviceRenderDiagnostics(
+    std::uint64_t nowUs) {
+
+    if (correctionMode ==
+            ambilight::CorrectionMode::Disabled ||
+        !rgbFrameValid ||
+        (
+            nextRenderDiagnosticsUs != 0 &&
+            nowUs <
+                nextRenderDiagnosticsUs
+        )) {
+
+        return;
+    }
+
+    nextRenderDiagnosticsUs =
+        nowUs +
+        kRenderDiagnosticsIntervalUs;
+
+    // SHADOW correction is observational. Keep its slew model alive only at
+    // diagnostic cadence so gain changes never create physical state-only
+    // renders. ACTIVE advances in serviceRender() because it affects output.
+    if (correctionMode ==
+        ambilight::CorrectionMode::Shadow) {
+
+        renderGainController.advance(
+            nowUs);
+    }
+
+    const std::uint64_t startedUs =
+        static_cast<std::uint64_t>(
+            esp_timer_get_time());
+
+    renderDiagnostics.analyze(
+        renderSnapshot,
+        renderGainController.current(),
+        correctionMode,
+        renderer.renderPlan(),
+        renderer.pixelMaskProfile());
+
+    renderDiagnosticsMetric.observe(
+        static_cast<std::uint64_t>(
+            esp_timer_get_time()) -
+        startedUs);
 }
 
 void serviceIdleBlackout(std::uint64_t nowUs) {
