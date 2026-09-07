@@ -66,8 +66,18 @@ void parlio_strip_debug_dump( led_strip_t *strip, parlio_strip_cfg_t *cfg );
 // by LiteLEDpioGroup before calling this.
 esp_err_t parlio_group_install( parlio_group_cfg_t *cfg );
 
-// Encode all assigned lane pixel buffers into the shared DMA buffer
-// (applying per-lane brightness), then transmit and block until done.
+// Encode all assigned lane pixel buffers into the shared DMA buffer.
+// Constant waveform samples are initialized once during install; per-frame
+// encoding writes only data-dependent sample positions.
+esp_err_t parlio_group_encode( parlio_group_cfg_t *cfg );
+
+// Queue the already encoded DMA buffer for PARLIO transmission.
+esp_err_t parlio_group_transmit( parlio_group_cfg_t *cfg );
+
+// Wait until all queued PARLIO transmissions have completed.
+esp_err_t parlio_group_wait( parlio_group_cfg_t *cfg );
+
+// Blocking compatibility wrapper: encode, transmit, wait.
 esp_err_t parlio_group_flush( parlio_group_cfg_t *cfg );
 
 // Wait for any in-progress transfer, disable and delete the PARLIO TX
