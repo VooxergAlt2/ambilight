@@ -4,7 +4,6 @@
 #include <cstddef>
 #include <cstdint>
 
-#include "core/FrameMailbox.h"
 #include "core/PerformanceMetric.h"
 #include "core/RgbFrame.h"
 #include "network/DdpSenderGate.h"
@@ -22,7 +21,7 @@ struct DdpPollResult {
 
     bool socketDrained = false;
     bool backlogLikely = false;
-    bool mailboxPublished = false;
+    bool framePublished = false;
 };
 
 struct DdpUdpStats {
@@ -30,9 +29,8 @@ struct DdpUdpStats {
     std::uint64_t bytesReceived = 0;
 
     std::uint32_t completeFramesAssembled = 0;
-    std::uint32_t mailboxPublications = 0;
+    std::uint32_t framePublications = 0;
     std::uint32_t collapsedCompleteFrames = 0;
-    std::uint32_t publishFailures = 0;
 
     std::uint32_t socketErrors = 0;
 
@@ -60,7 +58,7 @@ struct DdpUdpStats {
     PerformanceMetric receiveCallTime{};
     PerformanceMetric senderGateTime{};
     PerformanceMetric assemblerTime{};
-    PerformanceMetric publishTime{};
+    PerformanceMetric snapshotCopyTime{};
 };
 
 class DdpUdpService {
@@ -75,9 +73,7 @@ public:
     static constexpr std::size_t kMaxDatagramsPerPoll = 128;
     static constexpr std::uint32_t kPollBudgetUs = 3000;
 
-    explicit DdpUdpService(FrameMailbox& mailbox)
-        : mailbox_(mailbox) {}
-
+    DdpUdpService() = default;
     ~DdpUdpService();
 
     DdpUdpService(const DdpUdpService&) = delete;
@@ -94,6 +90,12 @@ public:
     }
 
     DdpPollResult poll();
+
+    // Single-loop-task latest-frame snapshot. DDP owns the mutable assembled
+    // frame; renderer receives one stable copy after poll() completes.
+    bool copyLatest(
+        RgbFrame& destination,
+        std::uint32_t lastGeneration);
 
     bool running() const { return socket_ >= 0; }
 
@@ -128,7 +130,6 @@ public:
     }
 
 private:
-    FrameMailbox& mailbox_;
     DdpAssembler assembler_;
     DdpSenderGate senderGate_;
 
@@ -136,6 +137,7 @@ private:
 
     std::array<std::uint8_t, kRxBufferSize> rxBuffer_{};
     RgbFrame completedFrame_{};
+    std::uint32_t publishedGeneration_ = 0;
 
     DdpUdpStats stats_{};
 
