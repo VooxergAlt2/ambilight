@@ -181,7 +181,9 @@ LiteLEDpioGroup::LiteLEDpioGroup( led_strip_type_t led_type, size_t length, bool
       _length( length ),
       _is_rgbw( rgbw ),
       _brightness( 255 ),
-      _valid( false ) {
+      _valid( false ),
+      _encoded_ready( false ),
+      _in_flight( false ) {
 
     // Zero the group config struct.
     memset( &_groupCfg, 0, sizeof( _groupCfg ) );
@@ -334,6 +336,8 @@ esp_err_t LiteLEDpioGroup::begin( ll_psram_t psram_flag ) {
         perimanSetPinBusExtraType( gpio, "LiteLEDpioGroup" );
     }
 
+    _encoded_ready = false;
+    _in_flight = false;
     _valid = true;
     return ESP_OK;
 }
@@ -342,30 +346,47 @@ esp_err_t LiteLEDpioGroup::begin( ll_psram_t psram_flag ) {
 // staged PARLIO frame API
 // -------------------------------------------------------------------------
 esp_err_t LiteLEDpioGroup::encode() {
-    if ( !_valid ) {
-        log_d( "LiteLEDpioGroup::encode: not initialized" );
+    if ( !_valid || _in_flight ) {
+        log_d( "LiteLEDpioGroup::encode: invalid state" );
         return ESP_ERR_INVALID_STATE;
     }
 
-    return
+    const esp_err_t res =
         parlio_group_encode(
             &_groupCfg );
+
+    _encoded_ready =
+        res == ESP_OK;
+
+    return res;
 }
 
 esp_err_t LiteLEDpioGroup::transmit() {
-    if ( !_valid ) {
-        log_d( "LiteLEDpioGroup::transmit: not initialized" );
+    if ( !_valid ||
+         !_encoded_ready ||
+         _in_flight ) {
+
+        log_d( "LiteLEDpioGroup::transmit: invalid state" );
         return ESP_ERR_INVALID_STATE;
     }
 
-    return
+    const esp_err_t res =
         parlio_group_transmit(
             &_groupCfg );
+
+    if ( res == ESP_OK ) {
+        _encoded_ready = false;
+        _in_flight = true;
+    }
+
+    return res;
 }
 
 esp_err_t LiteLEDpioGroup::wait() {
-    if ( !_valid ) {
-        log_d( "LiteLEDpioGroup::wait: not initialized" );
+    if ( !_valid ||
+         !_in_flight ) {
+
+        log_d( "LiteLEDpioGroup::wait: invalid state" );
         return ESP_ERR_INVALID_STATE;
     }
 
@@ -374,6 +395,7 @@ esp_err_t LiteLEDpioGroup::wait() {
             &_groupCfg );
 
     if ( res == ESP_OK ) {
+        _in_flight = false;
         // Brightness becomes physically active only after the frame completed.
         for ( uint8_t n = 0;
               n < LITELED_PARLIO_GROUP_DATA_WIDTH;
@@ -446,6 +468,8 @@ esp_err_t LiteLEDpioGroup::_free() {
     }
 
     _valid = false;
+    _encoded_ready = false;
+    _in_flight = false;
 
     // Unregister all GPIOs from Peripheral Manager.
     for ( uint8_t n = 0; n < PARLIO_TX_UNIT_MAX_DATA_WIDTH; n++ ) {
