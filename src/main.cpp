@@ -3235,8 +3235,10 @@ void startShadowGainProbe() {
     shadowProbeUntilUs =
         nowUs + 10000000ULL;
 
-    // Force target refresh on the very next render service tick.
+    // Force target and sampled diagnostics refresh on the very next
+    // render-service cycle.
     nextGainTargetPollUs = 0;
+    nextRenderDiagnosticsUs = 0;
 
     Serial.println(
         "SHADOW PROBE started for 10 seconds: aggressive per-segment gains and gradients are simulated only. Physical RGB remains original.");
