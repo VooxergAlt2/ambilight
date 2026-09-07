@@ -4,18 +4,67 @@
 
 #include <esp_timer.h>
 
-#include "led/SegmentMapper.h"
-
 namespace ambilight {
 
-crgb_t LedRenderer::toCrgb(const Rgb8& color) {
-    return
-        (static_cast<crgb_t>(color.r) << 16) |
-        (static_cast<crgb_t>(color.g) << 8) |
-        static_cast<crgb_t>(color.b);
+bool LedRenderer::setMappingProfile(
+    const LedMappingProfile& profile) {
+
+    LedRenderPlan candidate;
+
+    if (!LedRenderPlan::build(
+            profile,
+            candidate)) {
+
+        return false;
+    }
+
+    // PARLIO owns a fixed 230-pixel buffer for every physical lane. When
+    // runtime topology shrinks a side or moves it to another lane, pixels
+    // outside the new active span must be cleared before the new mapping can
+    // be rendered. This is intentionally topology-time work, never frame-time.
+    if (mappingProfile_.segment !=
+        profile.segment) {
+
+        engine_.clear();
+    }
+
+    mappingProfile_ =
+        profile;
+
+    renderPlan_ =
+        candidate;
+
+    // Keep the renderer internally valid even if a topology is applied before
+    // its persisted mask is sanitized by the higher-level settings transaction.
+    if (!pixelMaskProfile_.validFor(
+            mappingProfile_)) {
+
+        pixelMaskProfile_.
+            sanitizeFor(
+                mappingProfile_);
+    }
+
+    return true;
 }
 
-esp_err_t LedRenderer::render(const RgbFrame& frame) {
+bool LedRenderer::setPixelMaskProfile(
+    const LedPixelMaskProfile& profile) {
+
+    if (!profile.validFor(
+            mappingProfile_)) {
+
+        return false;
+    }
+
+    pixelMaskProfile_ =
+        profile;
+
+    return true;
+}
+
+esp_err_t LedRenderer::render(
+    const RgbFrame& frame) {
+
     return render(
         frame,
         RenderGainContext::unity(
@@ -54,13 +103,18 @@ esp_err_t LedRenderer::render(
 
     std::array<
         std::uint32_t,
-        static_cast<std::size_t>(SegmentId::Count)>
+        static_cast<std::size_t>(
+            SegmentId::Count)>
         frameChangedBySegment{};
 
     const std::uint16_t activeLedCount =
-        mappingProfile_.totalLedCount();
+        renderPlan_.totalLedCount;
 
-    if (!mappingProfile_.valid() ||
+    const auto& output =
+        engine_.frameWriteView();
+
+    if (!renderPlan_.valid ||
+        !output.valid() ||
         frame.pixelCount !=
             activeLedCount) {
 
@@ -68,85 +122,121 @@ esp_err_t LedRenderer::render(
         return ESP_ERR_INVALID_ARG;
     }
 
-    for (std::uint16_t logical = 0;
-         logical < activeLedCount;
-         ++logical) {
+    for (std::size_t segmentIndex = 0;
+         segmentIndex <
+            renderPlan_.segment.size();
+         ++segmentIndex) {
 
-        const PhysicalPixel mapped =
-            SegmentMapper::map(
-                logical,
-                mappingProfile_);
+        const auto& segment =
+            renderPlan_.
+                segment[
+                    segmentIndex];
 
-        if (!mapped.valid) {
+        if (segment.lane >=
+                output.lane.size()) {
+
             ++mappingErrors_;
-            return ESP_ERR_INVALID_ARG;
+            return ESP_FAIL;
         }
 
-        const Rgb8& original =
-            frame.pixels[logical];
+        const auto& lane =
+            output.lane[
+                segment.lane];
 
-        const ShadowPixelResult shadow =
-            RenderGainMath::preview(
-                original,
-                logical,
-                mapped.segment,
-                gainContext);
+        if (!lane.valid() ||
+            segment.logicalLength >
+                lane.pixelCount) {
 
-        frameInputChannelSum +=
-            static_cast<std::uint32_t>(original.r) +
-            static_cast<std::uint32_t>(original.g) +
-            static_cast<std::uint32_t>(original.b);
+            ++mappingErrors_;
+            return ESP_FAIL;
+        }
 
-        frameShadowChannelSum +=
-            static_cast<std::uint32_t>(shadow.wouldOutput.r) +
-            static_cast<std::uint32_t>(shadow.wouldOutput.g) +
-            static_cast<std::uint32_t>(shadow.wouldOutput.b);
+        const std::uint16_t disabledOffset =
+            pixelMaskProfile_.
+                disabledOffset[
+                    segmentIndex];
 
-        if (shadow.wouldChange) {
-            ++frameWouldChangePixels;
+        for (std::uint16_t offset = 0;
+             offset <
+                segment.logicalLength;
+             ++offset) {
 
-            const auto segmentIndex =
-                static_cast<std::size_t>(
-                    mapped.segment);
+            const std::uint16_t logical =
+                static_cast<std::uint16_t>(
+                    segment.logicalStart +
+                    offset);
 
-            if (segmentIndex <
-                frameChangedBySegment.size()) {
+            const std::uint16_t physical =
+                segment.physicalIndex(
+                    offset);
+
+            const Rgb8& original =
+                frame.pixels[
+                    logical];
+
+            const ShadowPixelResult shadow =
+                RenderGainMath::preview(
+                    original,
+                    logical,
+                    segment.id,
+                    gainContext);
+
+            frameInputChannelSum +=
+                static_cast<std::uint32_t>(
+                    original.r) +
+                static_cast<std::uint32_t>(
+                    original.g) +
+                static_cast<std::uint32_t>(
+                    original.b);
+
+            frameShadowChannelSum +=
+                static_cast<std::uint32_t>(
+                    shadow.wouldOutput.r) +
+                static_cast<std::uint32_t>(
+                    shadow.wouldOutput.g) +
+                static_cast<std::uint32_t>(
+                    shadow.wouldOutput.b);
+
+            if (shadow.wouldChange) {
+                ++frameWouldChangePixels;
+
                 ++frameChangedBySegment[
                     segmentIndex];
             }
-        }
 
-        frameMaxChannelDelta =
-            std::max(
-                frameMaxChannelDelta,
-                shadow.maxChannelDelta);
+            frameMaxChannelDelta =
+                std::max(
+                    frameMaxChannelDelta,
+                    shadow.maxChannelDelta);
 
-        Rgb8 physicalOutput =
-            CorrectionOutputPolicy::physicalOutput(
-                correctionMode,
-                original,
-                shadow);
+            Rgb8 physicalOutput =
+                CorrectionOutputPolicy::
+                    physicalOutput(
+                        correctionMode,
+                        original,
+                        shadow);
 
-        if (pixelMaskProfile_.disabled(
-                mapped.segment,
-                mapped.segmentOffset)) {
+            if (disabledOffset !=
+                    LedPixelMaskProfile::kNone &&
+                disabledOffset ==
+                    offset) {
 
-            physicalOutput = {};
-        }
+                physicalOutput = {};
+            }
 
-        if (physicalOutput.r != original.r ||
-            physicalOutput.g != original.g ||
-            physicalOutput.b != original.b) {
+            if (physicalOutput.r !=
+                    original.r ||
+                physicalOutput.g !=
+                    original.g ||
+                physicalOutput.b !=
+                    original.b) {
 
-            ++framePhysicalChangedPixels;
-        }
+                ++framePhysicalChangedPixels;
+            }
 
-        if (!engine_.setPhysicalPixel(
-                mapped.lane,
-                mapped.index,
-                toCrgb(physicalOutput))) {
-            ++mappingErrors_;
-            return ESP_FAIL;
+            lane.writeUnchecked(
+                physical,
+                physicalOutput);
         }
     }
 
@@ -162,7 +252,9 @@ esp_err_t LedRenderer::render(
     prepareMetric_.observe(
         prepareUs);
 
-    const esp_err_t result = engine_.show();
+    const esp_err_t result =
+        engine_.show();
+
     if (result != ESP_OK) {
         return result;
     }
@@ -179,28 +271,34 @@ esp_err_t LedRenderer::render(
     case CorrectionMode::Disabled:
         ++shadowStats_.disabledFrames;
         break;
+
     case CorrectionMode::Shadow:
         ++shadowStats_.shadowFrames;
         break;
+
     case CorrectionMode::Active:
         ++shadowStats_.activeFrames;
         break;
     }
 
     if (gainContext.sourcePresent) {
-        ++shadowStats_.sourcePresentFrames;
+        ++shadowStats_.
+            sourcePresentFrames;
     }
 
     if (gainContext.sourceUsable) {
-        ++shadowStats_.sourceUsableFrames;
+        ++shadowStats_.
+            sourceUsableFrames;
     }
 
     if (gainContext.failOpen) {
-        ++shadowStats_.failOpenFrames;
+        ++shadowStats_.
+            failOpenFrames;
     }
 
     if (gainContext.hasNonUnityGain()) {
-        ++shadowStats_.nonUnityContextFrames;
+        ++shadowStats_.
+            nonUnityContextFrames;
     }
 
     shadowStats_.evaluatedPixels +=
@@ -213,45 +311,60 @@ esp_err_t LedRenderer::render(
         framePhysicalChangedPixels;
 
     for (std::size_t index = 0;
-         index < frameChangedBySegment.size();
+         index <
+            frameChangedBySegment.size();
          ++index) {
 
-        shadowStats_.wouldChangeBySegment[index] +=
-            frameChangedBySegment[index];
+        shadowStats_.
+            wouldChangeBySegment[
+                index] +=
+            frameChangedBySegment[
+                index];
     }
 
     shadowStats_.maxChannelDelta =
         std::max(
-            shadowStats_.maxChannelDelta,
+            shadowStats_.
+                maxChannelDelta,
             frameMaxChannelDelta);
 
-    shadowStats_.lastWouldChangePixels =
+    shadowStats_.
+        lastWouldChangePixels =
         frameWouldChangePixels;
 
-    shadowStats_.lastPhysicalChangedPixels =
+    shadowStats_.
+        lastPhysicalChangedPixels =
         framePhysicalChangedPixels;
 
-    shadowStats_.lastMaxChannelDelta =
+    shadowStats_.
+        lastMaxChannelDelta =
         frameMaxChannelDelta;
 
-    shadowStats_.lastInputChannelSum =
+    shadowStats_.
+        lastInputChannelSum =
         frameInputChannelSum;
 
-    shadowStats_.lastShadowChannelSum =
+    shadowStats_.
+        lastShadowChannelSum =
         frameShadowChannelSum;
 
-    shadowStats_.lastSourceGeneration =
+    shadowStats_.
+        lastSourceGeneration =
         gainContext.sourceGeneration;
 
-    shadowStats_.lastSourceAgeUs =
+    shadowStats_.
+        lastSourceAgeUs =
         gainContext.sourceAgeUs;
 
-    shadowStats_.lastPrepareUs =
+    shadowStats_.
+        lastPrepareUs =
         prepareUs;
 
-    shadowStats_.maxPrepareUs =
+    shadowStats_.
+        maxPrepareUs =
         std::max(
-            shadowStats_.maxPrepareUs,
+            shadowStats_.
+                maxPrepareUs,
             prepareUs);
 
     lastGainContext_ =
