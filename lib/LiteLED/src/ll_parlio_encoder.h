@@ -19,6 +19,12 @@ struct SamplePlan {
     std::uint8_t samplesPerBit = 0;
     SampleMode mode[kMaxSamplesPerBit]{};
 
+    std::uint8_t dynamicCount = 0;
+    std::uint8_t dynamicSample[
+        kMaxSamplesPerBit]{};
+    bool dynamicInverted[
+        kMaxSamplesPerBit]{};
+
     constexpr bool valid() const {
         return
             samplesPerBit > 0 &&
@@ -77,9 +83,29 @@ constexpr SamplePlan makeSamplePlan(
 
             plan.mode[sample] =
                 SampleMode::Data;
+
+            plan.dynamicSample[
+                plan.dynamicCount] =
+                sample;
+
+            plan.dynamicInverted[
+                plan.dynamicCount] =
+                false;
+
+            ++plan.dynamicCount;
         } else {
             plan.mode[sample] =
                 SampleMode::InvertedData;
+
+            plan.dynamicSample[
+                plan.dynamicCount] =
+                sample;
+
+            plan.dynamicInverted[
+                plan.dynamicCount] =
+                true;
+
+            ++plan.dynamicCount;
         }
     }
 
@@ -180,30 +206,23 @@ inline void encodeDynamicByte(
                 bitSlot) *
             plan.samplesPerBit;
 
-        for (std::uint8_t sample = 0;
-             sample <
-                plan.samplesPerBit;
-             ++sample) {
+        for (std::uint8_t dynamic = 0;
+             dynamic <
+                plan.dynamicCount;
+             ++dynamic) {
 
-            switch (plan.mode[sample]) {
-            case SampleMode::ConstantZero:
-            case SampleMode::ConstantOne:
-                // Constants were initialized once when the DMA buffer
-                // was allocated and never need a per-frame write.
-                break;
+            const std::uint8_t sample =
+                plan.dynamicSample[
+                    dynamic];
 
-            case SampleMode::Data:
-                output[base + sample] =
-                    plane;
-                break;
-
-            case SampleMode::InvertedData:
-                output[base + sample] =
-                    static_cast<std::uint8_t>(
-                        activeLaneMask ^
-                        plane);
-                break;
-            }
+            output[base + sample] =
+                plan.dynamicInverted[
+                    dynamic]
+                    ? static_cast<
+                          std::uint8_t>(
+                              activeLaneMask ^
+                              plane)
+                    : plane;
         }
     }
 }
