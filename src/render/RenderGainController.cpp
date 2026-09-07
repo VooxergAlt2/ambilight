@@ -4,12 +4,16 @@
 
 namespace ambilight {
 
-void RenderGainController::reset() {
+void RenderGainController::reset(
+    const LedMappingProfile& topology) {
+
     current_ =
-        RenderGainContext::unity();
+        RenderGainContext::unity(
+            topology);
 
     target_ =
-        RenderGainContext::unity();
+        RenderGainContext::unity(
+            topology);
 
     initialized_ = false;
     settled_ = true;
