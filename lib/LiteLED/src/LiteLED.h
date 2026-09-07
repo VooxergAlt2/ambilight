@@ -70,6 +70,7 @@ static_assert( ESP_ARDUINO_VERSION >= ESP_ARDUINO_VERSION_VAL( 3, 0, 0 ),
     #include "driver/parlio_tx.h"
 #endif
 #include "llrgb.h"
+#include "ll_parlio_pipeline.h"
 
 // Forward declaration for C linkage
 #ifdef __cplusplus
@@ -556,11 +557,11 @@ class LiteLEDpioGroup {
     esp_err_t show();
 
     bool inFlight() const {
-        return _in_flight;
+        return _pipeline.inFlight();
     }
 
     bool encodedReady() const {
-        return _encoded_ready;
+        return _pipeline.encodedReady();
     }
 
     // @brief Set the same brightness level on every lane simultaneously.
@@ -586,12 +587,10 @@ class LiteLEDpioGroup {
     bool                _is_rgbw;
     uint8_t             _brightness;
     bool                _valid;
-    bool                _encoded_ready;
-    bool                _in_flight;
 
-    uint8_t             _next_encode_buffer;
-    uint8_t             _ready_buffer;
-    uint8_t             _in_flight_buffer;
+    liteled_parlio::PipelineState<
+        LITELED_PARLIO_GROUP_DMA_BUFFER_COUNT>
+                            _pipeline;
 
     uint8_t             _encoded_brightness[
                             LITELED_PARLIO_GROUP_DMA_BUFFER_COUNT ];
