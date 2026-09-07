@@ -28,6 +28,7 @@
 #include "led/LedRenderer.h"
 #include "integration/TofRenderGainBridge.h"
 #include "render/CorrectionMode.h"
+#include "render/RenderDiagnostics.h"
 #include "render/RenderGainController.h"
 #include "render/ShadowGainProbe.h"
 #include "render/RenderScheduler.h"
@@ -50,6 +51,7 @@ constexpr std::uint64_t kIdleBlackoutUs = 1000000;
 constexpr std::uint32_t kStatusIntervalMs = 30000;
 constexpr std::uint8_t kMaxConsecutiveBacklogRenderSkips = 4;
 constexpr std::uint64_t kGainTargetPollIntervalUs = 1000000;
+constexpr std::uint64_t kRenderDiagnosticsIntervalUs = 100000;
 constexpr std::uint64_t kCommissioningDurationUs = 15000000ULL;
 constexpr std::uint8_t kCommissioningMaxBrightness = 64;
 constexpr std::uint64_t kTofDebugDurationUs = 60000000ULL;
@@ -62,11 +64,13 @@ ambilight::DdpUdpService ddp(mailbox);
 ambilight::LatencyHistogram frameAgeHistogram;
 ambilight::PerformanceMetric renderPreflightMetric;
 ambilight::PerformanceMetric renderServiceMetric;
+ambilight::PerformanceMetric renderDiagnosticsMetric;
 ambilight::PerformanceMetric loopWorkMetric;
 ambilight::PerformanceMetric loopWallMetric;
 ambilight::TofService tof;
 ambilight::TofCalibrationCapture calibrationCapture;
 ambilight::RenderGainController renderGainController;
+ambilight::RenderDiagnostics renderDiagnostics;
 ambilight::RenderScheduler renderScheduler;
 ambilight::RuntimeSettings runtimeSettings;
 ambilight::WebUiService webUi;
@@ -76,10 +80,6 @@ ambilight::CorrectionMode correctionMode =
 
 ambilight::RgbFrame renderSnapshot;
 ambilight::PerimeterGainSnapshot cachedPerimeterGainSnapshot{};
-ambilight::RenderGainContext cachedTargetGainContext{};
-// Persistent unity context for commissioning. Keeping this global avoids a
-// ~1.9 KiB temporary RenderGainContext on the loop-task stack at test start.
-ambilight::RenderGainContext commissioningGainContext{};
 
 bool rgbFrameValid = false;
 bool rgbDirty = false;
@@ -137,6 +137,7 @@ std::uint32_t shadowProbeGeneration = 0;
 std::uint64_t shadowProbeUntilUs = 0;
 std::uint64_t tofDebugUntilUs = 0;
 std::uint64_t nextGainTargetPollUs = 0;
+std::uint64_t nextRenderDiagnosticsUs = 0;
 
 std::uint8_t consecutiveBacklogRenderSkips = 0;
 
