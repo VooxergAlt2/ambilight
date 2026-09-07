@@ -62,19 +62,69 @@ bool LedEngine::setPhysicalPixel(
 }
 
 esp_err_t LedEngine::show() {
-    const std::uint64_t startedUs =
+    const std::uint64_t showStartedUs =
         static_cast<std::uint64_t>(
             esp_timer_get_time());
 
-    const esp_err_t result =
-        group_.show();
+    const std::uint64_t encodeStartedUs =
+        showStartedUs;
 
-    const std::uint64_t finishedUs =
+    esp_err_t result =
+        group_.encode();
+
+    const std::uint64_t encodeFinishedUs =
         static_cast<std::uint64_t>(
             esp_timer_get_time());
+
+    encodeMetric_.observe(
+        encodeFinishedUs -
+        encodeStartedUs);
+
+    if (result != ESP_OK) {
+        showMetric_.observe(
+            encodeFinishedUs -
+            showStartedUs);
+        return result;
+    }
+
+    const std::uint64_t submitStartedUs =
+        encodeFinishedUs;
+
+    result =
+        group_.transmit();
+
+    const std::uint64_t submitFinishedUs =
+        static_cast<std::uint64_t>(
+            esp_timer_get_time());
+
+    submitMetric_.observe(
+        submitFinishedUs -
+        submitStartedUs);
+
+    if (result != ESP_OK) {
+        showMetric_.observe(
+            submitFinishedUs -
+            showStartedUs);
+        return result;
+    }
+
+    const std::uint64_t waitStartedUs =
+        submitFinishedUs;
+
+    result =
+        group_.wait();
+
+    const std::uint64_t waitFinishedUs =
+        static_cast<std::uint64_t>(
+            esp_timer_get_time());
+
+    waitMetric_.observe(
+        waitFinishedUs -
+        waitStartedUs);
 
     showMetric_.observe(
-        finishedUs - startedUs);
+        waitFinishedUs -
+        showStartedUs);
 
     return result;
 }
