@@ -158,6 +158,102 @@ void test_schema3_custom_topology_survives_reboot() {
             reversed);
 }
 
+void test_topology_blob_write_failure_does_not_apply_candidate_live() {
+    RuntimeSettings settings;
+    TEST_ASSERT_TRUE(settings.begin());
+
+    LedMappingProfile previous;
+    previous.segment[0].logicalLength = 220;
+
+    TEST_ASSERT_TRUE(
+        settings.setLedMappingProfile(
+            previous));
+
+    LedMappingProfile candidate =
+        previous;
+
+    candidate.segment[0].logicalLength =
+        200;
+
+    Preferences::testFailPut(
+        "led_map");
+
+    TEST_ASSERT_FALSE(
+        settings.setLedMappingProfile(
+            candidate));
+
+    TEST_ASSERT_EQUAL_UINT16(
+        220,
+        settings.
+            ledMappingProfile().
+            segment[0].
+            logicalLength);
+
+    TEST_ASSERT_TRUE(
+        settings.
+            ledMappingProfileCustomized());
+
+    TEST_ASSERT_FALSE(
+        settings.
+            ledMappingProfilePersisted());
+
+    TEST_ASSERT_FALSE(
+        Preferences::testHasKey(
+            "led_map"));
+
+    TEST_ASSERT_FALSE(
+        Preferences::testHasKey(
+            "led_map_ver"));
+}
+
+void test_topology_version_write_failure_does_not_apply_candidate_live() {
+    RuntimeSettings settings;
+    TEST_ASSERT_TRUE(settings.begin());
+
+    LedMappingProfile previous;
+    previous.segment[1].logicalLength = 150;
+
+    TEST_ASSERT_TRUE(
+        settings.setLedMappingProfile(
+            previous));
+
+    LedMappingProfile candidate =
+        previous;
+
+    candidate.segment[1].logicalLength =
+        140;
+
+    Preferences::testFailPut(
+        "led_map_ver");
+
+    TEST_ASSERT_FALSE(
+        settings.setLedMappingProfile(
+            candidate));
+
+    TEST_ASSERT_EQUAL_UINT16(
+        150,
+        settings.
+            ledMappingProfile().
+            segment[1].
+            logicalLength);
+
+    TEST_ASSERT_TRUE(
+        settings.
+            ledMappingProfileCustomized());
+
+    TEST_ASSERT_FALSE(
+        settings.
+            ledMappingProfilePersisted());
+
+    TEST_ASSERT_FALSE(
+        Preferences::testHasKey(
+            "led_map"));
+
+    TEST_ASSERT_FALSE(
+        Preferences::testHasKey(
+            "led_map_ver"));
+}
+
 void test_topology_reset_marker_failure_keeps_live_custom_state() {
     RuntimeSettings settings;
     TEST_ASSERT_TRUE(settings.begin());
@@ -412,6 +508,12 @@ int main(int, char**) {
 
     RUN_TEST(
         test_schema3_custom_topology_survives_reboot);
+
+    RUN_TEST(
+        test_topology_blob_write_failure_does_not_apply_candidate_live);
+
+    RUN_TEST(
+        test_topology_version_write_failure_does_not_apply_candidate_live);
 
     RUN_TEST(
         test_topology_reset_marker_failure_keeps_live_custom_state);
