@@ -2702,11 +2702,15 @@ void dumpPerformanceMetrics() {
         ledEngine.submitMetric());
 
     printPerformanceMetric(
-        "parlio_wait",
+        "parlio_wait_residual",
         ledEngine.waitMetric());
 
     printPerformanceMetric(
-        "parlio_show_total",
+        "parlio_wait_flush",
+        ledEngine.flushWaitMetric());
+
+    printPerformanceMetric(
+        "parlio_pipeline_service",
         ledEngine.showMetric());
 
     printPerformanceMetric(
@@ -4505,7 +4509,7 @@ void printRuntimeHeartbeat() {
         ddp.stats();
 
     Serial.printf(
-        "STAT corr=%s wifi=%s ddp=%lu render=%lu frame_p95<=%luus show_p95<=%luus loop_p95<=%luus heap=%lu minheap=%lu\n",
+        "STAT corr=%s wifi=%s ddp=%lu render=%lu frame_p95<=%luus pipe_p95<=%luus loop_p95<=%luus heap=%lu minheap=%lu\n",
         ambilight::correctionModeName(
             correctionMode),
         wifi.connected() ? "up" : "down",
@@ -4526,6 +4530,37 @@ void printRuntimeHeartbeat() {
             ESP.getFreeHeap()),
         static_cast<unsigned long>(
             ESP.getMinFreeHeap()));
+
+    Serial.printf(
+        "PIPE submitted=%lu completed=%lu overlapped=%lu cold=%lu overlap=%lu.%lu%% "
+        "encode_p95<=%luus wait_residual_p95<=%luus submit_p95<=%luus service_p95<=%luus flush_wait_p95<=%luus\n",
+        static_cast<unsigned long>(
+            ledEngine.submittedFrames()),
+        static_cast<unsigned long>(
+            ledEngine.completedFrames()),
+        static_cast<unsigned long>(
+            ledEngine.overlappedShows()),
+        static_cast<unsigned long>(
+            ledEngine.coldShows()),
+        static_cast<unsigned long>(
+            overlapPermille / 10U),
+        static_cast<unsigned long>(
+            overlapPermille % 10U),
+        static_cast<unsigned long>(
+            ledEngine.encodeMetric().
+                percentileUpperBoundUs(95)),
+        static_cast<unsigned long>(
+            ledEngine.waitMetric().
+                percentileUpperBoundUs(95)),
+        static_cast<unsigned long>(
+            ledEngine.submitMetric().
+                percentileUpperBoundUs(95)),
+        static_cast<unsigned long>(
+            ledEngine.showMetric().
+                percentileUpperBoundUs(95)),
+        static_cast<unsigned long>(
+            ledEngine.flushWaitMetric().
+                percentileUpperBoundUs(95)));
 }
 
 void dumpRuntimeStatus() {
@@ -4557,6 +4592,21 @@ void dumpRuntimeStatus() {
             : 0;
 
     const auto& geometry = tofSnapshot.geometry;
+
+    const std::uint32_t pipelineShows =
+        ledEngine.overlappedShows() +
+        ledEngine.coldShows();
+
+    const std::uint32_t overlapPermille =
+        pipelineShows == 0
+            ? 0
+            : static_cast<std::uint32_t>(
+                  (
+                      static_cast<std::uint64_t>(
+                          ledEngine.overlappedShows()) *
+                      1000ULL
+                  ) /
+                  pipelineShows);
 
     Serial.printf(
         "STAT corr=%s brightness=%u persist=%s wifi=%s wsrc=%s rssi=%d pkt=%lu asm=%lu pub=%lu collapse=%lu parsefail=%lu rej=%lu stale=%lu timeout=%lu fastpkt=%lu fallback=%lu "
