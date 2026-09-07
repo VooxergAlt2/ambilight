@@ -198,6 +198,8 @@ esp_err_t LedEngine::show() {
 
             return result;
         }
+
+        ++completedFrames_;
     }
 
     const std::uint64_t submitStartedUs =
@@ -219,6 +221,10 @@ esp_err_t LedEngine::show() {
         submitFinishedUs -
         showStartedUs);
 
+    if (result == ESP_OK) {
+        ++submittedFrames_;
+    }
+
     return result;
 }
 
@@ -238,9 +244,13 @@ esp_err_t LedEngine::waitForIdle() {
         static_cast<std::uint64_t>(
             esp_timer_get_time());
 
-    waitMetric_.observe(
+    flushWaitMetric_.observe(
         waitFinishedUs -
         waitStartedUs);
+
+    if (result == ESP_OK) {
+        ++completedFrames_;
+    }
 
     return result;
 }
