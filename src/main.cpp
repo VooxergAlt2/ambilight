@@ -3910,7 +3910,7 @@ void handleWebUiAction(
                 kCommissioningMaxBrightness) {
 
             message =
-                "LED test requires brightness 1..64.";
+                "LED test requires brightness 1..255.";
             break;
         }
 
@@ -4004,8 +4004,13 @@ void handleWebUiAction(
 
             message =
                 ok
-                    ? "LED mapping applied."
-                    : "LED mapping change refused.";
+                    ? (
+                          runtimeSettings.
+                                  ledMappingProfilePersisted()
+                              ? "LED mapping applied and saved."
+                              : "LED mapping applied runtime-only; NVS is unavailable."
+                      )
+                    : "LED mapping save/apply refused; previous mapping restored.";
         }
 
         break;
@@ -5109,11 +5114,11 @@ void printConfiguration() {
     Serial.println(
         "Spatial: y + Enter=status, yreset, or yW,H,X,Y,Z,ROT,MIRROR,DEADBAND (mm, not in ACTIVE).");
     Serial.println(
-        "LED topology: l + Enter=status, lreset, or lCOUNT:GPIO:REV,... Example l230:18:0,160:19:0,230:20:0,160:21:0; brightness must be 0.");
+        "LED topology: l + Enter=status, lreset, or lCOUNT:GPIO:REV,... Example l230:20:1,160:19:1,230:21:1,160:18:0; safety blackout/brightness restore is automatic.");
     Serial.println(
         "LED pixel mask: d + Enter=status, dreset, or dTOP,RIGHT,BOTTOM,LEFT; '-' means none. Example: d-,12,-,0.");
     Serial.println(
-        "LED test: i1=segments, i2=direction, i0=stop; jside:SIDE:START:COUNT or jgpio:GPIO:START:COUNT; brightness 1..64.");
+        "LED test: i1=segments, i2=direction, i0=stop; jside:SIDE:START:COUNT or jgpio:GPIO:START:COUNT; brightness 1..255.");
     Serial.println(
         "Factory recovery: freset + Enter clears ambilight NVS and restarts; brightness must be 0.");
 
