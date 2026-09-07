@@ -26,6 +26,9 @@ esp_err_t led_strip_set_brightness( led_strip_t *strip, uint8_t num );
 // Get current brightness value
 uint8_t led_strip_get_brightness( led_strip_t *strip );
 
+// Get the effective colour order currently used for this strip.
+color_order_t led_strip_get_color_order( led_strip_t *strip );
+
 // Set individual pixel color (respects color order)
 esp_err_t led_strip_set_pixel( led_strip_t *strip, size_t num, rgb_t color );
 
