@@ -160,6 +160,8 @@ typedef struct {
 // contract aligned with the configured hardware data_width even on SoCs whose
 // PARLIO peripheral exposes more lines.
 #define LITELED_PARLIO_GROUP_DATA_WIDTH 8
+#define LITELED_PARLIO_GROUP_DMA_BUFFER_COUNT 2
+#define LITELED_PARLIO_INVALID_BUFFER_INDEX 0xFF
 static_assert(
     PARLIO_TX_UNIT_MAX_DATA_WIDTH >=
         LITELED_PARLIO_GROUP_DATA_WIDTH,
@@ -174,8 +176,8 @@ typedef struct {
 // plus per-lane pixel colour buffers for up to PARLIO_TX_UNIT_MAX_DATA_WIDTH strips.
 typedef struct {
     parlio_tx_unit_handle_t  parlio_chan;                              /* PARLIO TX unit handle */
-    uint8_t                 *parlio_buf;                              /* shared DMA bitstream */
-    size_t                   parlio_buf_bytes;                        /* size of the DMA buffer */
+    uint8_t                 *parlio_buf[ LITELED_PARLIO_GROUP_DMA_BUFFER_COUNT ];
+    size_t                   parlio_buf_bytes;                        /* size of each DMA buffer */
     parlio_lane_t            lanes[ PARLIO_TX_UNIT_MAX_DATA_WIDTH ];  /* per-lane state */
     uint8_t                  lane_count;                              /* number of assigned lanes */
 } parlio_group_cfg_t;
@@ -533,20 +535,33 @@ class LiteLEDpioGroup {
     // @return ESP_OK on success.
     esp_err_t begin( ll_psram_t psram_flag = PSRAM_DISABLE );
 
-    // @brief Encode all lane pixel buffers into the shared DMA buffer.
-    // Does not start a hardware transfer.
+    // @brief Encode all lane pixel buffers into the currently free DMA buffer.
+    // This is allowed while the other DMA buffer is in flight.
     esp_err_t encode();
 
-    // @brief Queue the already encoded DMA buffer for PARLIO transmission.
-    // Does not wait for the transfer to finish.
+    // @brief Queue the encoded free buffer. Requires no older transfer to be
+    // in flight; callers normally use wait() first when pipelining.
     esp_err_t transmit();
 
-    // @brief Wait until all queued PARLIO transmissions have completed.
+    // @brief Wait for the current in-flight PARLIO transfer.
     esp_err_t wait();
 
-    // @brief Encode, transmit and wait. Convenience blocking API retained for
-    // callers that do not need Stage 40/41 pipeline control.
+    // @brief Encode the next frame while the previous one may still be in
+    // flight, wait only for the older transfer if necessary, submit the newly
+    // encoded buffer, and return without waiting for that new transfer.
+    esp_err_t showPipelined();
+
+    // @brief Blocking compatibility wrapper. Pipelines against any previous
+    // transfer, then waits for the newly submitted frame too.
     esp_err_t show();
+
+    bool inFlight() const {
+        return _in_flight;
+    }
+
+    bool encodedReady() const {
+        return _encoded_ready;
+    }
 
     // @brief Set the same brightness level on every lane simultaneously.
     esp_err_t brightness( uint8_t bright, bool show = false );
@@ -573,6 +588,16 @@ class LiteLEDpioGroup {
     bool                _valid;
     bool                _encoded_ready;
     bool                _in_flight;
+
+    uint8_t             _next_encode_buffer;
+    uint8_t             _ready_buffer;
+    uint8_t             _in_flight_buffer;
+
+    uint8_t             _encoded_brightness[
+                            LITELED_PARLIO_GROUP_DMA_BUFFER_COUNT ];
+
+    uint8_t             _in_flight_brightness;
+
     parlio_group_cfg_t  _groupCfg;
     LiteLEDpioLane      _lanes[ PARLIO_TX_UNIT_MAX_DATA_WIDTH ];
     LiteLEDpioLane      _null_lane;  // silent sentinel: overcount or bad index
