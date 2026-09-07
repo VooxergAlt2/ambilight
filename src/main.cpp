@@ -1013,7 +1013,7 @@ void handleLedMapCommand(
         ambilight::RuntimePayloadParseResult::Ok) {
 
         Serial.println(
-            "LED TOPOLOGY invalid. Use lCOUNT:GPIO:REV,... Example: l230:18:0,160:19:0,230:20:0,160:21:0");
+            "LED TOPOLOGY invalid. Use lCOUNT:GPIO:REV,... Example: l230:20:1,160:19:1,230:21:1,160:18:0");
         return;
     }
 
