@@ -147,6 +147,8 @@ bool fillWebUiSnapshot(
 void handleWebUiAction(
     ambilight::WebUiActionEvent event);
 
+void dumpRuntimeStatus();
+
 const char* resetReasonName(
     esp_reset_reason_t reason) {
 
