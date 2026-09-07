@@ -2,9 +2,6 @@
 
 #include <cstdint>
 
-#include "core/RgbFrame.h"
-#include "render/RenderGainContext.h"
-
 namespace ambilight {
 
 enum class CorrectionMode : std::uint8_t {
@@ -35,32 +32,5 @@ constexpr const char* correctionModeName(
 
     return "INVALID";
 }
-
-class CorrectionOutputPolicy {
-public:
-    static constexpr bool evaluatesGain(
-        CorrectionMode mode) {
-
-        return mode !=
-            CorrectionMode::Disabled;
-    }
-
-    static constexpr bool physicallyAppliesGain(
-        CorrectionMode mode) {
-
-        return mode ==
-            CorrectionMode::Active;
-    }
-
-    static constexpr Rgb8 physicalOutput(
-        CorrectionMode mode,
-        const Rgb8& original,
-        const ShadowPixelResult& preview) {
-
-        return physicallyAppliesGain(mode)
-            ? preview.wouldOutput
-            : original;
-    }
-};
 
 } // namespace ambilight
