@@ -856,6 +856,7 @@ bool RuntimeSettings::setLedMappingProfile(
         preferences_.remove(
             kLedMappingVersionKey);
 
+        ledMappingProfilePersisted_ = false;
         return false;
     }
 
@@ -873,6 +874,7 @@ bool RuntimeSettings::setLedMappingProfile(
         preferences_.remove(
             kLedMappingVersionKey);
 
+        ledMappingProfilePersisted_ = false;
         return false;
     }
 
