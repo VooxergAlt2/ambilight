@@ -88,6 +88,14 @@ public:
         return completedFrames_;
     }
 
+    std::size_t dmaBufferBytes() const {
+        return group_.dmaBufferBytes();
+    }
+
+    std::uint8_t dmaBufferCount() const {
+        return group_.dmaBufferCount();
+    }
+
     // Compatibility accessors retained while Stage 40 replaces the old STAT
     // surface with percentile-based performance diagnostics.
     std::uint32_t lastShowTimeUs() const {
