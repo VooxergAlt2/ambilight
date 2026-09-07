@@ -2721,10 +2721,10 @@ void dumpPerformanceMetrics() {
 
 void dumpRenderShadow() {
     const auto& stats =
-        renderer.shadowStats();
+        renderDiagnostics.stats();
 
     const auto& context =
-        renderer.lastGainContext();
+        renderDiagnostics.lastGainContext();
 
     const auto& controllerStats =
         renderGainController.stats();
@@ -2735,48 +2735,72 @@ void dumpRenderShadow() {
     const auto& targetContext =
         renderGainController.target();
 
-    const std::uint32_t shadowPermille =
+    const std::uint32_t candidatePermille =
         stats.lastInputChannelSum == 0
             ? 1000U
             : static_cast<std::uint32_t>(
-                  (static_cast<std::uint64_t>(
-                       stats.lastShadowChannelSum) *
-                       1000ULL +
-                   stats.lastInputChannelSum / 2U) /
+                  (
+                      static_cast<std::uint64_t>(
+                          stats.lastCandidateChannelSum) *
+                      1000ULL +
+                      stats.lastInputChannelSum / 2U
+                  ) /
                   stats.lastInputChannelSum);
 
     Serial.printf(
-        "RENDER mode=%s frames=%lu disabled=%lu shadow=%lu active=%lu present=%lu usable=%lu failopen=%lu nonunity=%lu "
-        "last_candidate_changed=%u last_physical_changed=%u max_delta=%u candidate_rgb=%lu.%lu%% source_gen=%lu source_age=%lluus "
-        "prepare=%luus prepare_max=%luus\n",
+        "RENDER mode=%s physical_frames=%lu diagnostic_frames=%lu shadow_diag=%lu active_diag=%lu "
+        "present=%lu usable=%lu failopen=%lu nonunity=%lu "
+        "last_candidate_changed=%u last_physical_changed=%u max_delta=%u candidate_rgb=%lu.%lu%% "
+        "source_gen=%lu source_age=%lluus prepare_last=%lluus prepare_p95<=%luus diag_p95<=%luus\n",
         ambilight::correctionModeName(
-            renderer.lastCorrectionMode()),
-        static_cast<unsigned long>(stats.frames),
-        static_cast<unsigned long>(stats.disabledFrames),
-        static_cast<unsigned long>(stats.shadowFrames),
-        static_cast<unsigned long>(stats.activeFrames),
-        static_cast<unsigned long>(stats.sourcePresentFrames),
-        static_cast<unsigned long>(stats.sourceUsableFrames),
-        static_cast<unsigned long>(stats.failOpenFrames),
-        static_cast<unsigned long>(stats.nonUnityContextFrames),
+            correctionMode),
+        static_cast<unsigned long>(
+            renderer.renderedFrames()),
+        static_cast<unsigned long>(
+            stats.diagnosticFrames),
+        static_cast<unsigned long>(
+            stats.shadowFrames),
+        static_cast<unsigned long>(
+            stats.activeFrames),
+        static_cast<unsigned long>(
+            stats.sourcePresentFrames),
+        static_cast<unsigned long>(
+            stats.sourceUsableFrames),
+        static_cast<unsigned long>(
+            stats.failOpenFrames),
+        static_cast<unsigned long>(
+            stats.nonUnityContextFrames),
         stats.lastWouldChangePixels,
         stats.lastPhysicalChangedPixels,
-        static_cast<unsigned>(stats.lastMaxChannelDelta),
-        static_cast<unsigned long>(shadowPermille / 10U),
-        static_cast<unsigned long>(shadowPermille % 10U),
-        static_cast<unsigned long>(stats.lastSourceGeneration),
-        static_cast<unsigned long long>(stats.lastSourceAgeUs),
-        static_cast<unsigned long>(stats.lastPrepareUs),
-        static_cast<unsigned long>(stats.maxPrepareUs));
+        static_cast<unsigned>(
+            stats.lastMaxChannelDelta),
+        static_cast<unsigned long>(
+            candidatePermille / 10U),
+        static_cast<unsigned long>(
+            candidatePermille % 10U),
+        static_cast<unsigned long>(
+            stats.lastSourceGeneration),
+        static_cast<unsigned long long>(
+            stats.lastSourceAgeUs),
+        static_cast<unsigned long long>(
+            renderer.prepareMetric().
+                lastUs()),
+        static_cast<unsigned long>(
+            renderer.prepareMetric().
+                percentileUpperBoundUs(95)),
+        static_cast<unsigned long>(
+            renderDiagnosticsMetric.
+                percentileUpperBoundUs(95)));
 
     Serial.printf(
-        "RENDER cumulative_candidate_changed=%llu cumulative_physical_changed=%llu max_delta_ever=%u "
+        "RENDER DIAG cumulative_candidate_changed=%llu cumulative_physical_changed=%llu max_delta_ever=%u "
         "candidate_by_segment T=%llu R=%llu B=%llu L=%llu\n",
         static_cast<unsigned long long>(
             stats.wouldChangePixels),
         static_cast<unsigned long long>(
             stats.physicalChangedPixels),
-        static_cast<unsigned>(stats.maxChannelDelta),
+        static_cast<unsigned>(
+            stats.maxChannelDelta),
         static_cast<unsigned long long>(
             stats.wouldChangeBySegment[
                 static_cast<std::size_t>(
@@ -2795,34 +2819,48 @@ void dumpRenderShadow() {
                     ambilight::SegmentId::Left)]));
 
     Serial.printf(
-        "RENDER CONTEXT effective present=%s usable=%s failopen=%s nonunity=%s probe=%s\n",
+        "RENDER CONTEXT current present=%s usable=%s failopen=%s nonunity=%s settled=%s probe=%s\n",
         context.sourcePresent ? "yes" : "no",
         context.sourceUsable ? "yes" : "no",
         context.failOpen ? "yes" : "no",
-        context.hasNonUnityGain() ? "yes" : "no",
-        shadowGainProbeActive() ? "yes" : "no");
+        renderGainController.nonUnity()
+            ? "yes"
+            : "no",
+        renderGainController.settled()
+            ? "yes"
+            : "no",
+        shadowGainProbeActive()
+            ? "yes"
+            : "no");
 
     Serial.printf(
         "RENDER TARGET present=%s usable=%s failopen=%s nonunity=%s gen=%lu age=%lluus\n",
         targetContext.sourcePresent ? "yes" : "no",
         targetContext.sourceUsable ? "yes" : "no",
         targetContext.failOpen ? "yes" : "no",
-        targetContext.hasNonUnityGain() ? "yes" : "no",
-        static_cast<unsigned long>(targetContext.sourceGeneration),
-        static_cast<unsigned long long>(targetContext.sourceAgeUs));
+        targetContext.hasNonUnityGain()
+            ? "yes"
+            : "no",
+        static_cast<unsigned long>(
+            targetContext.sourceGeneration),
+        static_cast<unsigned long long>(
+            targetContext.sourceAgeUs));
 
     printRenderSegmentGain(
         "TGT TOP   ",
         ambilight::SegmentId::Top,
         targetContext);
+
     printRenderSegmentGain(
         "TGT RIGHT ",
         ambilight::SegmentId::Right,
         targetContext);
+
     printRenderSegmentGain(
         "TGT BOTTOM",
         ambilight::SegmentId::Bottom,
         targetContext);
+
     printRenderSegmentGain(
         "TGT LEFT  ",
         ambilight::SegmentId::Left,
@@ -2831,25 +2869,44 @@ void dumpRenderShadow() {
     Serial.printf(
         "RENDER SCHED rgb=%lu state_only=%lu combined=%lu state_deferred=%lu no_frame=%lu clean=%lu "
         "last_rgb_gen=%lu mailbox_gen=%lu\n",
-        static_cast<unsigned long>(schedulerStats.rgbRenders),
-        static_cast<unsigned long>(schedulerStats.stateOnlyRenders),
-        static_cast<unsigned long>(schedulerStats.combinedRenders),
-        static_cast<unsigned long>(schedulerStats.stateDeferrals),
-        static_cast<unsigned long>(schedulerStats.noFrameSkips),
-        static_cast<unsigned long>(schedulerStats.cleanSkips),
-        static_cast<unsigned long>(lastRenderedRgbGeneration),
-        static_cast<unsigned long>(lastMailboxGeneration));
+        static_cast<unsigned long>(
+            schedulerStats.rgbRenders),
+        static_cast<unsigned long>(
+            schedulerStats.stateOnlyRenders),
+        static_cast<unsigned long>(
+            schedulerStats.combinedRenders),
+        static_cast<unsigned long>(
+            schedulerStats.stateDeferrals),
+        static_cast<unsigned long>(
+            schedulerStats.noFrameSkips),
+        static_cast<unsigned long>(
+            schedulerStats.cleanSkips),
+        static_cast<unsigned long>(
+            lastRenderedRgbGeneration),
+        static_cast<unsigned long>(
+            lastMailboxGeneration));
 
     Serial.printf(
-        "RENDER SLEW updates=%lu usable_targets=%lu failopen_targets=%lu gen_changes=%lu "
+        "RENDER SLEW targets=%lu advances=%lu usable_targets=%lu failopen_targets=%lu gen_changes=%lu profile_changes=%lu "
         "unity_snaps=%lu time_rollbacks=%lu max_step=%u\n",
-        static_cast<unsigned long>(controllerStats.updates),
-        static_cast<unsigned long>(controllerStats.usableTargets),
-        static_cast<unsigned long>(controllerStats.failOpenTargets),
-        static_cast<unsigned long>(controllerStats.targetGenerationChanges),
-        static_cast<unsigned long>(controllerStats.failOpenUnitySnaps),
-        static_cast<unsigned long>(controllerStats.timeRollbacks),
-        static_cast<unsigned>(controllerStats.maxPixelStepQ12));
+        static_cast<unsigned long>(
+            controllerStats.targetUpdates),
+        static_cast<unsigned long>(
+            controllerStats.advances),
+        static_cast<unsigned long>(
+            controllerStats.usableTargets),
+        static_cast<unsigned long>(
+            controllerStats.failOpenTargets),
+        static_cast<unsigned long>(
+            controllerStats.targetGenerationChanges),
+        static_cast<unsigned long>(
+            controllerStats.renderProfileChanges),
+        static_cast<unsigned long>(
+            controllerStats.failOpenUnitySnaps),
+        static_cast<unsigned long>(
+            controllerStats.timeRollbacks),
+        static_cast<unsigned>(
+            controllerStats.maxPixelStepQ12));
 
     printRenderSegmentGain(
         "TOP   ",
@@ -2877,8 +2934,9 @@ void dumpRenderShadow() {
             correctionMode),
         correctionMode ==
                 ambilight::CorrectionMode::Active
-            ? "candidate RGB may reach physical LEDs; fail-open still resolves to original RGB"
-            : "physical LEDs receive original HyperHDR RGB");
+            ? "gain-adjusted RGB may reach physical LEDs; fail-open snaps current gain to unity"
+            : "physical LEDs receive original HyperHDR RGB; correction diagnostics are sampled out-of-band");
+
     Serial.println();
 
     dumpPerformanceMetrics();
