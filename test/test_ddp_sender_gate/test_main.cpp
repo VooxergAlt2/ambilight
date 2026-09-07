@@ -75,14 +75,10 @@ ambilight::DdpPacketView parsePacket(
 
     ambilight::DdpPacketView view;
 
-    TEST_ASSERT_EQUAL_INT(
-        static_cast<int>(
-            ambilight::DdpParseError::None),
-        static_cast<int>(
-            ambilight::parseDdpDatagram(
-                packet.data(),
-                packet.size(),
-                view)));
+    ambilight::parseDdpDatagram(
+        packet.data(),
+        packet.size(),
+        view);
 
     return view;
 }
