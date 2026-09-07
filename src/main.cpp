@@ -565,14 +565,13 @@ void invalidateRuntimeAfterTopologyChange(
     cachedPerimeterGainSnapshot = {};
     haveCachedPerimeterGainSnapshot = false;
 
-    cachedTargetGainContext =
-        ambilight::RenderGainContext::unity(
-            profile);
+    renderGainController.reset(
+        profile);
 
-    renderGainController.reset();
     correctionModeDirty = true;
     ledMappingDirty = true;
     nextGainTargetPollUs = 0;
+    nextRenderDiagnosticsUs = 0;
 
     ambilight::RgbFrame black;
     black.clear();
@@ -1053,13 +1052,13 @@ void invalidateRenderedGainAfterSpatialChange() {
     cachedPerimeterGainSnapshot = {};
     haveCachedPerimeterGainSnapshot = false;
 
-    cachedTargetGainContext =
-        ambilight::RenderGainContext::unity(runtimeSettings.ledMappingProfile());
-
-    renderGainController.reset();
+    renderGainController.reset(
+        runtimeSettings.
+            ledMappingProfile());
 
     correctionModeDirty = true;
     nextGainTargetPollUs = 0;
+    nextRenderDiagnosticsUs = 0;
 }
 
 bool applySpatialProfile(
@@ -1239,13 +1238,13 @@ void printTofGainCurve() {
 }
 
 void invalidateRenderedGainAfterCurveChange() {
-    cachedTargetGainContext =
-        ambilight::RenderGainContext::unity(runtimeSettings.ledMappingProfile());
-
-    renderGainController.reset();
+    renderGainController.reset(
+        runtimeSettings.
+            ledMappingProfile());
 
     correctionModeDirty = true;
     nextGainTargetPollUs = 0;
+    nextRenderDiagnosticsUs = 0;
 }
 
 bool applyTofGainCurve(
@@ -1505,13 +1504,16 @@ void setCorrectionMode(
     // Every mode transition starts the valid correction path from unity.
     // ACTIVE therefore fades in rather than suddenly applying a previously
     // accumulated shadow profile.
-    renderGainController.reset();
+    renderGainController.reset(
+        runtimeSettings.
+            ledMappingProfile());
 
     // A debug-only synthetic profile must never survive a mode transition.
     shadowProbeUntilUs = 0;
 
     correctionModeDirty = true;
     nextGainTargetPollUs = 0;
+    nextRenderDiagnosticsUs = 0;
 
     Serial.printf(
         "CORRECTION changed to %s; persisted=%s.\n",
@@ -1669,17 +1671,9 @@ void finishCommissioning(
                 totalLedCount();
         black.receivedUs = nowUs;
 
-        commissioningGainContext.topology =
-            runtimeSettings.ledMappingProfile();
-        commissioningGainContext.sourcePresent = false;
-        commissioningGainContext.sourceUsable = false;
-        commissioningGainContext.failOpen = true;
-
         const esp_err_t result =
             renderer.render(
-                black,
-                commissioningGainContext,
-                ambilight::CorrectionMode::Disabled);
+                black);
 
         if (result != ESP_OK) {
             fatal(
@@ -1731,14 +1725,6 @@ void startCommissioning(
 
     commissioningFrame.receivedUs =
         nowUs;
-
-    // Keep commissioning correction-independent without constructing a
-    // full 920-entry unity gain field on the loop stack.
-    commissioningGainContext.topology =
-        runtimeSettings.ledMappingProfile();
-    commissioningGainContext.sourcePresent = false;
-    commissioningGainContext.sourceUsable = false;
-    commissioningGainContext.failOpen = true;
 
     commissioningPattern = pattern;
     commissioningUntilUs =
@@ -2155,14 +2141,6 @@ bool serviceCommissioning(
             }
         }
     } else {
-        // Logical-range commissioning does not pass through startCommissioning(),
-        // so normalize the persistent unity context here for every logical path.
-        commissioningGainContext.topology =
-            runtimeSettings.ledMappingProfile();
-        commissioningGainContext.sourcePresent = false;
-        commissioningGainContext.sourceUsable = false;
-        commissioningGainContext.failOpen = true;
-
         if (firstDiagnosticRender) {
             Serial.println(
                 "LED DIAG breadcrumb=logical-before-render");
@@ -2171,9 +2149,7 @@ bool serviceCommissioning(
 
         result =
             renderer.render(
-                commissioningFrame,
-                commissioningGainContext,
-                ambilight::CorrectionMode::Disabled);
+                commissioningFrame);
 
         if (firstDiagnosticRender) {
             Serial.printf(
@@ -2182,7 +2158,7 @@ bool serviceCommissioning(
                 static_cast<unsigned long>(
                     ledEngine.lastShowTimeUs()),
                 static_cast<unsigned long>(
-                    renderer.shadowStats().lastPrepareUs));
+                    renderer.prepareMetric().lastUs()));
         }
     }
 
@@ -4839,9 +4815,8 @@ void setup() {
             ESP_ERR_INVALID_ARG);
     }
 
-    cachedTargetGainContext =
-        ambilight::RenderGainContext::unity(
-            startupTopology);
+    renderGainController.reset(
+        startupTopology);
 
     renderSnapshot.pixelCount =
         startupTopology.totalLedCount();
