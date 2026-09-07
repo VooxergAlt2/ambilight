@@ -3,19 +3,16 @@
 #include <unity.h>
 
 #include "integration/TofRenderGainBridge.h"
-#include "led/SegmentMapper.h"
 #include "render/CorrectionMode.h"
 #include "render/RenderGainContext.h"
 
 using ambilight::CorrectionMode;
-using ambilight::CorrectionOutputPolicy;
 using ambilight::GainSnapshot;
 using ambilight::PerimeterGainSnapshot;
 using ambilight::RenderGainContext;
 using ambilight::RenderGainMath;
 using ambilight::Rgb8;
 using ambilight::SegmentId;
-using ambilight::SegmentMapper;
 using ambilight::TofRenderGainBridge;
 using ambilight::applyGainQ12;
 using ambilight::kGainUnityQ12;
@@ -49,10 +46,8 @@ void test_fail_open_context_is_always_unity() {
 
     TEST_ASSERT_EQUAL_UINT16(
         kGainUnityQ12,
-        context.gainForPosition(
-            SegmentId::Top,
-            0,
-            230));
+        context.gainForLogicalIndex(
+            0));
 
     TEST_ASSERT_FALSE(
         context.hasNonUnityGain());
@@ -72,17 +67,13 @@ void test_logical_gain_field_is_authoritative() {
 
     TEST_ASSERT_EQUAL_UINT16(
         4096,
-        context.gainForPosition(
-            SegmentId::Top,
-            0,
-            230));
+        context.gainForLogicalIndex(
+            0));
 
     TEST_ASSERT_EQUAL_UINT16(
         3584,
-        context.gainForPosition(
-            SegmentId::Top,
-            1,
-            230));
+        context.gainForLogicalIndex(
+            1));
 
     TEST_ASSERT_EQUAL_UINT16(
         3072,
@@ -90,10 +81,8 @@ void test_logical_gain_field_is_authoritative() {
 
     TEST_ASSERT_EQUAL_UINT16(
         2048,
-        context.gainForPosition(
-            SegmentId::Top,
-            4,
-            230));
+        context.gainForLogicalIndex(
+            4));
 }
 
 void test_shadow_preview_changes_rgb_but_not_original_value() {
@@ -138,85 +127,32 @@ void test_shadow_preview_changes_rgb_but_not_original_value() {
         preview.maxChannelDelta);
 }
 
-void test_correction_output_modes_have_explicit_physical_contract() {
-    constexpr Rgb8 original{200, 100, 50};
-
-    ambilight::ShadowPixelResult preview;
-    preview.original = original;
-    preview.wouldOutput = Rgb8{10, 20, 30};
-    preview.wouldChange = true;
-
-    const Rgb8 disabled =
-        CorrectionOutputPolicy::physicalOutput(
-            CorrectionMode::Disabled,
-            original,
-            preview);
-
-    const Rgb8 shadow =
-        CorrectionOutputPolicy::physicalOutput(
-            CorrectionMode::Shadow,
-            original,
-            preview);
-
-    const Rgb8 active =
-        CorrectionOutputPolicy::physicalOutput(
-            CorrectionMode::Active,
-            original,
-            preview);
-
-    TEST_ASSERT_EQUAL_UINT8(200, disabled.r);
-    TEST_ASSERT_EQUAL_UINT8(100, disabled.g);
-    TEST_ASSERT_EQUAL_UINT8(50, disabled.b);
-
-    TEST_ASSERT_EQUAL_UINT8(200, shadow.r);
-    TEST_ASSERT_EQUAL_UINT8(100, shadow.g);
-    TEST_ASSERT_EQUAL_UINT8(50, shadow.b);
-
-    TEST_ASSERT_EQUAL_UINT8(10, active.r);
-    TEST_ASSERT_EQUAL_UINT8(20, active.g);
-    TEST_ASSERT_EQUAL_UINT8(30, active.b);
-
-    TEST_ASSERT_FALSE(
-        CorrectionOutputPolicy::evaluatesGain(
-            CorrectionMode::Disabled));
-
-    TEST_ASSERT_TRUE(
-        CorrectionOutputPolicy::evaluatesGain(
-            CorrectionMode::Shadow));
-
-    TEST_ASSERT_TRUE(
-        CorrectionOutputPolicy::physicallyAppliesGain(
-            CorrectionMode::Active));
-}
-
-void test_active_mode_remains_original_when_gain_context_fails_open() {
+void test_fail_open_gain_application_remains_original() {
     RenderGainContext context;
     context.sourcePresent = true;
     context.sourceUsable = false;
     context.failOpen = true;
 
-    // Hidden values must not escape fail-open.
     context.logicalGainQ12[0] = 1000;
 
     constexpr Rgb8 original{180, 90, 45};
 
-    const auto preview =
-        RenderGainMath::preview(
-            original,
-            0,
-            SegmentId::Top,
-            context);
-
     const Rgb8 physical =
-        CorrectionOutputPolicy::physicalOutput(
-            CorrectionMode::Active,
+        RenderGainMath::apply(
             original,
-            preview);
+            context.gainForLogicalIndex(0));
 
-    TEST_ASSERT_FALSE(preview.wouldChange);
-    TEST_ASSERT_EQUAL_UINT8(180, physical.r);
-    TEST_ASSERT_EQUAL_UINT8(90, physical.g);
-    TEST_ASSERT_EQUAL_UINT8(45, physical.b);
+    TEST_ASSERT_EQUAL_UINT8(
+        180,
+        physical.r);
+
+    TEST_ASSERT_EQUAL_UINT8(
+        90,
+        physical.g);
+
+    TEST_ASSERT_EQUAL_UINT8(
+        45,
+        physical.b);
 }
 
 void test_correction_mode_raw_values_are_bounded() {
@@ -381,10 +317,8 @@ void test_spatial_bridge_stale_snapshot_fails_open() {
 
     TEST_ASSERT_EQUAL_UINT16(
         kGainUnityQ12,
-        context.gainForPosition(
-            SegmentId::Left,
-            0,
-            160));
+        context.gainForLogicalIndex(
+            620));
 }
 
 void test_tof_bridge_maps_four_uniform_side_gains() {
@@ -491,39 +425,6 @@ void test_bridge_clamps_gain_above_unity() {
         left.startQ12);
 }
 
-void test_reversed_physical_mapping_keeps_logical_offset() {
-    constexpr ambilight::SegmentConfig reversed{
-        SegmentId::Bottom,
-        100,
-        10,
-        2,
-        true
-    };
-
-    const auto first =
-        SegmentMapper::mapInSegment(
-            reversed,
-            100);
-
-    TEST_ASSERT_TRUE(first.valid);
-    TEST_ASSERT_EQUAL_UINT16(9, first.index);
-    TEST_ASSERT_EQUAL_UINT16(0, first.segmentOffset);
-    TEST_ASSERT_EQUAL_UINT16(10, first.segmentLength);
-    TEST_ASSERT_EQUAL_UINT8(
-        static_cast<std::uint8_t>(
-            SegmentId::Bottom),
-        static_cast<std::uint8_t>(
-            first.segment));
-
-    const auto last =
-        SegmentMapper::mapInSegment(
-            reversed,
-            109);
-
-    TEST_ASSERT_EQUAL_UINT16(0, last.index);
-    TEST_ASSERT_EQUAL_UINT16(9, last.segmentOffset);
-}
-
 int main(int, char**) {
     UNITY_BEGIN();
 
@@ -531,8 +432,7 @@ int main(int, char**) {
     RUN_TEST(test_fail_open_context_is_always_unity);
     RUN_TEST(test_logical_gain_field_is_authoritative);
     RUN_TEST(test_shadow_preview_changes_rgb_but_not_original_value);
-    RUN_TEST(test_correction_output_modes_have_explicit_physical_contract);
-    RUN_TEST(test_active_mode_remains_original_when_gain_context_fails_open);
+    RUN_TEST(test_fail_open_gain_application_remains_original);
     RUN_TEST(test_correction_mode_raw_values_are_bounded);
     RUN_TEST(test_render_profile_comparison_ignores_metadata_but_not_usability);
     RUN_TEST(test_spatial_bridge_preserves_segment_endpoints);
@@ -540,7 +440,6 @@ int main(int, char**) {
     RUN_TEST(test_tof_bridge_maps_four_uniform_side_gains);
     RUN_TEST(test_tof_bridge_stale_or_future_snapshot_fails_open);
     RUN_TEST(test_bridge_clamps_gain_above_unity);
-    RUN_TEST(test_reversed_physical_mapping_keeps_logical_offset);
 
     return UNITY_END();
 }
