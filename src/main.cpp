@@ -48,7 +48,6 @@ namespace {
 
 constexpr std::uint64_t kIdleBlackoutUs = 1000000;
 constexpr std::uint32_t kStatusIntervalMs = 30000;
-constexpr std::uint8_t kMaxConsecutiveBacklogRenderSkips = 4;
 constexpr std::uint64_t kGainTargetPollIntervalUs = 1000000;
 constexpr std::uint64_t kRenderDiagnosticsIntervalUs = 100000;
 constexpr std::uint64_t kCommissioningDurationUs = 15000000ULL;
@@ -129,15 +128,13 @@ std::uint32_t lastRenderedRgbGeneration = 0;
 std::uint32_t lastObservedPublications = 0;
 std::uint32_t idleBlackouts = 0;
 std::uint32_t lastStatusMs = 0;
-std::uint32_t backlogRenderSkips = 0;
+std::uint32_t backlogObservations = 0;
 std::uint32_t calibrationLastGeometryGeneration = 0;
 std::uint32_t shadowProbeGeneration = 0;
 std::uint64_t shadowProbeUntilUs = 0;
 std::uint64_t tofDebugUntilUs = 0;
 std::uint64_t nextGainTargetPollUs = 0;
 std::uint64_t nextRenderDiagnosticsUs = 0;
-
-std::uint8_t consecutiveBacklogRenderSkips = 0;
 
 bool idleBlanked = false;
 
@@ -4561,7 +4558,7 @@ void dumpRuntimeStatus() {
         "STAT corr=%s brightness=%u persist=%s wifi=%s wsrc=%s rssi=%d pkt=%lu asm=%lu pub=%lu collapse=%lu rej=%lu stale=%lu timeout=%lu "
         "budget=%lu lim=%lu pollmax=%luus rxreq=%ld rxactual=%ld rxset=%s rxget=%s optwarn=%lu "
         "sender_lock=%s sender=%s:%u "
-        "saccept=%lu sinvalid=%lu sforeign=%lu sacq=%lu srel=%lu render=%lu skip=%lu "
+        "saccept=%lu sinvalid=%lu sforeign=%lu sacq=%lu srel=%lu render=%lu backlog=%lu "
         "p50<=%luus p95<=%luus p99<=%luus ovf=%llu agemax=%lluus showmax=%luus "
         "tof=%s tofgen=%lu rawvalid=%u rawmed=%u tofage=%llums tofread=%luus tofreadmax=%luus "
         "geom=%s l=%u c=%u r=%u delta=%d acc=%u "
@@ -4613,7 +4610,7 @@ void dumpRuntimeStatus() {
         static_cast<unsigned long>(
             senderStats.lockTimeoutReleases),
         static_cast<unsigned long>(renderer.renderedFrames()),
-        static_cast<unsigned long>(backlogRenderSkips),
+        static_cast<unsigned long>(backlogObservations),
         static_cast<unsigned long>(
             frameAgeHistogram.percentileUpperBoundUs(50)),
         static_cast<unsigned long>(
@@ -5066,31 +5063,13 @@ void loop() {
         updateDdpActivityState();
     }
 
-    if (commissioningPattern ==
-            ambilight::LedCommissioningPattern::None &&
-        pollResult.backlogLikely &&
-        consecutiveBacklogRenderSkips <
-            kMaxConsecutiveBacklogRenderSkips) {
-
-        ++consecutiveBacklogRenderSkips;
-        ++backlogRenderSkips;
-
-        loopWorkMetric.observe(
-            static_cast<std::uint64_t>(
-                esp_timer_get_time()) -
-            loopStartedUs);
-
-        delay(0);
-
-        loopWallMetric.observe(
-            static_cast<std::uint64_t>(
-                esp_timer_get_time()) -
-            loopStartedUs);
-
-        return;
+    if (pollResult.backlogLikely) {
+        ++backlogObservations;
     }
 
-    consecutiveBacklogRenderSkips = 0;
+    // DDP poll already collapses multiple completed frames to the newest one.
+    // Never starve physical output merely because more UDP data is waiting.
+    // Under overload the system drops/collapses stale input frames instead.
 
     const std::uint64_t nowUs =
         static_cast<std::uint64_t>(esp_timer_get_time());
