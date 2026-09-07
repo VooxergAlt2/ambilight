@@ -69,15 +69,17 @@ esp_err_t parlio_group_install( parlio_group_cfg_t *cfg );
 // Encode all assigned lane pixel buffers into the shared DMA buffer.
 // Constant waveform samples are initialized once during install; per-frame
 // encoding writes only data-dependent sample positions.
-esp_err_t parlio_group_encode( parlio_group_cfg_t *cfg );
+esp_err_t parlio_group_encode( parlio_group_cfg_t *cfg,
+                                 uint8_t buffer_index );
 
-// Queue the already encoded DMA buffer for PARLIO transmission.
-esp_err_t parlio_group_transmit( parlio_group_cfg_t *cfg );
+// Queue one already encoded DMA buffer for PARLIO transmission.
+esp_err_t parlio_group_transmit( parlio_group_cfg_t *cfg,
+                                 uint8_t buffer_index );
 
 // Wait until all queued PARLIO transmissions have completed.
 esp_err_t parlio_group_wait( parlio_group_cfg_t *cfg );
 
-// Blocking compatibility wrapper: encode, transmit, wait.
+// Blocking low-level compatibility wrapper using buffer 0.
 esp_err_t parlio_group_flush( parlio_group_cfg_t *cfg );
 
 // Wait for any in-progress transfer, disable and delete the PARLIO TX
