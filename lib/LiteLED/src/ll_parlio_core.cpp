@@ -289,7 +289,7 @@ void parlio_strip_debug_dump( led_strip_t *strip, parlio_strip_cfg_t *cfg ) {
 //
 // Expects cfg->lanes[n].assigned == true and cfg->lanes[n].strip populated
 // (type, length, is_rgbw, gpio, use_psram) for every registered lane.
-// Allocates per-lane pixel colour buffers and one shared DMA bitstream buffer,
+// Allocates per-lane pixel colour buffers and two shared DMA bitstream buffers,
 // then creates and enables the PARLIO TX unit.
 // --------------------------------------------------------------------------
 esp_err_t parlio_group_install( parlio_group_cfg_t *cfg ) {
