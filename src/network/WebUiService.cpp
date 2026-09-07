@@ -91,7 +91,7 @@ button{cursor:pointer}button.primary{background:var(--accent);color:#fff;border-
 <button id="mapApply" class="primary" onclick="applyMap()">Apply topology</button>
 <button id="mapReset" onclick="post('/api/led-map','reset')">Default 230/160/230/160</button>
 </div>
-<div class="muted">COUNT 1..230. GPIO только 18/19/20/21, каждый выход используется один раз. Изменение topology требует brightness=0.</div>
+<div class="muted">COUNT 1..230. GPIO только 18/19/20/21, каждый выход используется один раз. При сохранении контроллер автоматически выполняет короткий safety blackout, применяет topology и восстанавливает текущую brightness.</div>
 
 <div class="cols" style="margin-top:16px">
 <div>
