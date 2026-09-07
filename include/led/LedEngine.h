@@ -23,7 +23,15 @@ public:
     LedEngine();
 
     esp_err_t begin();
+
+    // Pipelined runtime submission. Encodes into the free DMA buffer while the
+    // previous frame may still be on the wire, waits only for that older frame
+    // if necessary, then submits the new frame and returns immediately.
     esp_err_t show();
+
+    // Explicitly wait for the current in-flight frame. Used by startup,
+    // diagnostics or controlled shutdown paths that require physical completion.
+    esp_err_t waitForIdle();
 
     void setBrightness(
         std::uint8_t brightness);
@@ -60,6 +68,14 @@ public:
         return showMetric_;
     }
 
+    std::uint32_t overlappedShows() const {
+        return overlappedShows_;
+    }
+
+    std::uint32_t coldShows() const {
+        return coldShows_;
+    }
+
     // Compatibility accessors retained while Stage 40 replaces the old STAT
     // surface with percentile-based performance diagnostics.
     std::uint32_t lastShowTimeUs() const {
@@ -86,6 +102,9 @@ private:
     PerformanceMetric submitMetric_{};
     PerformanceMetric waitMetric_{};
     PerformanceMetric showMetric_{};
+
+    std::uint32_t overlappedShows_ = 0;
+    std::uint32_t coldShows_ = 0;
 };
 
 } // namespace ambilight
