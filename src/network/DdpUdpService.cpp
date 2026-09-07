@@ -175,7 +175,8 @@ DdpPollResult DdpUdpService::poll() {
     }
 
     const std::uint64_t pollStartedUs =
-        static_cast<std::uint64_t>(esp_timer_get_time());
+        static_cast<std::uint64_t>(
+            esp_timer_get_time());
 
     assembler_.expire(pollStartedUs);
 
@@ -189,7 +190,8 @@ DdpPollResult DdpUdpService::poll() {
 
     while (result.datagrams < kMaxDatagramsPerPoll) {
         const std::uint64_t beforeReceiveUs =
-            static_cast<std::uint64_t>(esp_timer_get_time());
+            static_cast<std::uint64_t>(
+                esp_timer_get_time());
 
         if (result.datagrams > 0 &&
             beforeReceiveUs - pollStartedUs >= kPollBudgetUs) {
@@ -214,6 +216,14 @@ DdpPollResult DdpUdpService::poll() {
             reinterpret_cast<sockaddr*>(&sender),
             &senderLength);
 
+        const std::uint64_t afterReceiveUs =
+            static_cast<std::uint64_t>(
+                esp_timer_get_time());
+
+        stats_.receiveCallTime.observe(
+            afterReceiveUs -
+            beforeReceiveUs);
+
         if (received < 0) {
             if (errno == EWOULDBLOCK || errno == EAGAIN) {
                 result.socketDrained = true;
@@ -227,10 +237,12 @@ DdpPollResult DdpUdpService::poll() {
 
         ++result.datagrams;
         ++stats_.datagramsReceived;
-        stats_.bytesReceived += static_cast<std::uint64_t>(received);
+        stats_.bytesReceived +=
+            static_cast<std::uint64_t>(
+                received);
 
         const std::uint64_t packetUs =
-            static_cast<std::uint64_t>(esp_timer_get_time());
+            afterReceiveUs;
 
         // A lease can expire while draining a busy socket. Reset the old
         // assembler epoch before allowing a new sender to acquire ownership.
@@ -245,6 +257,10 @@ DdpPollResult DdpUdpService::poll() {
             ntohs(sender.sin_port)
         };
 
+        const std::uint64_t senderGateStartedUs =
+            static_cast<std::uint64_t>(
+                esp_timer_get_time());
+
         const DdpSenderDecision senderDecision =
             senderGate_.evaluate(
                 endpoint,
@@ -252,6 +268,11 @@ DdpPollResult DdpUdpService::poll() {
                 static_cast<std::size_t>(
                     received),
                 packetUs);
+
+        stats_.senderGateTime.observe(
+            static_cast<std::uint64_t>(
+                esp_timer_get_time()) -
+            senderGateStartedUs);
 
         if (senderDecision !=
             DdpSenderDecision::Accepted) {
@@ -263,11 +284,22 @@ DdpPollResult DdpUdpService::poll() {
         ++result.acceptedDatagrams;
         lastPacketUs_ = packetUs;
 
-        const DdpIngestResult ingestResult = assembler_.ingest(
-            rxBuffer_.data(),
-            static_cast<std::size_t>(received),
-            packetUs,
-            completedFrame_);
+        const std::uint64_t assemblerStartedUs =
+            static_cast<std::uint64_t>(
+                esp_timer_get_time());
+
+        const DdpIngestResult ingestResult =
+            assembler_.ingest(
+                rxBuffer_.data(),
+                static_cast<std::size_t>(
+                    received),
+                packetUs,
+                completedFrame_);
+
+        stats_.assemblerTime.observe(
+            static_cast<std::uint64_t>(
+                esp_timer_get_time()) -
+            assemblerStartedUs);
 
         if (ingestResult == DdpIngestResult::Complete) {
             ++result.completeFrames;
@@ -290,7 +322,20 @@ DdpPollResult DdpUdpService::poll() {
     // assembled, only the newest one survives. This collapses backlog before
     // taking the mailbox mutex and before paying PARLIO render cost.
     if (haveCompletedFrame) {
-        if (mailbox_.publish(completedFrame_)) {
+        const std::uint64_t publishStartedUs =
+            static_cast<std::uint64_t>(
+                esp_timer_get_time());
+
+        const bool published =
+            mailbox_.publish(
+                completedFrame_);
+
+        stats_.publishTime.observe(
+            static_cast<std::uint64_t>(
+                esp_timer_get_time()) -
+            publishStartedUs);
+
+        if (published) {
             result.mailboxPublished = true;
             ++stats_.mailboxPublications;
 
@@ -299,17 +344,24 @@ DdpPollResult DdpUdpService::poll() {
                     result.completeFrames - 1;
             }
 
-            lastCompleteFrameUs_ = completedFrame_.receivedUs;
+            lastCompleteFrameUs_ =
+                completedFrame_.receivedUs;
         } else {
             ++stats_.publishFailures;
         }
     }
 
     const std::uint64_t pollFinishedUs =
-        static_cast<std::uint64_t>(esp_timer_get_time());
+        static_cast<std::uint64_t>(
+            esp_timer_get_time());
 
-    result.elapsedUs = static_cast<std::uint32_t>(
-        pollFinishedUs - pollStartedUs);
+    result.elapsedUs =
+        static_cast<std::uint32_t>(
+            pollFinishedUs -
+            pollStartedUs);
+
+    stats_.pollTime.observe(
+        result.elapsedUs);
 
     if (result.datagrams > stats_.maxDatagramsPerPoll) {
         stats_.maxDatagramsPerPoll = result.datagrams;
