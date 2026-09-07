@@ -97,17 +97,17 @@ public:
 
     DdpSenderDecision evaluate(
         const DdpSenderEndpoint& sender,
-        const std::uint8_t* datagram,
-        std::size_t datagramLength,
+        const DdpPacketView& packet,
         std::uint64_t nowUs) {
 
-        if (!datagramStructurallyValid(
-                datagram,
-                datagramLength)) {
+        if (!packetFitsExpectedFrame(
+                packet)) {
 
             ++stats_.invalidDatagrams;
+
             return
-                DdpSenderDecision::InvalidDatagram;
+                DdpSenderDecision::
+                    InvalidDatagram;
         }
 
         if (!active_) {
@@ -124,8 +124,10 @@ public:
 
         if (sender != activeSender_) {
             ++stats_.foreignSenderDrops;
+
             return
-                DdpSenderDecision::ForeignSender;
+                DdpSenderDecision::
+                    ForeignSender;
         }
 
         lastAcceptedUs_ = nowUs;
@@ -184,23 +186,13 @@ public:
     }
 
 private:
-    bool datagramStructurallyValid(
-        const std::uint8_t* datagram,
-        std::size_t datagramLength) {
+    bool packetFitsExpectedFrame(
+        const DdpPacketView& packet) const {
 
-        DdpPacketView packet;
-
-        if (parseDdpDatagram(
-                datagram,
-                datagramLength,
-                packet) !=
-            DdpParseError::None) {
-
-            return false;
-        }
-
-        if (packet.offset >=
-            expectedFrameBytes_) {
+        if (packet.payload == nullptr ||
+            packet.dataLength == 0 ||
+            packet.offset >=
+                expectedFrameBytes_) {
 
             return false;
         }
@@ -208,11 +200,10 @@ private:
         const std::uint64_t end =
             static_cast<std::uint64_t>(
                 packet.offset) +
-            static_cast<std::uint64_t>(
-                packet.dataLength);
+            packet.dataLength;
 
-        return end <=
-            expectedFrameBytes_;
+        return
+            end <= expectedFrameBytes_;
     }
 
     void clearActive() {
