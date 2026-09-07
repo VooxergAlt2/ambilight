@@ -200,11 +200,17 @@ LiteLEDpioGroup::LiteLEDpioGroup( led_strip_type_t led_type, size_t length, bool
       _length( length ),
       _is_rgbw( rgbw ),
       _brightness( 255 ),
-      _valid( false ),
-      _in_flight_brightness( 255 ) {
+      _valid( false ) {
 
-    _encoded_brightness[ 0 ] = 255;
-    _encoded_brightness[ 1 ] = 255;
+    memset(
+        _encoded_brightness,
+        255,
+        sizeof( _encoded_brightness ) );
+
+    memset(
+        _in_flight_brightness,
+        255,
+        sizeof( _in_flight_brightness ) );
 
     // Zero the group config struct.
     memset( &_groupCfg, 0, sizeof( _groupCfg ) );
@@ -359,12 +365,31 @@ esp_err_t LiteLEDpioGroup::begin( ll_psram_t psram_flag ) {
 
     _pipeline.reset();
 
-    _encoded_brightness[ 0 ] =
-        _brightness;
-    _encoded_brightness[ 1 ] =
-        _brightness;
-    _in_flight_brightness =
-        _brightness;
+    for ( uint8_t buffer_index = 0;
+          buffer_index < LITELED_PARLIO_GROUP_DMA_BUFFER_COUNT;
+          buffer_index++ ) {
+
+        for ( uint8_t lane = 0;
+              lane < LITELED_PARLIO_GROUP_DATA_WIDTH;
+              lane++ ) {
+
+            _encoded_brightness[
+                buffer_index ][ lane ] =
+                _groupCfg.lanes[ lane ].assigned
+                    ? _groupCfg.lanes[ lane ].strip.brightness
+                    : 0;
+        }
+    }
+
+    for ( uint8_t lane = 0;
+          lane < LITELED_PARLIO_GROUP_DATA_WIDTH;
+          lane++ ) {
+
+        _in_flight_brightness[ lane ] =
+            _groupCfg.lanes[ lane ].assigned
+                ? _groupCfg.lanes[ lane ].strip.bright_act
+                : 0;
+    }
 
     _valid = true;
     return ESP_OK;
@@ -390,9 +415,16 @@ esp_err_t LiteLEDpioGroup::encode() {
             buffer_index );
 
     if ( res == ESP_OK ) {
-        _encoded_brightness[
-            buffer_index ] =
-            _brightness;
+        for ( uint8_t lane = 0;
+              lane < LITELED_PARLIO_GROUP_DATA_WIDTH;
+              lane++ ) {
+
+            _encoded_brightness[
+                buffer_index ][ lane ] =
+                _groupCfg.lanes[ lane ].assigned
+                    ? _groupCfg.lanes[ lane ].strip.brightness
+                    : 0;
+        }
 
         _pipeline.markEncoded();
     }
@@ -417,9 +449,15 @@ esp_err_t LiteLEDpioGroup::transmit() {
             buffer_index );
 
     if ( res == ESP_OK ) {
-        _in_flight_brightness =
-            _encoded_brightness[
-                buffer_index ];
+        for ( uint8_t lane = 0;
+              lane < LITELED_PARLIO_GROUP_DATA_WIDTH;
+              lane++ ) {
+
+            _in_flight_brightness[
+                lane ] =
+                _encoded_brightness[
+                    buffer_index ][ lane ];
+        }
 
         _pipeline.markTransmitted();
     }
@@ -449,7 +487,8 @@ esp_err_t LiteLEDpioGroup::wait() {
             if ( _groupCfg.lanes[ n ].assigned ) {
                 _groupCfg.lanes[ n ].
                     strip.bright_act =
-                    _in_flight_brightness;
+                    _in_flight_brightness[
+                        n ];
             }
         }
     }
