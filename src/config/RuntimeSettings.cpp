@@ -826,36 +826,60 @@ bool RuntimeSettings::setLedMappingProfile(
         return false;
     }
 
-    ledMappingProfile_ = profile;
-    ledMappingProfileCustomized_ = true;
-    ledMappingProfilePersisted_ = false;
-
     if (!persistenceAvailable_) {
+        // Preserve the existing runtime-only capability when NVS is
+        // unavailable, but never claim durable persistence.
+        ledMappingProfile_ = profile;
+        ledMappingProfileCustomized_ = true;
+        ledMappingProfilePersisted_ = false;
+
         ++stats_.writeFailures;
         return false;
     }
 
+    // With NVS available, persistence is the commit point. Do not mutate the
+    // live RuntimeSettings profile until both blob and schema marker are
+    // durably written, otherwise a failed save leaves RAM and reboot state
+    // disagreeing.
     const std::size_t profileBytes =
         preferences_.putBytes(
             kLedMappingProfileKey,
             &profile,
             sizeof(profile));
 
+    if (profileBytes != sizeof(profile)) {
+        ++stats_.writeFailures;
+
+        preferences_.remove(
+            kLedMappingProfileKey);
+
+        preferences_.remove(
+            kLedMappingVersionKey);
+
+        return false;
+    }
+
     const std::size_t versionBytes =
         preferences_.putUShort(
             kLedMappingVersionKey,
             LedMappingProfile::kSchemaVersion);
 
-    if (profileBytes != sizeof(profile) ||
-        versionBytes != sizeof(std::uint16_t)) {
-
+    if (versionBytes != sizeof(std::uint16_t)) {
         ++stats_.writeFailures;
-        preferences_.remove(kLedMappingProfileKey);
-        preferences_.remove(kLedMappingVersionKey);
+
+        preferences_.remove(
+            kLedMappingProfileKey);
+
+        preferences_.remove(
+            kLedMappingVersionKey);
+
         return false;
     }
 
+    ledMappingProfile_ = profile;
+    ledMappingProfileCustomized_ = true;
     ledMappingProfilePersisted_ = true;
+
     ++stats_.writes;
     return true;
 }
