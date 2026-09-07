@@ -556,6 +556,8 @@ class LiteLEDpioGroup {
     bool                _is_rgbw;
     uint8_t             _brightness;
     bool                _valid;
+    bool                _encoded_ready;
+    bool                _in_flight;
     parlio_group_cfg_t  _groupCfg;
     LiteLEDpioLane      _lanes[ PARLIO_TX_UNIT_MAX_DATA_WIDTH ];
     LiteLEDpioLane      _null_lane;  // silent sentinel: overcount or bad index
