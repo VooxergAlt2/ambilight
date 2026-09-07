@@ -116,7 +116,11 @@ public:
 
         if (!opened_ ||
             key == nullptr ||
-            data == nullptr) {
+            data == nullptr ||
+            (
+                !failPutKey_.empty() &&
+                failPutKey_ == key
+            )) {
 
             return 0;
         }
@@ -253,6 +257,7 @@ public:
         beginResult_ = true;
         failClear_ = false;
         failRemoveKey_.clear();
+        failPutKey_.clear();
     }
 
     static void testSetBeginResult(
@@ -271,6 +276,15 @@ public:
         const char* key) {
 
         failRemoveKey_ =
+            key != nullptr
+                ? key
+                : "";
+    }
+
+    static void testFailPut(
+        const char* key) {
+
+        failPutKey_ =
             key != nullptr
                 ? key
                 : "";
@@ -324,4 +338,5 @@ private:
     inline static bool beginResult_ = true;
     inline static bool failClear_ = false;
     inline static std::string failRemoveKey_{};
+    inline static std::string failPutKey_{};
 };
