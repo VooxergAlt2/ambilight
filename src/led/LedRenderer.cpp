@@ -38,9 +38,12 @@ esp_err_t LedRenderer::render(
     const RenderGainContext& gainContext,
     CorrectionMode correctionMode) {
 
-    const std::uint64_t prepareStartedUs =
+    const std::uint64_t renderStartedUs =
         static_cast<std::uint64_t>(
             esp_timer_get_time());
+
+    const std::uint64_t prepareStartedUs =
+        renderStartedUs;
 
     std::uint16_t frameWouldChangePixels = 0;
     std::uint16_t framePhysicalChangedPixels = 0;
@@ -156,10 +159,17 @@ esp_err_t LedRenderer::render(
             prepareFinishedUs -
             prepareStartedUs);
 
+    prepareMetric_.observe(
+        prepareUs);
+
     const esp_err_t result = engine_.show();
     if (result != ESP_OK) {
         return result;
     }
+
+    const std::uint64_t postStartedUs =
+        static_cast<std::uint64_t>(
+            esp_timer_get_time());
 
     ++renderedFrames_;
 
@@ -249,6 +259,18 @@ esp_err_t LedRenderer::render(
 
     lastCorrectionMode_ =
         correctionMode;
+
+    const std::uint64_t renderFinishedUs =
+        static_cast<std::uint64_t>(
+            esp_timer_get_time());
+
+    postMetric_.observe(
+        renderFinishedUs -
+        postStartedUs);
+
+    renderMetric_.observe(
+        renderFinishedUs -
+        renderStartedUs);
 
     return ESP_OK;
 }
