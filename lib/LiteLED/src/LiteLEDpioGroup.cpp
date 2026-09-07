@@ -3,10 +3,11 @@
     LiteLEDpioGroup — multi-strip PARLIO driver
     LiteLEDpioLane  — per-lane pixel-buffer handle
 
-    LiteLEDpioGroup owns one PARLIO TX unit and one shared DMA bitstream
-    buffer.  Each strip is registered as a bit-lane (0..data_width-1) via
-    addStrip().  Every show() call encodes ALL lane pixel buffers in a single
-    DMA transfer, guaranteeing perfectly synchronised output.
+    LiteLEDpioGroup owns one PARLIO TX unit and two shared DMA bitstream
+    buffers. Each strip is registered as a bit-lane (0..data_width-1) via
+    addStrip(). Blocking show() preserves ordinary semantics; Stage 41 can
+    encode the next frame into the free DMA buffer while the previous buffer
+    is still transmitted.
 
     LiteLEDpioLane is a thin reference class.  Its pixel methods operate on
     the pixel colour buffer for one lane; show() delegates to the parent
