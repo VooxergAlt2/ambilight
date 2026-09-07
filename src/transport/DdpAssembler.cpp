@@ -29,6 +29,7 @@ void DdpAssembler::startFrame(
 
     coverage_.fill(0);
     coveredBytes_ = 0;
+    contiguousPrefixBytes_ = 0;
     pushSeen_ = false;
 
     active_ = true;
@@ -41,6 +42,7 @@ void DdpAssembler::resetActive() {
     pushSeen_ = false;
     activeSequence_ = 0;
     coveredBytes_ = 0;
+    contiguousPrefixBytes_ = 0;
     lastPacketUs_ = 0;
     coverage_.fill(0);
 }
@@ -92,24 +94,134 @@ void DdpAssembler::markCovered(std::size_t index) {
     coverage_[byte] |= static_cast<std::uint8_t>(1U << bit);
 }
 
-bool DdpAssembler::copyAndMark(const DdpPacketView& packet) {
-    const std::size_t offset = packet.offset;
-    const std::size_t length = packet.dataLength;
+void DdpAssembler::markUncoveredRange(
+    std::size_t offset,
+    std::size_t length) {
 
-    // A duplicate or overlapping packet is acceptable only when bytes already
-    // received for this sequence are identical. Conflicting overlap would make
-    // frame contents order-dependent, so reject the active frame instead.
-    for (std::size_t index = 0; index < length; ++index) {
-        const std::size_t frameIndex = offset + index;
+    std::size_t index = offset;
+    const std::size_t end = offset + length;
+
+    while (index < end &&
+           (index & 7U) != 0U) {
+
+        markCovered(index);
+        ++index;
+    }
+
+    const std::size_t wholeBytes =
+        (end - index) / 8U;
+
+    if (wholeBytes > 0) {
+        std::memset(
+            coverage_.data() +
+                index / 8U,
+            0xFF,
+            wholeBytes);
+
+        index +=
+            wholeBytes * 8U;
+    }
+
+    while (index < end) {
+        markCovered(index);
+        ++index;
+    }
+}
+
+void DdpAssembler::refreshContiguousPrefix() {
+    while (contiguousPrefixBytes_ <
+               frameBytes_ &&
+           isCovered(
+               contiguousPrefixBytes_)) {
+
+        ++contiguousPrefixBytes_;
+    }
+}
+
+bool DdpAssembler::copySequentialFastPath(
+    const DdpPacketView& packet) {
+
+    const std::size_t offset =
+        packet.offset;
+
+    const std::size_t length =
+        packet.dataLength;
+
+    if (offset !=
+            contiguousPrefixBytes_ ||
+        coveredBytes_ !=
+            contiguousPrefixBytes_) {
+
+        return false;
+    }
+
+    std::memcpy(
+        staging_.data() + offset,
+        packet.payload,
+        length);
+
+    markUncoveredRange(
+        offset,
+        length);
+
+    coveredBytes_ =
+        static_cast<std::uint16_t>(
+            coveredBytes_ +
+            length);
+
+    contiguousPrefixBytes_ =
+        coveredBytes_;
+
+    ++stats_.sequentialFastPathDatagrams;
+
+    stats_.sequentialFastPathBytes +=
+        length;
+
+    return true;
+}
+
+bool DdpAssembler::copyAndMark(
+    const DdpPacketView& packet) {
+
+    if (copySequentialFastPath(
+            packet)) {
+
+        return true;
+    }
+
+    ++stats_.fallbackDatagrams;
+
+    const std::size_t offset =
+        packet.offset;
+
+    const std::size_t length =
+        packet.dataLength;
+
+    // Fallback preserves the strict overlap semantics for duplicates,
+    // reordering and conflicting fragments.
+    for (std::size_t index = 0;
+         index < length;
+         ++index) {
+
+        const std::size_t frameIndex =
+            offset +
+            index;
 
         if (isCovered(frameIndex) &&
-            staging_[frameIndex] != packet.payload[index]) {
+            staging_[frameIndex] !=
+                packet.payload[index]) {
+
             return false;
         }
     }
 
-    for (std::size_t index = 0; index < length; ++index) {
-        const std::size_t frameIndex = offset + index;
+    for (std::size_t index = 0;
+         index < length;
+         ++index) {
+
+        const std::size_t frameIndex =
+            offset +
+            index;
 
         if (isCovered(frameIndex)) {
             ++stats_.duplicateBytes;
@@ -118,8 +230,11 @@ bool DdpAssembler::copyAndMark(const DdpPacketView& packet) {
             ++coveredBytes_;
         }
 
-        staging_[frameIndex] = packet.payload[index];
+        staging_[frameIndex] =
+            packet.payload[index];
     }
+
+    refreshContiguousPrefix();
 
     return true;
 }
@@ -154,52 +269,103 @@ DdpIngestResult DdpAssembler::ingest(
     std::uint64_t nowUs,
     RgbFrame& completedFrame) {
 
+    DdpPacketView packet;
+
+    if (parseDdpDatagram(
+            datagram,
+            datagramLength,
+            packet) !=
+        DdpParseError::None) {
+
+        ++stats_.datagrams;
+        ++stats_.rejected;
+
+        expire(nowUs);
+
+        return
+            DdpIngestResult::Rejected;
+    }
+
+    return
+        ingestParsed(
+            packet,
+            nowUs,
+            completedFrame);
+}
+
+DdpIngestResult DdpAssembler::ingestParsed(
+    const DdpPacketView& packet,
+    std::uint64_t nowUs,
+    RgbFrame& completedFrame) {
+
     ++stats_.datagrams;
     expire(nowUs);
 
-    DdpPacketView packet;
-    const DdpParseError parseResult =
-        parseDdpDatagram(datagram, datagramLength, packet);
-
-    if (parseResult != DdpParseError::None || !payloadFits(packet)) {
+    if (!payloadFits(packet)) {
         ++stats_.rejected;
-        return DdpIngestResult::Rejected;
+
+        return
+            DdpIngestResult::Rejected;
     }
 
     if (!active_) {
-        if (!canStartSequence(packet.sequence, nowUs)) {
+        if (!canStartSequence(
+                packet.sequence,
+                nowUs)) {
+
             ++stats_.stale;
-            return DdpIngestResult::Stale;
+
+            return
+                DdpIngestResult::Stale;
         }
 
-        startFrame(packet.sequence, nowUs);
-    } else if (packet.sequence != activeSequence_) {
-        if (!ddpSequenceIsNewer(packet.sequence, activeSequence_)) {
+        startFrame(
+            packet.sequence,
+            nowUs);
+    } else if (
+        packet.sequence !=
+            activeSequence_) {
+
+        if (!ddpSequenceIsNewer(
+                packet.sequence,
+                activeSequence_)) {
+
             ++stats_.stale;
-            return DdpIngestResult::Stale;
+
+            return
+                DdpIngestResult::Stale;
         }
 
         ++stats_.superseded;
-        startFrame(packet.sequence, nowUs);
+
+        startFrame(
+            packet.sequence,
+            nowUs);
     }
 
-    lastPacketUs_ = nowUs;
+    lastPacketUs_ =
+        nowUs;
 
     if (!copyAndMark(packet)) {
         ++stats_.conflictingDatagrams;
         ++stats_.rejected;
+
         resetActive();
-        return DdpIngestResult::Rejected;
+
+        return
+            DdpIngestResult::Rejected;
     }
 
-    pushSeen_ = pushSeen_ || packet.push;
+    pushSeen_ =
+        pushSeen_ ||
+        packet.push;
 
     if (!isComplete()) {
         ++stats_.partial;
-        return DdpIngestResult::Partial;
-    }
 
-    completedFrame.clear();
+        return
+            DdpIngestResult::Partial;
+    }
 
     std::memcpy(
         completedFrame.pixels.data(),
@@ -212,17 +378,24 @@ DdpIngestResult DdpAssembler::ingest(
             sizeof(Rgb8));
 
     completedFrame.generation = 0;
-    completedFrame.receivedUs = nowUs;
+    completedFrame.receivedUs =
+        nowUs;
 
     ++stats_.completed;
 
-    hasLastCompletedSequence_ = true;
-    lastCompletedSequence_ = activeSequence_;
-    lastCompletedUs_ = nowUs;
+    hasLastCompletedSequence_ =
+        true;
+
+    lastCompletedSequence_ =
+        activeSequence_;
+
+    lastCompletedUs_ =
+        nowUs;
 
     resetActive();
 
-    return DdpIngestResult::Complete;
+    return
+        DdpIngestResult::Complete;
 }
 
 } // namespace ambilight
