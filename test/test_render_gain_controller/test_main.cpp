@@ -29,8 +29,17 @@ RenderGainContext makeUniformTarget(
     context.sourceUsable = true;
     context.failOpen = false;
 
-    context.logicalGainQ12.fill(
-        gainQ12);
+    const std::size_t count =
+        context.topology.totalLedCount();
+
+    for (std::size_t index = 0;
+         index < count;
+         ++index) {
+
+        context.logicalGainQ12[
+            index] =
+            gainQ12;
+    }
 
     return context;
 }
@@ -53,17 +62,29 @@ void test_first_valid_target_starts_from_unity() {
             2048,
             1000000);
 
-    const auto current =
-        controller.update(
+    TEST_ASSERT_TRUE(
+        controller.setTarget(
             target,
-            1000000);
+            1000000));
 
-    TEST_ASSERT_TRUE(current.sourceUsable);
-    TEST_ASSERT_FALSE(current.failOpen);
+    const auto& current =
+        controller.current();
+
+    TEST_ASSERT_TRUE(
+        current.sourceUsable);
+
+    TEST_ASSERT_FALSE(
+        current.failOpen);
 
     TEST_ASSERT_EQUAL_UINT16(
         kGainUnityQ12,
         leftStart(current));
+
+    TEST_ASSERT_FALSE(
+        controller.settled());
+
+    TEST_ASSERT_FALSE(
+        controller.nonUnity());
 }
 
 void test_slew_moves_toward_target_by_real_time() {
@@ -78,29 +99,39 @@ void test_slew_moves_toward_target_by_real_time() {
             2048,
             1000000);
 
-    controller.update(target, 1000000);
+    controller.setTarget(
+        target,
+        1000000);
 
     // 100 ms at 8192 Q12/s -> max step about 820.
-    const auto after100 =
-        controller.update(
-            target,
-            1100000);
+    TEST_ASSERT_TRUE(
+        controller.advance(
+            1100000));
 
     TEST_ASSERT_TRUE(
-        leftStart(after100) < 4096);
+        leftStart(
+            controller.current()) <
+        4096);
 
     TEST_ASSERT_TRUE(
-        leftStart(after100) > 3200);
+        leftStart(
+            controller.current()) >
+        3200);
+
+    TEST_ASSERT_TRUE(
+        controller.nonUnity());
 
     // Enough additional time must reach the target exactly.
-    const auto after500 =
-        controller.update(
-            target,
-            1500000);
+    controller.advance(
+        1500000);
 
     TEST_ASSERT_EQUAL_UINT16(
         2048,
-        leftStart(after500));
+        leftStart(
+            controller.current()));
+
+    TEST_ASSERT_TRUE(
+        controller.settled());
 }
 
 void test_fail_open_snaps_immediately_to_unity() {
@@ -115,14 +146,16 @@ void test_fail_open_snaps_immediately_to_unity() {
             1024,
             1000000);
 
-    controller.update(target, 1000000);
-    const auto attenuated =
-        controller.update(
-            target,
-            1100000);
+    controller.setTarget(
+        target,
+        1000000);
+
+    controller.advance(
+        1100000);
 
     TEST_ASSERT_TRUE(
-        leftStart(attenuated) <
+        leftStart(
+            controller.current()) <
         kGainUnityQ12);
 
     RenderGainContext failOpen;
@@ -130,28 +163,42 @@ void test_fail_open_snaps_immediately_to_unity() {
     failOpen.sourceUsable = false;
     failOpen.failOpen = true;
 
-    const auto recovered =
-        controller.update(
+    TEST_ASSERT_TRUE(
+        controller.setTarget(
             failOpen,
-            1101000);
+            1101000));
 
-    TEST_ASSERT_TRUE(recovered.failOpen);
-    TEST_ASSERT_FALSE(recovered.sourceUsable);
+    const auto& recovered =
+        controller.current();
+
+    TEST_ASSERT_TRUE(
+        recovered.failOpen);
+
+    TEST_ASSERT_FALSE(
+        recovered.sourceUsable);
 
     TEST_ASSERT_EQUAL_UINT16(
         kGainUnityQ12,
         leftStart(recovered));
 
+    TEST_ASSERT_TRUE(
+        controller.settled());
+
+    TEST_ASSERT_FALSE(
+        controller.nonUnity());
+
     TEST_ASSERT_EQUAL_UINT32(
         1,
-        controller.stats().failOpenUnitySnaps);
+        controller.stats().
+            failOpenUnitySnaps);
 }
 
 void test_reacquisition_slews_from_unity() {
     RenderGainController controller;
 
     RenderGainContext failOpen;
-    controller.update(
+
+    controller.setTarget(
         failOpen,
         1000000);
 
@@ -161,22 +208,21 @@ void test_reacquisition_slews_from_unity() {
             2048,
             1100000);
 
-    const auto first =
-        controller.update(
-            target,
-            1100000);
+    controller.setTarget(
+        target,
+        1100000);
 
     TEST_ASSERT_EQUAL_UINT16(
         kGainUnityQ12,
-        leftStart(first));
+        leftStart(
+            controller.current()));
 
-    const auto next =
-        controller.update(
-            target,
-            1200000);
+    controller.advance(
+        1200000);
 
     TEST_ASSERT_TRUE(
-        leftStart(next) <
+        leftStart(
+            controller.current()) <
         kGainUnityQ12);
 }
 
@@ -189,21 +235,26 @@ void test_time_rollback_resets_to_unity() {
             2048,
             1000000);
 
-    controller.update(target, 1000000);
-    controller.update(target, 1100000);
+    controller.setTarget(
+        target,
+        1000000);
 
-    const auto rollback =
-        controller.update(
-            target,
-            900000);
+    controller.advance(
+        1100000);
+
+    TEST_ASSERT_TRUE(
+        controller.advance(
+            900000));
 
     TEST_ASSERT_EQUAL_UINT16(
         kGainUnityQ12,
-        leftStart(rollback));
+        leftStart(
+            controller.current()));
 
     TEST_ASSERT_EQUAL_UINT32(
         1,
-        controller.stats().timeRollbacks);
+        controller.stats().
+            timeRollbacks);
 }
 
 void test_gradient_endpoints_slew_independently() {
@@ -212,17 +263,20 @@ void test_gradient_endpoints_slew_independently() {
 
     RenderGainController controller(config);
 
-    auto target =
+    const auto target =
         ShadowGainProbe::make(
             123,
             1000000);
 
-    controller.update(target, 1000000);
+    controller.setTarget(
+        target,
+        1000000);
 
-    const auto after =
-        controller.update(
-            target,
-            1125000);
+    controller.advance(
+        1125000);
+
+    const auto& after =
+        controller.current();
 
     const auto top =
         after.endpointsForSegment(
@@ -250,7 +304,7 @@ void test_gradient_endpoints_slew_independently() {
         bottom.endQ12);
 }
 
-void test_settled_tracks_effective_profile_not_generation_only() {
+void test_same_target_profile_does_not_reopen_settled_controller() {
     RenderGainControllerConfig config;
     config.slewQ12PerSecond = 65535;
 
@@ -262,11 +316,18 @@ void test_settled_tracks_effective_profile_not_generation_only() {
             2048,
             1000000);
 
-    controller.update(target, 1000000);
-    TEST_ASSERT_FALSE(controller.settled());
+    controller.setTarget(
+        target,
+        1000000);
 
-    controller.update(target, 1100000);
-    TEST_ASSERT_TRUE(controller.settled());
+    TEST_ASSERT_FALSE(
+        controller.settled());
+
+    controller.advance(
+        1100000);
+
+    TEST_ASSERT_TRUE(
+        controller.settled());
 
     auto sameProfileNewGeneration =
         makeUniformTarget(
@@ -274,10 +335,45 @@ void test_settled_tracks_effective_profile_not_generation_only() {
             2048,
             1200000);
 
-    // Metadata-only generation change does not make rendered RGB dirty.
+    TEST_ASSERT_FALSE(
+        controller.setTarget(
+            sameProfileNewGeneration,
+            1200000));
+
     TEST_ASSERT_TRUE(
-        controller.target().sameRenderProfileAs(
-            sameProfileNewGeneration));
+        controller.settled());
+
+    TEST_ASSERT_EQUAL_UINT32(
+        2,
+        controller.stats().
+            targetUpdates);
+
+    TEST_ASSERT_EQUAL_UINT32(
+        1,
+        controller.stats().
+            renderProfileChanges);
+}
+
+void test_advance_while_settled_is_o1_noop_semantically() {
+    RenderGainController controller;
+
+    RenderGainContext failOpen;
+
+    controller.setTarget(
+        failOpen,
+        1000000);
+
+    TEST_ASSERT_TRUE(
+        controller.settled());
+
+    TEST_ASSERT_FALSE(
+        controller.advance(
+            1100000));
+
+    TEST_ASSERT_EQUAL_UINT32(
+        1,
+        controller.stats().
+            advances);
 }
 
 void test_probe_profile_is_non_unity_and_deterministic() {
@@ -286,8 +382,11 @@ void test_probe_profile_is_non_unity_and_deterministic() {
             77,
             5000);
 
-    TEST_ASSERT_TRUE(probe.sourceUsable);
-    TEST_ASSERT_TRUE(probe.hasNonUnityGain());
+    TEST_ASSERT_TRUE(
+        probe.sourceUsable);
+
+    TEST_ASSERT_TRUE(
+        probe.hasNonUnityGain());
 
     const auto top =
         probe.endpointsForSegment(
@@ -305,30 +404,68 @@ void test_probe_profile_is_non_unity_and_deterministic() {
         probe.endpointsForSegment(
             SegmentId::Left);
 
-    TEST_ASSERT_EQUAL_UINT16(4096, top.startQ12);
-    TEST_ASSERT_EQUAL_UINT16(3072, top.endQ12);
+    TEST_ASSERT_EQUAL_UINT16(
+        4096,
+        top.startQ12);
 
-    TEST_ASSERT_EQUAL_UINT16(3072, right.startQ12);
-    TEST_ASSERT_EQUAL_UINT16(3072, right.endQ12);
+    TEST_ASSERT_EQUAL_UINT16(
+        3072,
+        top.endQ12);
 
-    TEST_ASSERT_EQUAL_UINT16(2048, bottom.startQ12);
-    TEST_ASSERT_EQUAL_UINT16(4096, bottom.endQ12);
+    TEST_ASSERT_EQUAL_UINT16(
+        3072,
+        right.startQ12);
 
-    TEST_ASSERT_EQUAL_UINT16(1024, left.startQ12);
-    TEST_ASSERT_EQUAL_UINT16(1024, left.endQ12);
+    TEST_ASSERT_EQUAL_UINT16(
+        3072,
+        right.endQ12);
+
+    TEST_ASSERT_EQUAL_UINT16(
+        2048,
+        bottom.startQ12);
+
+    TEST_ASSERT_EQUAL_UINT16(
+        4096,
+        bottom.endQ12);
+
+    TEST_ASSERT_EQUAL_UINT16(
+        1024,
+        left.startQ12);
+
+    TEST_ASSERT_EQUAL_UINT16(
+        1024,
+        left.endQ12);
 }
 
 int main(int, char**) {
     UNITY_BEGIN();
 
-    RUN_TEST(test_first_valid_target_starts_from_unity);
-    RUN_TEST(test_slew_moves_toward_target_by_real_time);
-    RUN_TEST(test_fail_open_snaps_immediately_to_unity);
-    RUN_TEST(test_reacquisition_slews_from_unity);
-    RUN_TEST(test_time_rollback_resets_to_unity);
-    RUN_TEST(test_gradient_endpoints_slew_independently);
-    RUN_TEST(test_settled_tracks_effective_profile_not_generation_only);
-    RUN_TEST(test_probe_profile_is_non_unity_and_deterministic);
+    RUN_TEST(
+        test_first_valid_target_starts_from_unity);
+
+    RUN_TEST(
+        test_slew_moves_toward_target_by_real_time);
+
+    RUN_TEST(
+        test_fail_open_snaps_immediately_to_unity);
+
+    RUN_TEST(
+        test_reacquisition_slews_from_unity);
+
+    RUN_TEST(
+        test_time_rollback_resets_to_unity);
+
+    RUN_TEST(
+        test_gradient_endpoints_slew_independently);
+
+    RUN_TEST(
+        test_same_target_profile_does_not_reopen_settled_controller);
+
+    RUN_TEST(
+        test_advance_while_settled_is_o1_noop_semantically);
+
+    RUN_TEST(
+        test_probe_profile_is_non_unity_and_deterministic);
 
     return UNITY_END();
 }
