@@ -44,10 +44,17 @@ void test_default_plan_boundaries() {
     TEST_ASSERT_EQUAL_UINT16(
         230,
         top.logicalLength);
+    const auto defaultTop =
+        LedMappingProfile{}.
+            forSegment(
+                SegmentId::Top);
+
     TEST_ASSERT_EQUAL_UINT8(
-        0,
+        defaultTop.lane,
         top.lane);
-    TEST_ASSERT_FALSE(
+
+    TEST_ASSERT_EQUAL_INT(
+        defaultTop.reversed != 0,
         top.reversed);
 
     const auto& right =
