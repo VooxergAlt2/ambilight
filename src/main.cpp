@@ -2122,22 +2122,17 @@ bool serviceCommissioning(
 
         ledEngine.clear();
 
-        for (std::uint16_t offset = 0;
-             offset <
-                commissioningRangeCount;
-             ++offset) {
+        if (!ledEngine.fillPhysicalRange(
+                commissioningRawLane,
+                commissioningRangeStart,
+                commissioningRangeCount,
+                ambilight::Rgb8{
+                    255,
+                    255,
+                    255
+                })) {
 
-            if (!ledEngine.setPhysicalPixel(
-                    commissioningRawLane,
-                    static_cast<std::uint16_t>(
-                        commissioningRangeStart +
-                        offset),
-                    static_cast<crgb_t>(
-                        0x00FFFFFFU))) {
-
-                result = ESP_FAIL;
-                break;
-            }
+            result = ESP_FAIL;
         }
 
         if (result == ESP_OK) {
