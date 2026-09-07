@@ -29,7 +29,7 @@ constexpr std::uint8_t kMaxConsecutiveReadFailures = 5;
 
 constexpr std::uint32_t kI2cClockHz = 1000000;
 
-constexpr std::uint32_t kTaskStackBytes = 12288;
+constexpr std::uint32_t kTaskStackBytes = 20480;
 constexpr UBaseType_t kTaskPriority = 0;
 
 TofProcessorConfig makeProcessorConfig() {
