@@ -4,7 +4,7 @@ Custom ESP32-C6 Ambilight endpoint for HyperHDR.
 
 ## Current development line
 
-Stage 39 is the pre-flash hardening line. It keeps the Stage 38 commissioning feature set, closes runtime-topology rollback/physical-buffer edge cases, and pins deployment to a validated 16 MiB dual-slot partition layout.
+Stage 43 is the web-UI correctness line on top of the Stage 42 hardware baseline. It keeps the realtime DDP/PARLIO/ToF pipeline unchanged while aligning commissioning safety, topology actions and browser state handling with the runtime contracts.
 
 The firmware stack now includes:
 
@@ -38,17 +38,17 @@ Static capacity:
 
 Default runtime topology:
 
-    TOP     230 -> GPIO18 FWD
-    RIGHT   160 -> GPIO19 FWD
-    BOTTOM  230 -> GPIO20 FWD
-    LEFT    160 -> GPIO21 FWD
+    TOP     230 -> GPIO20 REV
+    RIGHT   160 -> GPIO19 REV
+    BOTTOM  230 -> GPIO21 REV
+    LEFT    160 -> GPIO18 FWD
     total   780
 
 Each side may use 1..230 active addresses. The active DDP payload is always:
 
     totalLedCount * 3 bytes
 
-Topology changes require brightness=0 and start a fresh DDP sender/assembly epoch.
+Topology changes perform an automatic controlled blackout, cancel any active LED commissioning test, apply the new mapping transactionally, restore the previous brightness, and start a fresh DDP sender/assembly epoch.
 
 ## DDP transport
 
@@ -367,7 +367,7 @@ Logical probes use the active topology, REV and disabled-pixel mask. Raw GPIO
 probes bypass logical mapping and directly identify which physical strip is
 connected to GPIO18/19/20/21.
 
-Tests run for 15 seconds and then restore the newest HyperHDR frame or black.
+Tests run for 120 seconds and then restore the newest HyperHDR frame or black.
 
 
 ## ToF commissioning
@@ -483,7 +483,7 @@ reports:
 
 Current source identity:
 
-    ambilight-c6 0.39.0-dev Stage 39
+    ambilight-c6 0.43.0-dev Stage 43
     serial protocol 2
 
 Startup uses the same centralized FirmwareInfo constants instead of a handwritten stage banner.
