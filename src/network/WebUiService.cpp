@@ -55,8 +55,8 @@ button{cursor:pointer}button.primary{background:var(--accent);color:#fff;border-
 .tvwrap{display:grid;grid-template-columns:minmax(220px,360px) 1fr;gap:18px;align-items:center;margin:4px 0 18px}.tv{position:relative;aspect-ratio:16/9;border:8px solid #20242a;border-radius:10px;background:#0d0f12;box-shadow:0 8px 28px #0002}.tvside{position:absolute;font:12px/1.2 ui-monospace,SFMono-Regular,Consolas,monospace;background:var(--card);border:1px solid var(--line);border-radius:7px;padding:4px 6px;white-space:nowrap}.tvtop{top:-38px;left:50%;transform:translateX(-50%)}.tvbottom{bottom:-38px;left:50%;transform:translateX(-50%)}.tvleft{left:-86px;top:50%;transform:translateY(-50%)}.tvright{right:-92px;top:50%;transform:translateY(-50%)}
 .callout{background:var(--soft);border-radius:10px;padding:10px 12px}.source{font-size:12px;color:var(--muted)}
 .tofgrid{display:grid;grid-template-columns:repeat(8,minmax(0,1fr));gap:4px}.tofcell{padding:6px 3px;min-width:0;min-height:48px;overflow:hidden;font:11px/1.15 ui-monospace,SFMono-Regular,Consolas,monospace}.tofcell strong{display:block;font-size:12px}.tofcell.usable{border-color:var(--ok)}.tofcell.weak{border-style:dashed}.tofcell.rejected{opacity:.55}.tofcell.selected{outline:2px solid var(--accent);outline-offset:1px}
-@media(max-width:760px){.cards{grid-template-columns:repeat(2,1fr)}.cols,.spatial,.tvwrap{grid-template-columns:1fr}.tvwrap{padding:30px 62px 34px}.seg{grid-template-columns:65px 78px minmax(82px,1fr) minmax(92px,1fr)}header{align-items:flex-start;flex-direction:column}.nav{top:4px}}
-@media(max-width:430px){main{padding-left:10px;padding-right:10px}.cards{gap:7px}.card{padding:11px}.seg{grid-template-columns:1fr 1fr}.seg>b{grid-column:1/-1}.tvwrap{padding-left:54px;padding-right:54px}.tofgrid{gap:2px}.tofcell{font-size:0;padding:3px 1px;min-height:36px}.tofcell strong{font-size:10px}.spatial{grid-template-columns:1fr 1fr}input[type=number]{width:100%}}
+@media(max-width:760px){.cards{grid-template-columns:repeat(2,1fr)}.cols,.spatial,.tvwrap{grid-template-columns:1fr}.tvwrap{padding:30px 62px 34px}.tvleft{left:-58px}.tvright{right:-58px}.seg{grid-template-columns:65px 78px minmax(82px,1fr) minmax(92px,1fr)}header{align-items:flex-start;flex-direction:column}.nav{top:4px}}
+@media(max-width:430px){main{padding-left:10px;padding-right:10px}.cards{gap:7px}.card{padding:11px}.seg{grid-template-columns:1fr 1fr}.seg>b{grid-column:1/-1}.tvwrap{padding-left:44px;padding-right:44px}.tvleft{left:-40px}.tvright{right:-40px}.tofgrid{gap:2px}.tofcell{font-size:0;padding:3px 1px;min-height:36px}.tofcell strong{font-size:10px}.spatial{grid-template-columns:1fr 1fr}input[type=number]{width:100%}}
 </style>
 </head>
 <body>
@@ -198,14 +198,14 @@ button{cursor:pointer}button.primary{background:var(--accent);color:#fff;border-
 <h2 style="margin-top:16px">Геометрия установки</h2>
 <div class="callout" style="margin-bottom:10px">Размеры задаются в плоскости телевизора. X/Y — смещение датчика от центра экрана, Z — смещение плоскости LED относительно датчика.</div>
 <div class="spatial">
-<div class="field"><label>Ширина ТВ, мм</label><input id="spW" type="number" step=".1"></div>
-<div class="field"><label>Высота ТВ, мм</label><input id="spH" type="number" step=".1"></div>
-<div class="field"><label>Датчик X, мм</label><input id="spX" type="number" step=".1"></div>
-<div class="field"><label>Датчик Y, мм</label><input id="spY" type="number" step=".1"></div>
-<div class="field"><label>Плоскость LED Z, мм</label><input id="spZ" type="number" step=".1"></div>
+<div class="field"><label>Ширина ТВ, мм</label><input id="spW" type="number" min="100" max="5000" step=".1"></div>
+<div class="field"><label>Высота ТВ, мм</label><input id="spH" type="number" min="100" max="5000" step=".1"></div>
+<div class="field"><label>Датчик X, мм</label><input id="spX" type="number" min="-2000" max="2000" step=".1"></div>
+<div class="field"><label>Датчик Y, мм</label><input id="spY" type="number" min="-2000" max="2000" step=".1"></div>
+<div class="field"><label>Плоскость LED Z, мм</label><input id="spZ" type="number" min="-1000" max="1000" step=".1"></div>
 <div class="field"><label>Поворот датчика</label><select id="spR"><option value="0">0°</option><option value="1">90°</option><option value="2">180°</option><option value="3">270°</option></select></div>
 <div class="field"><label>Отразить горизонтально</label><select id="spM"><option value="0">Нет</option><option value="1">Да</option></select></div>
-<div class="field"><label>Deadband плоскости, мм</label><input id="spD" type="number" step=".1"></div>
+<div class="field"><label>Deadband плоскости, мм</label><input id="spD" type="number" min="1" max="500" step=".1"></div>
 </div>
 <div class="row">
 <button id="spApply" class="primary" onclick="applySpatial()">Сохранить геометрию</button>
@@ -242,12 +242,13 @@ button{cursor:pointer}button.primary{background:var(--accent);color:#fff;border-
 <summary>Сеть</summary>
 <div class="section">
 <div id="wifiState" class="muted"></div>
-<div class="row"><input id="ssid" type="text" maxlength="32" placeholder="SSID"><input id="wifiPass" type="password" maxlength="63" placeholder="Password"></div>
+<div class="row"><input id="ssid" type="text" maxlength="32" placeholder="SSID"><input id="wifiPass" type="password" maxlength="63" placeholder="Новый пароль"></div>
+<div class="row"><label><input id="wifiOpen" type="checkbox"> Открытая сеть, без пароля</label></div>
 <div class="row">
 <button class="primary" onclick="applyWifi()">Сохранить и подключиться</button>
 <button onclick="forgetWifi()">Забыть сохранённую сеть</button>
 </div>
-<div class="muted">Пароль никогда не возвращается браузеру. После смены сети эта страница может потерять соединение.</div>
+<div class="muted">Пароль никогда не возвращается браузеру. Пустое поле не означает «оставить прежний пароль»: для защищённой сети введите пароль заново; для сети без пароля явно отметьте «Открытая сеть». После смены сети эта страница может потерять соединение.</div>
 </div>
 </details>
 <div class="panel" style="margin-top:10px">
@@ -271,7 +272,7 @@ button{cursor:pointer}button.primary{background:var(--accent);color:#fff;border-
 </main>
 <script>
 const $=id=>document.getElementById(id);
-let pendingActionId=0,pendingDirtyIds=[],pendingFieldState={},posting=false,refreshing=false,tofDebugUiActive=false,selectedTofZone=27,activeMap=null;
+let pendingActionId=0,pendingActionStartedMs=0,pendingDirtyIds=[],pendingFieldState={},posting=false,refreshing=false,offlineBanner=false,tofDebugUiActive=false,selectedTofZone=27,activeMap=null;
 const corrNames=['ВЫКЛ.','НАБЛЮДЕНИЕ','ВКЛЮЧЕНА'];
 const mapNames=['TOP','RIGHT','BOTTOM','LEFT'];
 const pages=['home','led','tof','diag','system'];
@@ -290,21 +291,28 @@ function fieldState(id){const e=$(id);if(!e)return '';return e.type==='checkbox'
 function cleanPendingIfUnchanged(){pendingDirtyIds.forEach(id=>{if(fieldState(id)===pendingFieldState[id])clean([id])})}
 function markDirty(){document.querySelectorAll('input,select,textarea').forEach(e=>{if(e.dataset.bound)return;e.dataset.bound='1';e.addEventListener('input',()=>e.dataset.dirty='1')})}
 function actionError(message){txt('action',message);$('action').className='bad';return false}
+function syncActionLock(){$('brightness').disabled=posting||!!pendingActionId}
+function clearPendingAction(){pendingActionId=0;pendingActionStartedMs=0;pendingDirtyIds=[];pendingFieldState={};syncActionLock()}
+function actionSequenceAfter(current,expected){
+  const a=Number(current)>>>0,b=Number(expected)>>>0;
+  if(!a||!b||a===b)return false;
+  return ((a-b)>>>0)<0x80000000;
+}
 async function post(path,body,dirtyIds=[]){
   if(posting||pendingActionId)return actionError('Дождитесь завершения предыдущего действия.');
-  posting=true;txt('action','Отправляем…');$('action').className='muted';
+  posting=true;syncActionLock();txt('action','Отправляем…');$('action').className='muted';
   try{
     const r=await fetch(path,{method:'POST',headers:{'X-Ambilight-Control':'1'},body:String(body)});
     const j=await r.json();
     if(!r.ok)throw new Error(j.error||('HTTP '+r.status));
     const queued=Number(j.queued||0);
     if(!queued)throw new Error('controller did not return action id');
-    pendingActionId=queued;pendingDirtyIds=[...dirtyIds];pendingFieldState={};pendingDirtyIds.forEach(id=>pendingFieldState[id]=fieldState(id));
+    pendingActionId=queued;pendingActionStartedMs=Date.now();pendingDirtyIds=[...dirtyIds];pendingFieldState={};pendingDirtyIds.forEach(id=>pendingFieldState[id]=fieldState(id));
     txt('action','Применяем…');$('action').className='muted';
     setTimeout(refresh,120);
     return true;
   }catch(e){actionError(e.message);return false}
-  finally{posting=false}
+  finally{posting=false;syncActionLock()}
 }
 function mapFieldIds(){return [...Array(4)].flatMap((_,i)=>['count'+i,'gpio'+i,'rev'+i])}
 function validateMap(){
@@ -340,12 +348,26 @@ function applyPixelMask(){
   post('/api/pixel-mask',p.join(','),ids)
 }
 function resetPixelMask(){post('/api/pixel-mask','reset',maskFieldIds())}
-function f1(v){const n=Number(v);return Number.isFinite(n)?n.toFixed(1):'0.0'}
 function spatialFieldIds(){return ['spW','spH','spX','spY','spZ','spR','spM','spD']}
+function spatialNumber(id,label,min,max){
+  const raw=$(id).value.trim();
+  if(raw===''){actionError(label+': заполните поле.');return null}
+  const n=Number(raw);
+  if(!Number.isFinite(n)||n<min||n>max){actionError(label+': допустимо '+min+'..'+max+' мм.');return null}
+  return n.toFixed(1)
+}
 function applySpatial(){
   const ids=spatialFieldIds();
-  const p=[f1($('spW').value),f1($('spH').value),f1($('spX').value),f1($('spY').value),f1($('spZ').value),$('spR').value,$('spM').value,f1($('spD').value)];
-  post('/api/spatial',p.join(','),ids)
+  const w=spatialNumber('spW','Ширина ТВ',100,5000);if(w===null)return;
+  const h=spatialNumber('spH','Высота ТВ',100,5000);if(h===null)return;
+  const x=spatialNumber('spX','Датчик X',-2000,2000);if(x===null)return;
+  const y=spatialNumber('spY','Датчик Y',-2000,2000);if(y===null)return;
+  const z=spatialNumber('spZ','Плоскость LED Z',-1000,1000);if(z===null)return;
+  const d=spatialNumber('spD','Deadband',1,500);if(d===null)return;
+  const rot=Number($('spR').value),mirror=Number($('spM').value);
+  if(!Number.isInteger(rot)||rot<0||rot>3)return actionError('Поворот датчика должен быть 0°, 90°, 180° или 270°.');
+  if(mirror!==0&&mirror!==1)return actionError('Отражение должно быть «Нет» или «Да».');
+  post('/api/spatial',[w,h,x,y,z,rot,mirror,d].join(','),ids)
 }
 function resetSpatial(){post('/api/spatial','reset',spatialFieldIds())}
 function applyCurve(){
@@ -365,7 +387,17 @@ function applyCurve(){
   post('/api/curve',out.join(','),['curve'])
 }
 function resetCurve(){post('/api/curve','reset',['curve'])}
-function applyWifi(){const p=$('wifiPass').value;post('/api/wifi',$('ssid').value+'|'+p,['ssid']);$('wifiPass').value='';delete $('wifiPass').dataset.dirty}
+async function applyWifi(){
+  const ssid=$('ssid').value.trim(),open=$('wifiOpen').checked,p=$('wifiPass').value;
+  if(!ssid)return actionError('Введите SSID.');
+  if(!open&&p==='')return actionError('Введите пароль защищённой сети или явно отметьте «Открытая сеть».');
+  const ok=await post('/api/wifi',ssid+'|'+(open?'':p),['ssid']);
+  if(ok){
+    $('wifiPass').value='';delete $('wifiPass').dataset.dirty;
+    $('wifiOpen').checked=false;delete $('wifiOpen').dataset.dirty;
+    $('wifiPass').disabled=false;
+  }
+}
 function forgetWifi(){if(confirm('Забыть сохранённую Wi-Fi сеть? После этого web-интерфейс может стать недоступен.'))post('/api/wifi','clear')}
 function factoryReset(){if(confirm('Стереть всю конфигурацию Ambilight и перезагрузить контроллер?'))post('/api/factory','reset')}
 function renderMap(m){
@@ -429,6 +461,13 @@ function calibrationText(c){
   if(s.spatial_valid)t+='\nДиапазон стены: '+s.min[1]+'..'+s.max[1]+' мм\nСтороны: '+s.segments.map((x,i)=>mapNames[i]+' '+x[0]+'→'+x[1]+' мм').join(' · ');
   return t;
 }
+function tofOperationalStatus(t){
+  if(!t.available)return 'НЕТ';
+  if(t.state==='error')return 'ОШИБКА';
+  if(t.state==='initializing'||t.state==='not-started')return 'ЗАПУСК';
+  if(t.gain_fail_open)return 'FALLBACK';
+  return t.state==='ranging'?'НОРМА':String(t.state||'?').toUpperCase();
+}
 function commissioningText(c){
   if(!c.pattern)return 'Тест не запущен';
   const left=' · '+Math.ceil(c.remaining_ms/1000)+' с';
@@ -439,17 +478,25 @@ function commissioningText(c){
   return 'Тест '+c.pattern+left;
 }
 function render(s){
-  if(pendingActionId&&s.action.id===pendingActionId){
-    if(s.action.ok)cleanPendingIfUnchanged();
-    txt('action',s.action.msg||(s.action.ok?'ok':'failed'));$('action').className=s.action.ok?'ok':'bad';
-    pendingActionId=0;pendingDirtyIds=[];pendingFieldState={};
+  if(pendingActionId){
+    if(s.action.id===pendingActionId){
+      if(s.action.ok)cleanPendingIfUnchanged();
+      txt('action',s.action.msg||(s.action.ok?'ok':'failed'));$('action').className=s.action.ok?'ok':'bad';
+      clearPendingAction();
+    }else if(actionSequenceAfter(s.action.id,pendingActionId)){
+      actionError('Результат операции вытеснен действием другого клиента. Черновик сохранён; проверьте текущее состояние.');
+      clearPendingAction();
+    }else if(pendingActionStartedMs&&Date.now()-pendingActionStartedMs>6000){
+      actionError('Контроллер не подтвердил результат операции. Черновик сохранён; проверьте текущее состояние.');
+      clearPendingAction();
+    }
   }
   txt('fw',s.fw.version+' · Stage '+s.fw.stage+' · '+s.fw.target);
   txt('stCorr',corrNames[s.output.correction]||'?');
   txt('stBright',Math.round(s.output.brightness*100/255)+'%');
   const signalFresh=s.ddp.has_frame&&s.ddp.frame_age_ms<=1000;
   txt('stDdp',!s.ddp.running?'ВЫКЛ.':(signalFresh?'ПОЛУЧАЕМ':(s.output.idle_blanked?'НЕТ СИГНАЛА':'ОЖИДАНИЕ')));
-  txt('stTof',!s.tof.available?'НЕТ':(s.tof.gain_fail_open?'FALLBACK':'НОРМА'));
+  txt('stTof',tofOperationalStatus(s.tof));
   [0,1,2].forEach(i=>$('corr'+i).classList.toggle('primary',s.output.correction===i));
   setv('brightness',s.output.brightness);txt('brightnessValue',brightnessLabel(s.output.brightness));
   let home='Подсветка '+(s.output.brightness===0?'выключена':'готова')+'. ';
@@ -475,20 +522,29 @@ function render(s){
   setv('curve',s.curve.points.map(p=>p[0]+':'+gainPercent(p[1])).join(','));
   txt('tofDetail',s.tof.available?`Состояние: ${s.tof.state}\nВозраст данных: ${s.tof.age_ms} мс · пригодных зон ${s.tof.valid_zones}/64 · медиана ${s.tof.median_mm} мм\nПлоскость: ${s.tof.plane_valid?'определена':'не определена'} · yaw ${(s.tof.yaw_cdeg/100).toFixed(2)}° · pitch ${(s.tof.pitch_cdeg/100).toFixed(2)}°\nСтена: ${s.tof.min_mm}..${s.tof.max_mm} мм · ${s.tof.gain_fail_open?'fallback 100%':'коррекция доступна'}`:'Датчик ToF недоступен');
   txt('calDetail',calibrationText(s.calibration));
-  $('calStart').disabled=s.calibration.active;$('probeStart').disabled=s.output.correction!==1;
-  txt('wifiState',`${s.wifi.connected?'Подключено':'Не подключено'} · ${s.wifi.ip||'без IP'} · RSSI ${s.wifi.rssi} dBm · ${s.wifi.ssid||'SSID не задан'}`);
+  $('calStart').disabled=s.calibration.active;
+  $('probeStart').disabled=s.output.correction!==1||s.probe;
+  $('probeStart').textContent=s.probe?'Тест модели активен':'Тест модели 10 с';
+  const wifiMode=!s.wifi.enabled?'Wi-Fi выключен':(s.wifi.connected?'Подключено':'Не подключено');
+  const wifiRssi=s.wifi.connected?(' · RSSI '+s.wifi.rssi+' dBm'):'';
+  txt('wifiState',wifiMode+' · '+(s.wifi.ip||'без IP')+wifiRssi+' · '+(s.wifi.ssid||'SSID не задан'));
   setv('ssid',s.wifi.ssid||'');
   txt('diag',`DDP: running=${s.ddp.running} frames=${s.ddp.frames} publications=${s.ddp.publications}\nlast frame: ${s.ddp.has_frame?s.ddp.frame_age_ms+' ms':'none'} · idle blackout=${s.output.idle_blanked}\nsender: ${s.ddp.sender_locked?(s.ddp.sender_ip+':'+s.ddp.sender_port):'none'}\nToF: state=${s.tof.state} age=${s.tof.age_ms} ms valid=${s.tof.valid_zones}/64 plane=${s.tof.plane_valid}\npersistence: ${s.persistence?'available':'unavailable'}\nheap free/min: ${s.heap.free}/${s.heap.min} B\nweb requests/actions/dropped/bad: ${s.web.requests}/${s.web.actions}/${s.web.dropped}/${s.web.bad}`);
   $('factory').disabled=s.output.brightness!==0;
 }
 async function refresh(){
   if(refreshing)return;refreshing=true;
-  try{const r=await fetch('/api/status',{cache:'no-store'});if(!r.ok)throw new Error('status HTTP '+r.status);render(await r.json())}
-  catch(e){txt('action','offline: '+e.message);$('action').className='bad'}
+  try{
+    const r=await fetch('/api/status',{cache:'no-store'});if(!r.ok)throw new Error('status HTTP '+r.status);
+    const wasOffline=offlineBanner;const s=await r.json();offlineBanner=false;render(s);
+    if(wasOffline&&$('action').textContent.startsWith('offline:')){txt('action','Связь восстановлена.');$('action').className='ok'}
+  }
+  catch(e){offlineBanner=true;txt('action','offline: '+e.message);$('action').className='bad'}
   finally{refreshing=false}
 }
 $('brightness').addEventListener('input',e=>txt('brightnessValue',brightnessLabel(e.target.value)));
 $('brightness').addEventListener('change',e=>post('/api/brightness',e.target.value,['brightness']));
+$('wifiOpen').addEventListener('change',e=>{if(e.target.checked){$('wifiPass').value='';delete $('wifiPass').dataset.dirty}$('wifiPass').disabled=e.target.checked});
 markDirty();refresh();setInterval(()=>{if(tofDebugUiActive)refresh()},1000);setInterval(()=>{if(!tofDebugUiActive)refresh()},2000);
 </script>
 </body>
