@@ -407,6 +407,12 @@ The command clears the complete `ambilight` NVS namespace and restarts only afte
 If NVS clear fails, runtime settings are left unchanged and the controller does not reboot.
 
 
+## Gain-slew hardening
+
+Stage 45.1 fixes a render-gain timebase bug that could bypass the configured slew limit after a long settled period. When a new non-fail-open gain profile arrives, the controller now rebases `lastUpdateUs_` to the target-change timestamp before reopening the slew state. An immediate `advance()` therefore performs no gain movement, and subsequent steps are bounded only by real elapsed time.
+
+A native regression test covers: settled target -> long idle interval -> new target -> immediate advance -> 100 ms bounded step.
+
 ## Last-frame hold
 
 Normal playback uses a hold-last policy for DDP transport gaps.
@@ -494,7 +500,7 @@ reports:
 
 Current source identity:
 
-    ambilight-c6 0.45.0-dev Stage 45
+    ambilight-c6 0.45.1-dev Stage 45
     serial protocol 2
 
 Startup uses the same centralized FirmwareInfo constants instead of a handwritten stage banner.
