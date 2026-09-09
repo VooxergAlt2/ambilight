@@ -46,7 +46,9 @@ SET_LOOP_TASK_STACK_SIZE(16 * 1024);
 
 namespace {
 
-constexpr std::uint64_t kIdleBlackoutUs = 1000000;
+// After this age the UI reports that the last complete DDP frame is being
+// held. This is telemetry only: input silence never synthesizes a black frame.
+constexpr std::uint64_t kFrameHoldNoticeUs = 1000000;
 constexpr std::uint32_t kStatusIntervalMs = 30000;
 constexpr std::uint64_t kGainTargetPollIntervalUs = 1000000;
 constexpr std::uint64_t kRenderDiagnosticsIntervalUs = 100000;
@@ -124,8 +126,6 @@ bool haveCachedPerimeterGainSnapshot = false;
 
 std::uint32_t lastDdpGeneration = 0;
 std::uint32_t lastRenderedRgbGeneration = 0;
-std::uint32_t lastObservedPublications = 0;
-std::uint32_t idleBlackouts = 0;
 std::uint32_t lastStatusMs = 0;
 std::uint32_t backlogObservations = 0;
 std::uint32_t calibrationLastGeometryGeneration = 0;
@@ -134,8 +134,6 @@ std::uint64_t shadowProbeUntilUs = 0;
 std::uint64_t tofDebugUntilUs = 0;
 std::uint64_t nextGainTargetPollUs = 0;
 std::uint64_t nextRenderDiagnosticsUs = 0;
-
-bool idleBlanked = false;
 
 std::uint64_t lastFrameAgeUs = 0;
 std::uint64_t maxFrameAgeUs = 0;
@@ -2617,41 +2615,17 @@ void serviceRenderDiagnostics(
         startedUs);
 }
 
-void serviceIdleBlackout(std::uint64_t nowUs) {
-    const std::uint64_t lastCompleteUs = ddp.lastCompleteFrameUs();
+bool frameHoldActive(
+    std::uint64_t nowUs) {
 
-    if (lastCompleteUs == 0 ||
-        nowUs - lastCompleteUs <= kIdleBlackoutUs ||
-        idleBlanked) {
-        return;
-    }
+    const std::uint64_t lastCompleteUs =
+        ddp.lastCompleteFrameUs();
 
-    ambilight::RgbFrame black;
-    black.clear();
-    black.pixelCount =
-        runtimeSettings.
-            ledMappingProfile().
-            totalLedCount();
-    black.receivedUs = nowUs;
-
-    renderSnapshot =
-        black;
-
-    rgbFrameValid = true;
-    rgbDirty = true;
-
-    idleBlanked = true;
-    ++idleBlackouts;
-}
-
-void updateDdpActivityState() {
-    const std::uint32_t publications =
-        ddp.stats().framePublications;
-
-    if (publications != lastObservedPublications) {
-        lastObservedPublications = publications;
-        idleBlanked = false;
-    }
+    return
+        lastCompleteUs != 0 &&
+        nowUs >= lastCompleteUs &&
+        nowUs - lastCompleteUs >
+            kFrameHoldNoticeUs;
 }
 
 void dumpTofMap() {
@@ -3534,9 +3508,6 @@ bool fillWebUiSnapshot(
     snapshot.brightness =
         ledEngine.brightness();
 
-    snapshot.outputIdleBlanked =
-        idleBlanked;
-
     snapshot.wifiEnabled =
         wifi.enabled();
 
@@ -3578,6 +3549,10 @@ bool fillWebUiSnapshot(
                 ? (ddpNowUs - lastCompleteFrameUs) /
                     1000ULL
                 : 0ULL;
+
+        snapshot.outputFrameHeld =
+            frameHoldActive(
+                ddpNowUs);
     }
 
     snapshot.ddpCompleteFrames =
@@ -4859,7 +4834,7 @@ void dumpRuntimeStatus() {
         "gainfail=%s gl=%u gt=%u gb=%u gr=%u "
         "diag_frames=%lu diag_usable=%lu diag_nonunity=%lu diag_changed=%u phys_changed=%u diag_delta=%u renderprep=%lluus diag_p95<=%luus "
         "slew_snap=%lu probe=%s sched_rgb=%lu sched_state=%lu sched_comb=%lu sched_state_def=%lu rgbgen=%lu "
-        "tofinit=%lu toffail=%lu tofreadfail=%lu tofrestart=%lu black=%lu heap=%lu minheap=%lu\n",
+        "tofinit=%lu toffail=%lu tofreadfail=%lu tofrestart=%lu frame_hold=%s frame_hold_age=%llums heap=%lu minheap=%lu\n",
         ambilight::correctionModeName(
             correctionMode),
         static_cast<unsigned>(
@@ -5038,7 +5013,18 @@ void dumpRuntimeStatus() {
         haveTof
             ? static_cast<unsigned long>(tofSnapshot.staleRestarts)
             : 0UL,
-        static_cast<unsigned long>(idleBlackouts),
+        frameHoldActive(nowUs)
+            ? "yes"
+            : "no",
+        ddp.lastCompleteFrameUs() != 0 &&
+                nowUs >= ddp.lastCompleteFrameUs()
+            ? static_cast<unsigned long long>(
+                  (
+                    nowUs -
+                    ddp.lastCompleteFrameUs()
+                  ) /
+                  1000ULL)
+            : 0ULL,
         static_cast<unsigned long>(ESP.getFreeHeap()),
         static_cast<unsigned long>(ESP.getMinFreeHeap()));
 
@@ -5397,7 +5383,6 @@ void loop() {
     ambilight::DdpPollResult pollResult;
     if (ddp.running()) {
         pollResult = ddp.poll();
-        updateDdpActivityState();
     }
 
     if (pollResult.backlogLikely) {
@@ -5426,8 +5411,9 @@ void loop() {
         }
     }
 
-    serviceIdleBlackout(nowUs);
-
+    // No new complete DDP frame means no RGB mutation. The LED hardware keeps
+    // the last successfully shown physical state until a newer complete frame
+    // or an explicit control action changes it.
     if (!serviceCommissioning(
             nowUs)) {
 
