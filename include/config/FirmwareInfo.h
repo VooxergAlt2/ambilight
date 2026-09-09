@@ -8,13 +8,13 @@ inline constexpr const char kFirmwareName[] =
     "ambilight-c6";
 
 inline constexpr const char kFirmwareVersion[] =
-    "0.42.1-hardware-baseline";
+    "0.43.0-dev";
 
 inline constexpr const char kFirmwareTarget[] =
     "ESP32-C6";
 
 inline constexpr std::uint16_t kDevelopmentStage =
-    42;
+    43;
 
 inline constexpr std::uint16_t kSerialProtocolVersion =
     2;
