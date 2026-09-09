@@ -683,6 +683,12 @@ bool activateLedMappingProfileWhileBlack(
         return false;
     }
 
+    if (calibrationCapture.active()) {
+        Serial.println(
+            "LED TOPOLOGY change refused while ToF calibration capture is active.");
+        return false;
+    }
+
     const ambilight::LedMappingProfile previous =
         runtimeSettings.
             ledMappingProfile();
@@ -907,6 +913,12 @@ bool applyLedMappingProfile(
 }
 
 bool resetLedMappingProfile() {
+    if (calibrationCapture.active()) {
+        Serial.println(
+            "LED TOPOLOGY reset refused while ToF calibration capture is active.");
+        return false;
+    }
+
     const ambilight::LedMappingProfile previous =
         runtimeSettings.
             ledMappingProfile();
@@ -1251,6 +1263,12 @@ void invalidateRenderedGainAfterSpatialChange() {
 bool applySpatialProfile(
     const ambilight::TofSpatialProfile& profile) {
 
+    if (calibrationCapture.active()) {
+        Serial.println(
+            "TOF SPATIAL change refused while calibration capture is active.");
+        return false;
+    }
+
     if (correctionMode ==
         ambilight::CorrectionMode::Active) {
 
@@ -1289,6 +1307,12 @@ bool applySpatialProfile(
 }
 
 bool resetSpatialProfile() {
+    if (calibrationCapture.active()) {
+        Serial.println(
+            "TOF SPATIAL reset refused while calibration capture is active.");
+        return false;
+    }
+
     if (correctionMode ==
         ambilight::CorrectionMode::Active) {
 
