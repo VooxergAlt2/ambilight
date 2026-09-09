@@ -225,12 +225,14 @@ button{cursor:pointer}button.primary{background:var(--accent);color:#fff;border-
 </main>
 <script>
 const $=id=>document.getElementById(id);
-let pendingActionId=0,pendingDirtyIds=[],posting=false,refreshing=false,tofDebugUiActive=false,selectedTofZone=27,activeMap=null;
+let pendingActionId=0,pendingDirtyIds=[],pendingFieldState={},posting=false,refreshing=false,tofDebugUiActive=false,selectedTofZone=27,activeMap=null;
 const corrNames=['ВЫКЛ.','НАБЛЮДЕНИЕ','ВКЛЮЧЕНА'];
 const mapNames=['TOP','RIGHT','BOTTOM','LEFT'];
 function txt(id,v){$(id).textContent=v}
 function setv(id,v){const e=$(id);if(!e.dataset.dirty)e.value=v}
 function clean(ids){ids.forEach(id=>{const e=$(id);if(e)delete e.dataset.dirty})}
+function fieldState(id){const e=$(id);if(!e)return '';return e.type==='checkbox'?(e.checked?'1':'0'):String(e.value)}
+function cleanPendingIfUnchanged(){pendingDirtyIds.forEach(id=>{if(fieldState(id)===pendingFieldState[id])clean([id])})}
 function markDirty(){document.querySelectorAll('input,select,textarea').forEach(e=>{if(e.dataset.bound)return;e.dataset.bound='1';e.addEventListener('input',()=>e.dataset.dirty='1')})}
 function src(custom,persisted){return custom?(persisted?'CUSTOM_NVS':'CUSTOM_RUNTIME'):'DEFAULT'}
 function actionError(message){txt('action',message);$('action').className='bad';return false}
@@ -243,7 +245,7 @@ async function post(path,body,dirtyIds=[]){
     if(!r.ok)throw new Error(j.error||('HTTP '+r.status));
     const queued=Number(j.queued||0);
     if(!queued)throw new Error('controller did not return action id');
-    pendingActionId=queued;pendingDirtyIds=[...dirtyIds];
+    pendingActionId=queued;pendingDirtyIds=[...dirtyIds];pendingFieldState={};pendingDirtyIds.forEach(id=>pendingFieldState[id]=fieldState(id));
     txt('action','Применяем…');$('action').className='muted';
     setTimeout(refresh,120);
     return true;
@@ -365,9 +367,9 @@ function commissioningText(c){
 }
 function render(s){
   if(pendingActionId&&s.action.id===pendingActionId){
-    if(s.action.ok)clean(pendingDirtyIds);
+    if(s.action.ok)cleanPendingIfUnchanged();
     txt('action',s.action.msg||(s.action.ok?'ok':'failed'));$('action').className=s.action.ok?'ok':'bad';
-    pendingActionId=0;pendingDirtyIds=[];
+    pendingActionId=0;pendingDirtyIds=[];pendingFieldState={};
   }
   txt('fw',s.fw.version+' · Stage '+s.fw.stage+' · '+s.fw.target);
   txt('stCorr',corrNames[s.output.correction]||'?');
