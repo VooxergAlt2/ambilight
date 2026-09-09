@@ -51,7 +51,7 @@ struct WebUiSnapshot {
         CorrectionMode::Shadow;
 
     std::uint8_t brightness = 0;
-    bool outputIdleBlanked = false;
+    bool outputFrameHeld = false;
 
     bool wifiEnabled = false;
     bool wifiConnected = false;
