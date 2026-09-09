@@ -76,11 +76,15 @@ run_python_logged() {
 cd "$repo_root"
 
 partition_exit=0
+web_ui_exit=0
 native_exit=0
 firmware_exit=0
 
 run_python_logged "$output_dir/partition-check.log" tools/check_partition.py
 partition_exit=$?
+
+run_python_logged "$output_dir/web-ui-check.log" tools/check_web_ui.py
+web_ui_exit=$?
 
 if [[ "$skip_native" -eq 0 ]]; then
     run_logged "$output_dir/native-test.log" test -e native
@@ -96,6 +100,7 @@ cat > "$output_dir/summary.txt" <<EOF
 Ambilight local validation
 timestamp=$timestamp
 partition_exit=$partition_exit
+web_ui_exit=$web_ui_exit
 native_skipped=$skip_native
 native_exit=$native_exit
 firmware_skipped=$skip_firmware
@@ -106,7 +111,7 @@ EOF
 echo
 cat "$output_dir/summary.txt"
 
-if [[ "$partition_exit" -ne 0 || "$native_exit" -ne 0 || "$firmware_exit" -ne 0 ]]; then
+if [[ "$partition_exit" -ne 0 || "$web_ui_exit" -ne 0 || "$native_exit" -ne 0 || "$firmware_exit" -ne 0 ]]; then
     exit 1
 fi
 
