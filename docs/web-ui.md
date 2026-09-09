@@ -1,10 +1,8 @@
-# Minimal web UI
+# Web UI
 
 ## Purpose
 
-The Stage 43 web surface remains LAN-only and bounded. The correctness pass
-keeps the existing LED/ToF capabilities while aligning browser guards,
-action acknowledgement and topology commissioning with the current runtime.
+The Stage 44 web surface remains LAN-only and bounded. It builds on the Stage 43 correctness pass and reorganizes the same runtime capabilities into user workflows without changing DDP, PARLIO, renderer or ToF algorithms.
 
 It intentionally does not add:
 
@@ -18,6 +16,16 @@ It intentionally does not add:
 - a dedicated FreeRTOS web task
 
 The existing lwIP socket stack is reused directly.
+
+The page remains one embedded HTML/CSS/JS document with no external assets. Stage 44 adds five client-side views only:
+
+    Home
+    LED
+    ToF
+    Diagnostics
+    System
+
+No route or socket architecture changes are required for navigation.
 
 This keeps the web layer small and prevents it from competing with realtime
 DDP processing.
@@ -167,7 +175,7 @@ parsers before a setting is applied.
 
 ## LED topology commissioning
 
-The LED commissioning section edits all four logical sides as one topology:
+The LED view first visualizes the active TV perimeter and then edits all four logical sides as one topology:
 
     COUNT | GPIO | REV
 
@@ -178,7 +186,7 @@ Rows are always:
     BOTTOM
     LEFT
 
-The UI also displays the resulting total logical LEDs and DDP RGB byte count.
+The UI also displays the resulting total logical LEDs and DDP RGB byte count. The TV diagram shows each side's active count, GPIO and direction arrow.
 Topology Apply/Reset no longer requires the user to set brightness to zero:
 the backend owns the controlled blackout transaction and remains authoritative.
 
@@ -235,9 +243,9 @@ Selecting a cell expands:
 Status 5 is full-confidence. Statuses 6 and 9 are usable at reduced plane-fit
 weight. Rejected statuses stay visible rather than being hidden.
 
-The existing spatial controls are in the same commissioning section, so ROT,
-MIRROR and mounting geometry can be adjusted while observing the live matrix.
-Edits remain blocked in ACTIVE.
+The ToF view keeps spatial controls beside the live matrix. Rotation is shown as 0°/90°/180°/270° and mirror state uses user-facing labels while the backend payload remains ROT=0..3 and MIRROR=0/1. Edits remain blocked in ACTIVE.
+
+The gain editor accepts `distance_mm:percent` values. JavaScript validates 2..8 monotonic points and converts percentages to the unchanged Q12 runtime payload. Status rendering uses enough decimal precision that every Q12 value 0..4096 round-trips through the percentage editor without loss.
 
 ## Disabled pixel mask
 
@@ -376,6 +384,8 @@ fallback network.
 
 ## Validation
 
+`tools/check_web_ui.py` performs a dependency-free structural check of the embedded page. It rejects duplicate static DOM IDs, missing page/navigation pairs, removal of required UI actions, and reintroduction of stale hardcoded safety guards. Both `tools/validate.ps1` and `tools/validate.sh` run this check alongside the partition, native and firmware gates.
+
 WebUiProtocol is pure C++ and participates in the native PlatformIO gate.
 
 Native contracts cover:
@@ -396,8 +406,10 @@ Native contracts cover:
 The lwIP socket service itself is compiled only by the full ESP32-C6 firmware
 build.
 
-Stage 43 must not be treated as validated until both local gates pass:
+Stage 44 must not be treated as validated until the full local validation passes:
 
+    tools/check_partition.py
+    tools/check_web_ui.py
     pio test -e native
     pio run -e esp32-c6-devkitc-1
 
