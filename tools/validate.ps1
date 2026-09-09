@@ -116,6 +116,9 @@ try {
     $PartitionLog = Join-Path $OutputDir "partition-check.log"
     $PartitionExit = Invoke-PythonLogged -Arguments @("tools/check_partition.py") -LogFile $PartitionLog
 
+    $WebUiLog = Join-Path $OutputDir "web-ui-check.log"
+    $WebUiExit = Invoke-PythonLogged -Arguments @("tools/check_web_ui.py") -LogFile $WebUiLog
+
     $NativeExit = 0
     $FirmwareExit = 0
 
@@ -133,6 +136,7 @@ try {
         "Ambilight local validation"
         "timestamp=$Timestamp"
         "partition_exit=$PartitionExit"
+        "web_ui_exit=$WebUiExit"
         "native_skipped=$SkipNative"
         "native_exit=$NativeExit"
         "firmware_skipped=$SkipFirmware"
@@ -146,7 +150,7 @@ try {
     Write-Host ""
     Write-Host ($Summary -join [Environment]::NewLine)
 
-    if ($PartitionExit -ne 0 -or $NativeExit -ne 0 -or $FirmwareExit -ne 0) {
+    if ($PartitionExit -ne 0 -or $WebUiExit -ne 0 -or $NativeExit -ne 0 -or $FirmwareExit -ne 0) {
         exit 1
     }
 
