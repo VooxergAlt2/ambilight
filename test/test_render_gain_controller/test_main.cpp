@@ -305,6 +305,79 @@ void test_gradient_endpoints_slew_independently() {
         bottom.endQ12);
 }
 
+void test_new_target_after_long_settled_period_rebases_slew_timebase() {
+    RenderGainControllerConfig config;
+    config.slewQ12PerSecond = 8192;
+
+    RenderGainController controller(config);
+
+    const auto firstTarget =
+        makeUniformTarget(
+            20,
+            2048,
+            1000000);
+
+    controller.setTarget(
+        firstTarget,
+        1000000);
+
+    controller.advance(
+        1500000);
+
+    TEST_ASSERT_TRUE(
+        controller.settled());
+
+    TEST_ASSERT_EQUAL_UINT16(
+        2048,
+        leftStart(
+            controller.current()));
+
+    // Simulate a long period with no gain work while settled.
+    // A new target must not inherit the old 10-second elapsed interval.
+    const auto secondTarget =
+        makeUniformTarget(
+            21,
+            0,
+            11500000);
+
+    TEST_ASSERT_TRUE(
+        controller.setTarget(
+            secondTarget,
+            11500000));
+
+    TEST_ASSERT_FALSE(
+        controller.settled());
+
+    TEST_ASSERT_EQUAL_UINT16(
+        2048,
+        leftStart(
+            controller.current()));
+
+    // The service loop may call advance() immediately after setTarget().
+    // Zero elapsed time means zero slew movement.
+    TEST_ASSERT_FALSE(
+        controller.advance(
+            11500000));
+
+    TEST_ASSERT_EQUAL_UINT16(
+        2048,
+        leftStart(
+            controller.current()));
+
+    // 100 ms at 8192 Q12/s allows exactly ceil(819.2) = 820.
+    TEST_ASSERT_TRUE(
+        controller.advance(
+            11600000));
+
+    TEST_ASSERT_EQUAL_UINT16(
+        1228,
+        leftStart(
+            controller.current()));
+
+    TEST_ASSERT_FALSE(
+        controller.settled());
+}
+
 void test_same_target_profile_does_not_reopen_settled_controller() {
     RenderGainControllerConfig config;
     config.slewQ12PerSecond = 65535;
@@ -458,6 +531,9 @@ int main(int, char**) {
 
     RUN_TEST(
         test_gradient_endpoints_slew_independently);
+
+    RUN_TEST(
+        test_new_target_after_long_settled_period_rebases_slew_timebase);
 
     RUN_TEST(
         test_same_target_profile_does_not_reopen_settled_controller);
