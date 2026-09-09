@@ -2,7 +2,7 @@
 
 ## Purpose
 
-The Stage 44 web surface remains LAN-only and bounded. It builds on the Stage 43 correctness pass and reorganizes the same runtime capabilities into user workflows without changing DDP, PARLIO, renderer or ToF algorithms.
+The Stage 44.1 web surface remains LAN-only and bounded. It hardens the Stage 44 UX without changing DDP, PARLIO, renderer or ToF algorithms.
 
 It intentionally does not add:
 
@@ -125,6 +125,8 @@ Sequence:
 6. main executes the normal runtime action
 7. /api/status reports the action id and actual result
 
+The browser correlates its exact queued id. If a later web action from another client has already replaced the single retained action result, the original browser releases its pending lock without clearing form drafts and reports that the result was superseded. A bounded timeout also prevents a reboot/lost-result path from wedging the UI forever.
+
 This is important for:
 
 - Wi-Fi credential changes
@@ -156,6 +158,7 @@ Commissioning patterns:
 Spatial profile edits:
 
     not ACTIVE
+    not while calibration capture is active
 
 Gain curve edits:
 
@@ -281,7 +284,7 @@ The web UI can start the existing 60-second observational capture.
 
 The latest CalibrationCaptureSummary is retained in RAM and returned by
 /api/status so the result remains visible in the browser after capture
-completion.
+completion. Successful spatial-profile or LED-topology changes invalidate the old summary, and both changes are refused while capture is active so one result cannot mix multiple geometries.
 
 It is not persisted to NVS.
 
@@ -312,7 +315,12 @@ The compact status endpoint includes:
 - heap diagnostics
 - web request/action/error counters
 
-Saved Wi-Fi password is never returned.
+Saved Wi-Fi password is never returned. Because the password field is intentionally blank on every page load, saving Wi-Fi requires either a newly entered password or an explicit «open network» checkbox. Blank password input by itself is never interpreted as permission to overwrite a stored protected-network password.
+
+
+## Operational-state hardening
+
+Stage 44.1 treats controller state as authoritative rather than trusting the last click. The brightness slider is locked while an action is in flight and rolls back to controller state after an immediate/confirmed failure. Temporary status-poll failures clear after communication recovers. ToF summary cards distinguish startup/error/fail-open states, and an old 8x8 snapshot is visually marked as stale whenever the sensor is not actively ranging.
 
 ## LED colour order scope
 
@@ -384,7 +392,7 @@ fallback network.
 
 ## Validation
 
-`tools/check_web_ui.py` performs a dependency-free structural check of the embedded page. It rejects duplicate static DOM IDs, missing page/navigation pairs, removal of required UI actions, and reintroduction of stale hardcoded safety guards. Both `tools/validate.ps1` and `tools/validate.sh` run this check alongside the partition, native and firmware gates.
+`tools/check_web_ui.py` performs a dependency-free structural check of the embedded page. It rejects duplicate static DOM IDs, missing page/navigation pairs, mis-nested static HTML, removal of required hardening controls/actions, and reintroduction of stale hardcoded safety guards. It also proves all 4097 Q12 values survive the user-facing 3-decimal percent editor and return to the original Q12 value. Both `tools/validate.ps1` and `tools/validate.sh` run this check alongside the partition, native and firmware gates.
 
 WebUiProtocol is pure C++ and participates in the native PlatformIO gate.
 
@@ -406,7 +414,7 @@ Native contracts cover:
 The lwIP socket service itself is compiled only by the full ESP32-C6 firmware
 build.
 
-Stage 44 must not be treated as validated until the full local validation passes:
+Stage 44.1 must not be treated as validated until the full local validation passes:
 
     tools/check_partition.py
     tools/check_web_ui.py
