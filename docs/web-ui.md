@@ -2,8 +2,9 @@
 
 ## Purpose
 
-The Stage 38 web surface remains LAN-only and bounded, but now includes the
-full LED topology/commissioning workflow and transient ToF live-debug tools.
+The Stage 43 web surface remains LAN-only and bounded. The correctness pass
+keeps the existing LED/ToF capabilities while aligning browser guards,
+action acknowledgement and topology commissioning with the current runtime.
 
 It intentionally does not add:
 
@@ -130,10 +131,11 @@ The web UI does not weaken existing guards.
 
 LED topology:
 
-    brightness = 0
     COUNT 1..230
     GPIO one of 18/19/20/21, unique
     REV 0/1
+    active LED commissioning is cancelled before a topology transaction
+    controller performs the safety blackout and restores brightness automatically
 
 Factory reset:
 
@@ -177,6 +179,8 @@ Rows are always:
     LEFT
 
 The UI also displays the resulting total logical LEDs and DDP RGB byte count.
+Topology Apply/Reset no longer requires the user to set brightness to zero:
+the backend owns the controlled blackout transaction and remains authoritative.
 
 Two probe modes are available:
 
@@ -282,7 +286,8 @@ The compact status endpoint includes:
 - firmware version/stage
 - correction mode and brightness
 - Wi-Fi state, SSID, IP and RSSI
-- DDP state and active sender
+- DDP state, active sender and age of the most recent complete frame
+- output idle-blackout state
 - ToF state/age/zones/median
 - plane yaw/pitch/accepted zones
 - perimeter min/max distance and fail-open state
@@ -292,7 +297,7 @@ The compact status endpoint includes:
 - per-segment disabled-pixel mask
 - normalized 8x8 ToF debug grid and raw zone ids
 - ToF debug session state/remaining time
-- commissioning state
+- commissioning state, active range target and runtime maximum test brightness
 - calibration state/result
 - shadow probe state
 - latest web action result
@@ -391,7 +396,7 @@ Native contracts cover:
 The lwIP socket service itself is compiled only by the full ESP32-C6 firmware
 build.
 
-Stage 38 must not be treated as validated until both local gates pass:
+Stage 43 must not be treated as validated until both local gates pass:
 
     pio test -e native
     pio run -e esp32-c6-devkitc-1
