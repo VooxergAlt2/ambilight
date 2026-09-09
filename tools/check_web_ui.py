@@ -50,6 +50,10 @@ REQUIRED_TOKENS = {
     "pendingActionId",
     "sourceLabel(",
     "gainPercent(",
+    "function actionSequenceAfter(",
+    "function tofOperationalStatus(",
+    "function spatialNumber(",
+    "wifiOpen",
 }
 
 FORBIDDEN_TOKENS = {
@@ -57,6 +61,8 @@ FORBIDDEN_TOKENS = {
     "s.output.brightness<=64",
     "Distance → gain Q12",
     "Clear NVS Wi-Fi",
+    "function f1(",
+    "post('/api/wifi',$('ssid').value+'|'+p",
 }
 
 
@@ -66,104 +72,92 @@ VOID_TAGS = {"input", "meta", "br", "img", "hr", "link"}
 
 
 def check_tag_balance(html: str) -> None:
-    """Lightweight open/close tag balance check.
+    """Validate static HTML nesting without adding an HTML dependency.
 
-    This is deliberately not an HTML parser: it only counts `<name` versus
-    `</name` occurrences per tag. That is enough to catch a copy/paste or
-    edit mistake (an unclosed <div>, a stray </section>) without pulling in
-    an HTML parsing dependency. The embedded <script> body is excluded
-    first, because JS comparison operators such as `i<ids.length` or
-    `a<b` would otherwise be misread as tag opens.
+    The embedded JavaScript body is removed first because comparison operators
+    can look tag-shaped to a lightweight tokenizer. Void elements are ignored;
+    every other closing tag must match the most recently opened tag.
     """
 
     script_start = html.find("<script>")
     script_close = html.find("</script>")
 
     if script_start < 0 or script_close < 0:
-        fail("cannot isolate <script> body for tag-balance check")
+        fail("cannot isolate <script> body for tag-nesting check")
 
-    # Keep both the opening and closing <script> tags themselves (they are
-    # real markup and already balance each other 1:1); drop only the JS
-    # source between them, since it is full of bare `<` comparisons that a
-    # tag-shaped regex would otherwise misread as markup.
     markup = (
-        html[:script_start] +
-        "<script></script>" +
-        html[script_close + len("</script>"):]
+        html[:script_start]
+        + "<script></script>"
+        + html[script_close + len("</script>"):]
     )
 
-    opens: Counter[str] = Counter()
-    closes: Counter[str] = Counter()
+    stack: list[str] = []
 
-    for is_close, name in re.findall(
-        r"<(/?)([a-zA-Z][a-zA-Z0-9]*)\b",
+    for match in re.finditer(
+        r"<(/?)([a-zA-Z][a-zA-Z0-9]*)\b[^>]*>",
         markup,
     ):
-        tag = name.lower()
+        is_close = bool(match.group(1))
+        tag = match.group(2).lower()
 
-        if is_close:
-            closes[tag] += 1
-        else:
-            opens[tag] += 1
+        if tag in VOID_TAGS:
+            if is_close:
+                fail(f"void element has a stray close tag: {tag}")
+            continue
 
-    mismatched = sorted(
-        tag for tag in set(opens) | set(closes)
-        if tag not in VOID_TAGS and opens[tag] != closes[tag]
-    )
+        if not is_close:
+            stack.append(tag)
+            continue
 
-    if mismatched:
-        fail(
-            "unbalanced static HTML tag(s): " +
-            ", ".join(
-                f"{tag} (open={opens[tag]}, close={closes[tag]})"
-                for tag in mismatched
+        if not stack:
+            fail(f"stray closing tag: {tag}")
+
+        expected = stack.pop()
+
+        if expected != tag:
+            fail(
+                "mis-nested static HTML: "
+                f"expected </{expected}> before </{tag}>"
             )
-        )
 
-    stray_void_closes = sorted(
-        tag for tag in VOID_TAGS
-        if closes[tag] > 0
-    )
-
-    if stray_void_closes:
+    if stack:
         fail(
-            "void element(s) with a stray close tag: " +
-            ", ".join(stray_void_closes)
+            "unclosed static HTML tag(s): "
+            + ", ".join(stack)
         )
-
 
 def check_q12_gain_roundtrip() -> None:
-    """Every integer Q12 gain (0..4096) must survive display and re-entry.
+    """Prove that the 3-decimal percent editor preserves all Q12 values.
 
-    Reimplements the exact two functions the page uses to move between the
-    runtime Q12 contract and the user-facing percent field:
-
-        gainPercent(q) = (q*100/4096).toFixed(3), trailing zeros trimmed
-        applyCurve()   = Math.round(percent*4096/100)
-
-    toFixed(3) and Math.round both operate on the IEEE-754 double already
-    produced by q*100/4096; Python's `format(x, ".3f")` on the same double
-    performs the same round-half-away-from-zero rounding for this value
-    range, so this is a faithful, dependency-free stand-in for running the
-    real JS engine. (Cross-checked once against an actual browser JS
-    engine over all 4097 values during the Stage 44 audit: 0 mismatches.)
+    For q in 0..4096, q*100/4096 is exactly representable as a binary float
+    because the reduced denominator is a power of two. JavaScript toFixed(3)
+    therefore rounds the exact positive value to the nearest 0.001 percent,
+    with half values rounded upward. Math.round() is modelled the same way
+    using integer arithmetic, avoiding Python's different tie-breaking rules.
     """
 
     errors = []
 
     for q in range(0, 4097):
-        percent_exact = q * 100 / 4096
-        percent_displayed = float(
-            format(percent_exact, ".3f")
-        )
+        numerator = q * 100_000
+        displayed_milli_percent = (
+            numerator * 2 + 4096
+        ) // (2 * 4096)
 
-        q_back = round(
-            percent_displayed * 4096 / 100
+        reconstruction_numerator = (
+            displayed_milli_percent * 4096
         )
+        q_back = (
+            reconstruction_numerator * 2 + 100_000
+        ) // (2 * 100_000)
 
         if q_back != q:
             errors.append(
-                (q, percent_displayed, q_back)
+                (
+                    q,
+                    displayed_milli_percent,
+                    q_back,
+                )
             )
 
     if errors:
@@ -171,7 +165,6 @@ def check_q12_gain_roundtrip() -> None:
             "Q12<->percent round-trip mismatch for "
             f"{len(errors)} value(s), first: {errors[0]}"
         )
-
 
 def fail(message: str) -> None:
     print(f"Web UI check FAILED: {message}", file=sys.stderr)
