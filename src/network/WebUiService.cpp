@@ -499,14 +499,15 @@ function render(s){
   txt('stCorr',corrNames[s.output.correction]||'?');
   txt('stBright',Math.round(s.output.brightness*100/255)+'%');
   const signalFresh=s.ddp.has_frame&&s.ddp.frame_age_ms<=1000;
-  txt('stDdp',!s.ddp.running?'ВЫКЛ.':(signalFresh?'ПОЛУЧАЕМ':(s.output.idle_blanked?'НЕТ СИГНАЛА':'ОЖИДАНИЕ')));
+  txt('stDdp',!s.ddp.running?'ВЫКЛ.':(signalFresh?'ПОЛУЧАЕМ':(s.output.frame_held?'УДЕРЖАНИЕ':'ОЖИДАНИЕ')));
   txt('stTof',tofOperationalStatus(s.tof));
   [0,1,2].forEach(i=>$('corr'+i).classList.toggle('primary',s.output.correction===i));
   setv('brightness',s.output.brightness);txt('brightnessValue',brightnessLabel(s.output.brightness));
   let home='Подсветка '+(s.output.brightness===0?'выключена':'готова')+'. ';
   if(s.commissioning.pattern)home+='Пусконаладочный тест: '+commissioningText(s.commissioning)+'. ';
   else if(signalFresh)home+='Сигнал ПК поступает, последний кадр '+s.ddp.frame_age_ms+' мс назад. ';
-  else home+=s.output.idle_blanked?'Сигнала ПК нет, физический вывод погашен. ':'Ожидаем кадры от ПК. ';
+  else if(s.output.frame_held)home+='Новых кадров нет, удерживается последний успешно показанный кадр ('+s.ddp.frame_age_ms+' мс). ';
+  else home+='Ожидаем первый кадр от ПК. ';
   home+='Коррекция: '+(corrNames[s.output.correction]||'?')+'.';
   txt('homeStatus',home);
   txt('testState',commissioningText(s.commissioning));
@@ -539,7 +540,7 @@ function render(s){
   const wifiRssi=s.wifi.connected?(' · RSSI '+s.wifi.rssi+' dBm'):'';
   txt('wifiState',wifiMode+' · '+(s.wifi.ip||'без IP')+wifiRssi+' · '+(s.wifi.ssid||'SSID не задан'));
   setv('ssid',s.wifi.ssid||'');
-  txt('diag',`DDP: running=${s.ddp.running} frames=${s.ddp.frames} publications=${s.ddp.publications}\nlast frame: ${s.ddp.has_frame?s.ddp.frame_age_ms+' ms':'none'} · idle blackout=${s.output.idle_blanked}\nsender: ${s.ddp.sender_locked?(s.ddp.sender_ip+':'+s.ddp.sender_port):'none'}\nToF: state=${s.tof.state} age=${s.tof.age_ms} ms valid=${s.tof.valid_zones}/64 plane=${s.tof.plane_valid}\npersistence: ${s.persistence?'available':'unavailable'}\nheap free/min: ${s.heap.free}/${s.heap.min} B\nweb requests/actions/dropped/bad: ${s.web.requests}/${s.web.actions}/${s.web.dropped}/${s.web.bad}`);
+  txt('diag',`DDP: running=${s.ddp.running} frames=${s.ddp.frames} publications=${s.ddp.publications}\nlast frame: ${s.ddp.has_frame?s.ddp.frame_age_ms+' ms':'none'} · frame hold=${s.output.frame_held}\nsender: ${s.ddp.sender_locked?(s.ddp.sender_ip+':'+s.ddp.sender_port):'none'}\nToF: state=${s.tof.state} age=${s.tof.age_ms} ms valid=${s.tof.valid_zones}/64 plane=${s.tof.plane_valid}\npersistence: ${s.persistence?'available':'unavailable'}\nheap free/min: ${s.heap.free}/${s.heap.min} B\nweb requests/actions/dropped/bad: ${s.web.requests}/${s.web.actions}/${s.web.dropped}/${s.web.bad}`);
   $('factory').disabled=s.output.brightness!==0;
 }
 async function refresh(){
@@ -1098,13 +1099,13 @@ bool WebUiService::buildStatusResponse(
     writer.appendf(
         "\"brightness\":%u,"
         "\"correction\":%u,"
-        "\"idle_blanked\":%s",
+        "\"frame_held\":%s",
         static_cast<unsigned>(
             snapshot.brightness),
         static_cast<unsigned>(
             snapshot.correctionMode),
         boolJson(
-            snapshot.outputIdleBlanked));
+            snapshot.outputFrameHeld));
 
     writer.append(
         "},\"wifi\":{");
