@@ -51,7 +51,6 @@ constexpr std::uint32_t kStatusIntervalMs = 30000;
 constexpr std::uint64_t kGainTargetPollIntervalUs = 1000000;
 constexpr std::uint64_t kRenderDiagnosticsIntervalUs = 100000;
 constexpr std::uint64_t kCommissioningDurationUs = 120000000ULL;
-constexpr std::uint8_t kCommissioningMaxBrightness = 255;
 constexpr std::uint64_t kTofDebugDurationUs = 60000000ULL;
 
 ambilight::LedEngine ledEngine;
@@ -146,6 +145,10 @@ bool fillWebUiSnapshot(
     ambilight::WebUiSnapshot& snapshot);
 void handleWebUiAction(
     ambilight::WebUiActionEvent event);
+void finishCommissioning(
+    std::uint64_t nowUs,
+    bool cancelled,
+    const char* reason);
 
 void dumpRuntimeStatus();
 
@@ -800,6 +803,26 @@ bool applyLedMappingProfile(
     const ambilight::LedMappingProfile previous =
         runtimeSettings.
             ledMappingProfile();
+
+    if (commissioningPattern !=
+        ambilight::LedCommissioningPattern::None) {
+
+        finishCommissioning(
+            static_cast<std::uint64_t>(
+                esp_timer_get_time()),
+            true,
+            "topology change");
+    }
+
+    if (commissioningPattern !=
+        ambilight::LedCommissioningPattern::None) {
+
+        finishCommissioning(
+            static_cast<std::uint64_t>(
+                esp_timer_get_time()),
+            true,
+            "topology reset");
+    }
 
     LedTopologyOutputGuard outputGuard;
 
@@ -1858,12 +1881,12 @@ void startCommissioning(
 
     if (brightness == 0 ||
         brightness >
-            kCommissioningMaxBrightness) {
+            ambilight::config::kCommissioningMaxBrightness) {
 
         Serial.printf(
             "LED TEST refused: set brightness to 1..%u first. Current=%u.\n",
             static_cast<unsigned>(
-                kCommissioningMaxBrightness),
+                ambilight::config::kCommissioningMaxBrightness),
             static_cast<unsigned>(
                 brightness));
         return;
@@ -2023,7 +2046,7 @@ bool commissioningBrightnessSafe() {
     return
         brightness > 0 &&
         brightness <=
-            kCommissioningMaxBrightness;
+            ambilight::config::kCommissioningMaxBrightness;
 }
 
 bool startLogicalRangeCommissioning(
@@ -2035,7 +2058,7 @@ bool startLogicalRangeCommissioning(
         Serial.printf(
             "LED RANGE refused: brightness must be 1..%u.\n",
             static_cast<unsigned>(
-                kCommissioningMaxBrightness));
+                ambilight::config::kCommissioningMaxBrightness));
         return false;
     }
 
@@ -2100,7 +2123,7 @@ bool startRawGpioCommissioning(
         Serial.printf(
             "GPIO TEST refused: brightness must be 1..%u.\n",
             static_cast<unsigned>(
-                kCommissioningMaxBrightness));
+                ambilight::config::kCommissioningMaxBrightness));
         return false;
     }
 
@@ -2233,7 +2256,7 @@ bool serviceCommissioning(
 
     if (brightness == 0 ||
         brightness >
-            kCommissioningMaxBrightness) {
+            ambilight::config::kCommissioningMaxBrightness) {
 
         finishCommissioning(
             nowUs,
@@ -3907,7 +3930,7 @@ void handleWebUiAction(
 
         if (brightness == 0 ||
             brightness >
-                kCommissioningMaxBrightness) {
+                ambilight::config::kCommissioningMaxBrightness) {
 
             message =
                 "LED test requires brightness 1..255.";
