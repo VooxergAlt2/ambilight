@@ -814,16 +814,6 @@ bool applyLedMappingProfile(
             "topology change");
     }
 
-    if (commissioningPattern !=
-        ambilight::LedCommissioningPattern::None) {
-
-        finishCommissioning(
-            static_cast<std::uint64_t>(
-                esp_timer_get_time()),
-            true,
-            "topology reset");
-    }
-
     LedTopologyOutputGuard outputGuard;
 
     if (!quiesceLedOutputForTopologyChange(
@@ -920,6 +910,16 @@ bool resetLedMappingProfile() {
             ledMappingProfile();
 
     const ambilight::LedMappingProfile profile;
+
+    if (commissioningPattern !=
+        ambilight::LedCommissioningPattern::None) {
+
+        finishCommissioning(
+            static_cast<std::uint64_t>(
+                esp_timer_get_time()),
+            true,
+            "topology reset");
+    }
 
     LedTopologyOutputGuard outputGuard;
 
