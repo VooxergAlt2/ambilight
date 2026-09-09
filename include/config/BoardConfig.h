@@ -34,4 +34,9 @@ constexpr std::uint8_t kTofSclGpio = 7;
 // without rebuilding firmware.
 constexpr std::uint8_t kDefaultOutputBrightness = 32;
 
+// Commissioning patterns deliberately cap physical output below the normal
+// runtime range. Keep this in shared configuration so serial, web status and
+// runtime guards cannot drift apart.
+constexpr std::uint8_t kCommissioningMaxBrightness = 64;
+
 } // namespace ambilight::config
