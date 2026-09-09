@@ -39,6 +39,8 @@ REQUIRED_IDS = {
     "tofGrid",
     "mapping",
     "pixelMask",
+    "wifiOpen",
+    "probeStart",
 }
 
 REQUIRED_TOKENS = {
@@ -255,7 +257,7 @@ def main() -> None:
         "Web UI check OK: "
         f"{len(ids)} static IDs, "
         f"{len(html)} embedded HTML characters, "
-        "tag balance OK, Q12 round-trip OK (4097/4097)"
+        "tag nesting OK, Q12 round-trip OK (4097/4097)"
     )
 
 
