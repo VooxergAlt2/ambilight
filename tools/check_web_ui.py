@@ -17,6 +17,7 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "src" / "network" / "WebUiService.cpp"
+MAIN = ROOT / "src" / "main.cpp"
 
 START = 'R"HTML('
 END = ')HTML";'
@@ -56,6 +57,7 @@ REQUIRED_TOKENS = {
     "function tofOperationalStatus(",
     "function spatialNumber(",
     "wifiOpen",
+    "frame_held",
 }
 
 FORBIDDEN_TOKENS = {
@@ -65,8 +67,23 @@ FORBIDDEN_TOKENS = {
     "Clear NVS Wi-Fi",
     "function f1(",
     "post('/api/wifi',$('ssid').value+'|'+p",
+    "idle_blanked",
 }
 
+
+REQUIRED_MAIN_TOKENS = {
+    "kFrameHoldNoticeUs",
+    "bool frameHoldActive(",
+    "snapshot.outputFrameHeld",
+    "last successfully shown physical state",
+}
+
+FORBIDDEN_MAIN_TOKENS = {
+    "kIdleBlackoutUs",
+    "serviceIdleBlackout(",
+    "idleBlanked",
+    "idleBlackouts",
+}
 
 
 # Void HTML elements never carry a matching close tag.
@@ -175,6 +192,29 @@ def fail(message: str) -> None:
 
 def main() -> None:
     text = SOURCE.read_text(encoding="utf-8")
+    main_text = MAIN.read_text(encoding="utf-8")
+
+    missing_main = sorted(
+        token for token in REQUIRED_MAIN_TOKENS
+        if token not in main_text
+    )
+
+    if missing_main:
+        fail(
+            "missing frame-hold runtime contract token(s): "
+            + ", ".join(missing_main)
+        )
+
+    forbidden_main = sorted(
+        token for token in FORBIDDEN_MAIN_TOKENS
+        if token in main_text
+    )
+
+    if forbidden_main:
+        fail(
+            "obsolete idle-blackout runtime token(s) returned: "
+            + ", ".join(forbidden_main)
+        )
 
     start = text.find(START)
     if start < 0:
