@@ -97,6 +97,7 @@ button{cursor:pointer}button.primary{background:var(--accent);color:#fff;border-
 <div class="muted">Изменение яркости сохраняется при отпускании ползунка. Режим «Наблюдение» рассчитывает коррекцию, но не применяет её к LED.</div>
 <div id="homeStatus" class="callout" style="margin-top:12px">Ожидание данных…</div>
 </div>
+</div>
 </section>
 
 <section id="pageLed" class="page">
