@@ -4,12 +4,13 @@ Custom ESP32-C6 Ambilight endpoint for HyperHDR.
 
 ## Current development line
 
-Stage 44.1 is a hardening patch on top of the Stage 44 web-UI UX line. It keeps the realtime DDP/PARLIO/ToF pipeline unchanged while tightening Wi-Fi provisioning, action correlation, ToF/spatial validation, calibration consistency, autosave recovery and mobile presentation.
+Stage 45 adds last-frame hold on top of the Stage 44.1 UI-hardening line. If no new complete DDP frame arrives, firmware no longer synthesizes an idle black frame: the physical LEDs keep the last successfully shown state until a newer complete frame or an explicit control action changes it.
 
 The firmware stack now includes:
 
 - Wi-Fi/DDP runtime transport
 - one active DDP sender lease
+- transport-gap last-frame hold with no automatic idle blackout
 - NVS/serial Wi-Fi provisioning
 - runtime logical renderer with 920-LED static capacity
 - 4 synchronized PARLIO outputs
@@ -57,6 +58,8 @@ Port:
     UDP/4048
 
 The first structurally valid DDP sender acquires the stream lease.
+
+A partial, dropped or missing frame is never converted into black output. DDP publishes only complete frames; if no newer complete frame exists, the renderer receives no RGB mutation and the LED hardware continues showing the last successfully transmitted state. A legitimate complete all-black frame from HyperHDR is still rendered normally.
 
 Sender identity:
 
@@ -404,6 +407,20 @@ The command clears the complete `ambilight` NVS namespace and restarts only afte
 If NVS clear fails, runtime settings are left unchanged and the controller does not reboot.
 
 
+## Last-frame hold
+
+Normal playback uses a hold-last policy for DDP transport gaps.
+
+    complete DDP frame -> render newest frame
+    partial/missing frame -> no RGB render, keep physical LED state
+    later complete frame -> render immediately
+
+There is no runtime timeout that turns input silence into an artificial black frame. This avoids a visible one-frame blackout when a short network/assembler gap crosses the former 1-second idle threshold.
+
+This does **not** filter black video. A valid complete DDP frame containing black RGB is real source content and is rendered as black. Explicit brightness 0, topology safety blackout, commissioning behaviour and factory-reset blackout remain unchanged.
+
+The Web UI reports `frame_held=true` once the most recent complete frame is older than 1 second. That threshold is telemetry only and does not modify LED output.
+
 ## Render-state scheduling
 
 A cached HyperHDR frame is rerendered when output state changes even if no new RGB arrives.
@@ -477,7 +494,7 @@ reports:
 
 Current source identity:
 
-    ambilight-c6 0.44.1-dev Stage 44
+    ambilight-c6 0.45.0-dev Stage 45
     serial protocol 2
 
 Startup uses the same centralized FirmwareInfo constants instead of a handwritten stage banner.
