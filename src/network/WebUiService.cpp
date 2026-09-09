@@ -57,10 +57,10 @@ button{cursor:pointer}button.primary{background:var(--accent);color:#fff;border-
 <header><div><h1>Ambilight C6</h1><div id="fw" class="muted mono">connecting…</div></div><div class="muted">LAN control · HTTP/80</div></header>
 
 <section class="cards">
-<div class="card"><span class="muted">Correction</span><b id="stCorr">—</b></div>
-<div class="card"><span class="muted">Brightness</span><b id="stBright">—</b></div>
-<div class="card"><span class="muted">DDP</span><b id="stDdp">—</b></div>
-<div class="card"><span class="muted">ToF</span><b id="stTof">—</b></div>
+<div class="card"><span class="muted">Коррекция ToF</span><b id="stCorr">—</b></div>
+<div class="card"><span class="muted">Яркость</span><b id="stBright">—</b></div>
+<div class="card"><span class="muted">Сигнал ПК</span><b id="stDdp">—</b></div>
+<div class="card"><span class="muted">Датчик ToF</span><b id="stTof">—</b></div>
 </section>
 <div id="action" class="muted"></div>
 
@@ -68,9 +68,9 @@ button{cursor:pointer}button.primary{background:var(--accent);color:#fff;border-
 <summary>Основное</summary>
 <div class="section">
 <div class="row">
-<button onclick="post('/api/correction','0')">Disabled</button>
-<button onclick="post('/api/correction','1')">Shadow</button>
-<button class="primary" onclick="post('/api/correction','2')">Active</button>
+<button id="corr0" onclick="post('/api/correction','0')">Выкл.</button>
+<button id="corr1" onclick="post('/api/correction','1')">Наблюдение</button>
+<button id="corr2" onclick="post('/api/correction','2')">Включена</button>
 </div>
 <div class="row">
 <label>Brightness</label>
@@ -89,7 +89,7 @@ button{cursor:pointer}button.primary{background:var(--accent);color:#fff;border-
 <div id="topologyInfo" class="muted mono"></div>
 <div class="row">
 <button id="mapApply" class="primary" onclick="applyMap()">Apply topology</button>
-<button id="mapReset" onclick="post('/api/led-map','reset')">Default 230/160/230/160</button>
+<button id="mapReset" onclick="resetMap()">Default 230/160/230/160</button>
 </div>
 <div class="muted">COUNT 1..230. GPIO только 18/19/20/21, каждый выход используется один раз. При сохранении контроллер автоматически выполняет короткий safety blackout, применяет topology и восстанавливает текущую brightness.</div>
 
@@ -129,7 +129,7 @@ button{cursor:pointer}button.primary{background:var(--accent);color:#fff;border-
 <div id="pixelMask"></div>
 <div class="row">
 <button class="primary" onclick="applyPixelMask()">Apply mask</button>
-<button onclick="post('/api/pixel-mask','reset')">Clear mask</button>
+<button onclick="resetPixelMask()">Clear mask</button>
 <span id="maskSource" class="muted"></span>
 </div>
 <div class="muted">По одному пикселю на сторону. Пусто = не отключать. Индекс считается от logical START.</div>
@@ -173,7 +173,7 @@ button{cursor:pointer}button.primary{background:var(--accent);color:#fff;border-
 </div>
 <div class="row">
 <button id="spApply" class="primary" onclick="applySpatial()">Apply spatial</button>
-<button id="spReset" onclick="post('/api/spatial','reset')">Default</button>
+<button id="spReset" onclick="resetSpatial()">Default</button>
 <span id="spSource" class="muted"></span>
 </div>
 
@@ -181,7 +181,7 @@ button{cursor:pointer}button.primary{background:var(--accent);color:#fff;border-
 <textarea id="curve" spellcheck="false" placeholder="50:2048,500:3072,4000:4096"></textarea>
 <div class="row">
 <button id="curveApply" class="primary" onclick="applyCurve()">Apply curve</button>
-<button id="curveReset" onclick="post('/api/curve','reset')">Neutral default</button>
+<button id="curveReset" onclick="resetCurve()">Neutral default</button>
 <span id="curveSource" class="muted"></span>
 </div>
 
@@ -225,48 +225,79 @@ button{cursor:pointer}button.primary{background:var(--accent);color:#fff;border-
 </main>
 <script>
 const $=id=>document.getElementById(id);
-let lastAction=0,refreshing=false,tofDebugUiActive=false,selectedTofZone=27;
-const corrNames=['DISABLED','SHADOW','ACTIVE'];
+let pendingActionId=0,pendingDirtyIds=[],posting=false,refreshing=false,tofDebugUiActive=false,selectedTofZone=27,activeMap=null;
+const corrNames=['ВЫКЛ.','НАБЛЮДЕНИЕ','ВКЛЮЧЕНА'];
 const mapNames=['TOP','RIGHT','BOTTOM','LEFT'];
 function txt(id,v){$(id).textContent=v}
 function setv(id,v){const e=$(id);if(!e.dataset.dirty)e.value=v}
-function clean(ids){ids.forEach(id=>{delete $(id).dataset.dirty})}
+function clean(ids){ids.forEach(id=>{const e=$(id);if(e)delete e.dataset.dirty})}
 function markDirty(){document.querySelectorAll('input,select,textarea').forEach(e=>{if(e.dataset.bound)return;e.dataset.bound='1';e.addEventListener('input',()=>e.dataset.dirty='1')})}
 function src(custom,persisted){return custom?(persisted?'CUSTOM_NVS':'CUSTOM_RUNTIME'):'DEFAULT'}
-async function post(path,body){
-  txt('action','sending…');$('action').className='muted';
+function actionError(message){txt('action',message);$('action').className='bad';return false}
+async function post(path,body,dirtyIds=[]){
+  if(posting||pendingActionId)return actionError('Дождитесь завершения предыдущего действия.');
+  posting=true;txt('action','Отправляем…');$('action').className='muted';
   try{
     const r=await fetch(path,{method:'POST',headers:{'X-Ambilight-Control':'1'},body:String(body)});
     const j=await r.json();
     if(!r.ok)throw new Error(j.error||('HTTP '+r.status));
-    lastAction=j.queued||lastAction;
-    setTimeout(refresh,180);
-  }catch(e){txt('action',e.message);$('action').className='bad'}
+    const queued=Number(j.queued||0);
+    if(!queued)throw new Error('controller did not return action id');
+    pendingActionId=queued;pendingDirtyIds=[...dirtyIds];
+    txt('action','Применяем…');$('action').className='muted';
+    setTimeout(refresh,120);
+    return true;
+  }catch(e){actionError(e.message);return false}
+  finally{posting=false}
 }
-function applyMap(){
-  const p=[];
-  for(let i=0;i<4;i++)p.push($('count'+i).value+':'+$('gpio'+i).value+':'+($('rev'+i).checked?'1':'0'));
-  clean([...Array(4)].flatMap((_,i)=>['count'+i,'gpio'+i,'rev'+i]));
-  post('/api/led-map',p.join(','));
+function mapFieldIds(){return [...Array(4)].flatMap((_,i)=>['count'+i,'gpio'+i,'rev'+i])}
+function validateMap(){
+  const gpios=[],p=[];
+  for(let i=0;i<4;i++){
+    const count=Number($('count'+i).value),gpio=Number($('gpio'+i).value);
+    if(!Number.isInteger(count)||count<1||count>230)return actionError(mapNames[i]+': количество LED должно быть 1..230.');
+    if(![18,19,20,21].includes(gpio))return actionError(mapNames[i]+': допустимы только GPIO18/19/20/21.');
+    if(gpios.includes(gpio))return actionError('GPIO'+gpio+' назначен более чем одной стороне.');
+    gpios.push(gpio);p.push(count+':'+gpio+':'+($('rev'+i).checked?'1':'0'));
+  }
+  return p;
 }
+function applyMap(){const p=validateMap();if(!p)return;post('/api/led-map',p.join(','),mapFieldIds())}
+function resetMap(){post('/api/led-map','reset',mapFieldIds())}
 function runLogicalRange(){post('/api/test','side:'+$('rangeSide').value+':'+$('rangeStart').value+':'+$('rangeCount').value)}
-function runWholeSide(){const i=Number($('rangeSide').value);$('rangeStart').value=0;$('rangeCount').value=$('count'+i).value;runLogicalRange()}
+function runWholeSide(){
+  const i=Number($('rangeSide').value);
+  if(!activeMap||!activeMap.segments||!activeMap.segments[i])return actionError('Активная topology ещё не загружена.');
+  $('rangeStart').value=0;$('rangeCount').value=activeMap.segments[i][0];runLogicalRange()
+}
 function runRawRange(){post('/api/test','gpio:'+$('rawGpio').value+':'+$('rawStart').value+':'+$('rawCount').value)}
+function maskFieldIds(){return [0,1,2,3].map(i=>'mask'+i)}
 function applyPixelMask(){
-  const ids=[0,1,2,3].map(i=>'mask'+i);
-  const p=ids.map(id=>{const v=$(id).value.trim();return v===''?'-':v});
-  clean(ids);post('/api/pixel-mask',p.join(','));
+  const ids=maskFieldIds(),p=[];
+  for(let i=0;i<ids.length;i++){
+    const raw=$(ids[i]).value.trim();
+    if(raw===''){p.push('-');continue}
+    const value=Number(raw),max=activeMap&&activeMap.segments?activeMap.segments[i][0]-1:Number($(ids[i]).max);
+    if(!Number.isInteger(value)||value<0||value>max)return actionError(mapNames[i]+': индекс отключённого LED должен быть 0..'+max+'.');
+    p.push(String(value));
+  }
+  post('/api/pixel-mask',p.join(','),ids)
 }
+function resetPixelMask(){post('/api/pixel-mask','reset',maskFieldIds())}
 function f1(v){const n=Number(v);return Number.isFinite(n)?n.toFixed(1):'0.0'}
+function spatialFieldIds(){return ['spW','spH','spX','spY','spZ','spR','spM','spD']}
 function applySpatial(){
-  const ids=['spW','spH','spX','spY','spZ','spR','spM','spD'];
+  const ids=spatialFieldIds();
   const p=[f1($('spW').value),f1($('spH').value),f1($('spX').value),f1($('spY').value),f1($('spZ').value),$('spR').value,$('spM').value,f1($('spD').value)];
-  clean(ids);post('/api/spatial',p.join(','));
+  post('/api/spatial',p.join(','),ids)
 }
-function applyCurve(){clean(['curve']);post('/api/curve',$('curve').value.trim())}
-function applyWifi(){const p=$('wifiPass').value;post('/api/wifi',$('ssid').value+'|'+p);$('wifiPass').value='';delete $('wifiPass').dataset.dirty}
+function resetSpatial(){post('/api/spatial','reset',spatialFieldIds())}
+function applyCurve(){post('/api/curve',$('curve').value.trim(),['curve'])}
+function resetCurve(){post('/api/curve','reset',['curve'])}
+function applyWifi(){const p=$('wifiPass').value;post('/api/wifi',$('ssid').value+'|'+p,['ssid']);$('wifiPass').value='';delete $('wifiPass').dataset.dirty}
 function factoryReset(){if(confirm('Стереть всю конфигурацию Ambilight и перезагрузить контроллер?'))post('/api/factory','reset')}
 function renderMap(m){
+  activeMap=m;
   if(!$('mapping').children.length){
     mapNames.forEach((n,i)=>{$('mapping').insertAdjacentHTML('beforeend',`<div class="seg"><b>${n}</b><input id="count${i}" type="number" min="1" max="230" step="1"><select id="gpio${i}"><option>18</option><option>19</option><option>20</option><option>21</option></select><label><input id="rev${i}" type="checkbox"> reverse</label></div>`)});
     markDirty();
@@ -323,19 +354,35 @@ function calibrationText(c){
   if(s.spatial_valid)t+=`\nwall min: ${s.min.join('/')} mm\nwall max: ${s.max.join('/')} mm\nsegments med start/end: ${s.segments.map((x,i)=>mapNames[i]+' '+x[0]+'/'+x[1]).join(', ')}`;
   return t;
 }
+function commissioningText(c){
+  if(!c.pattern)return 'Тест не запущен';
+  const left=' · '+Math.ceil(c.remaining_ms/1000)+' с';
+  if(c.pattern===1)return 'Все стороны'+left;
+  if(c.pattern===2)return 'Проверка направления'+left;
+  if(c.pattern===3)return (mapNames[c.side]||('side '+c.side))+' · LED '+c.start+'..'+(c.start+c.count-1)+left;
+  if(c.pattern===4)return 'GPIO'+c.gpio+' · LED '+c.start+'..'+(c.start+c.count-1)+left;
+  return 'Тест '+c.pattern+left;
+}
 function render(s){
+  if(pendingActionId&&s.action.id===pendingActionId){
+    if(s.action.ok)clean(pendingDirtyIds);
+    txt('action',s.action.msg||(s.action.ok?'ok':'failed'));$('action').className=s.action.ok?'ok':'bad';
+    pendingActionId=0;pendingDirtyIds=[];
+  }
   txt('fw',s.fw.version+' · Stage '+s.fw.stage+' · '+s.fw.target);
   txt('stCorr',corrNames[s.output.correction]||'?');
-  txt('stBright',s.output.brightness+'/255');
-  txt('stDdp',s.ddp.running?(s.ddp.sender_locked?'locked':'ready'):'off');
+  txt('stBright',Math.round(s.output.brightness*100/255)+'%');
+  const signalFresh=s.ddp.has_frame&&s.ddp.frame_age_ms<=1000;
+  txt('stDdp',!s.ddp.running?'ВЫКЛ.':(signalFresh?'ПОЛУЧАЕМ':(s.output.idle_blanked?'НЕТ СИГНАЛА':'ОЖИДАНИЕ')));
   txt('stTof',s.tof.available?(s.tof.state+(s.tof.gain_fail_open?' · unity':'')):'unavailable');
+  [0,1,2].forEach(i=>$('corr'+i).classList.toggle('primary',s.output.correction===i));
   setv('brightness',s.output.brightness);txt('brightnessValue',s.output.brightness);
-  txt('testState','pattern '+s.commissioning.pattern+' · '+Math.ceil(s.commissioning.remaining_ms/1000)+' s');
-  const safeTest=s.output.brightness>0&&s.output.brightness<=64;
+  txt('testState',commissioningText(s.commissioning));
+  const testMax=Number(s.commissioning.max_brightness||0);
+  const safeTest=s.output.brightness>0&&testMax>0&&s.output.brightness<=testMax;
   $('testSegments').disabled=!safeTest;$('testDirection').disabled=!safeTest;$('runLogical').disabled=!safeTest;$('runWhole').disabled=!safeTest;$('runRaw').disabled=!safeTest;
   renderMap(s.map);
   renderPixelMask(s.pixel_mask,s.map);
-  $('mapApply').disabled=s.output.brightness!==0;$('mapReset').disabled=s.output.brightness!==0;
   const sp=s.spatial;
   renderTofGrid(s.tof,sp);
   $('tofDebugStart').disabled=s.output.correction===2||s.tof.debug_active;
@@ -352,8 +399,6 @@ function render(s){
   setv('ssid',s.wifi.ssid||'');
   txt('diag',`DDP frames ${s.ddp.frames} · publications ${s.ddp.publications}\nsender ${s.ddp.sender_locked?(s.ddp.sender_ip+':'+s.ddp.sender_port):'none'}\npersistence ${s.persistence?'available':'unavailable'}\nheap free/min ${s.heap.free}/${s.heap.min} B\nweb requests/actions/dropped/bad ${s.web.requests}/${s.web.actions}/${s.web.dropped}/${s.web.bad}`);
   $('factory').disabled=s.output.brightness!==0;
-  if(s.action.id&&s.action.id!==lastAction){lastAction=s.action.id}
-  if(s.action.id===lastAction&&s.action.id){txt('action',s.action.msg|| (s.action.ok?'ok':'failed'));$('action').className=s.action.ok?'ok':'bad'}
 }
 async function refresh(){
   if(refreshing)return;refreshing=true;
@@ -362,7 +407,7 @@ async function refresh(){
   finally{refreshing=false}
 }
 $('brightness').addEventListener('input',e=>txt('brightnessValue',e.target.value));
-$('brightness').addEventListener('change',e=>{clean(['brightness']);post('/api/brightness',e.target.value)});
+$('brightness').addEventListener('change',e=>post('/api/brightness',e.target.value,['brightness']));
 markDirty();refresh();setInterval(()=>{if(tofDebugUiActive)refresh()},1000);setInterval(()=>{if(!tofDebugUiActive)refresh()},2000);
 </script>
 </body>
