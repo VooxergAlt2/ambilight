@@ -2,7 +2,7 @@
 
 ## Purpose
 
-The Stage 44.1 web surface remains LAN-only and bounded. It hardens the Stage 44 UX without changing DDP, PARLIO, renderer or ToF algorithms.
+The Stage 45 web surface remains LAN-only and bounded. Stage 45 keeps the Stage 44.1 hardening and changes only the runtime policy for missing DDP complete frames: output now holds the last successfully shown frame instead of synthesizing an idle blackout.
 
 It intentionally does not add:
 
@@ -298,6 +298,7 @@ The compact status endpoint includes:
 - correction mode and brightness
 - Wi-Fi state, SSID, IP and RSSI
 - DDP state, active sender and age of the most recent complete frame
+- frame-hold state when input silence is being bridged by the last successfully shown frame
 - output idle-blackout state
 - ToF state/age/zones/median
 - plane yaw/pitch/accepted zones
@@ -321,6 +322,16 @@ Saved Wi-Fi password is never returned. Because the password field is intentiona
 ## Operational-state hardening
 
 Stage 44.1 treats controller state as authoritative rather than trusting the last click. The brightness slider is locked while an action is in flight and rolls back to controller state after an immediate/confirmed failure. Temporary status-poll failures clear after communication recovers. ToF summary cards distinguish startup/error/fail-open states, and an old 8x8 snapshot is visually marked as stale whenever the sensor is not actively ranging.
+
+## DDP transport-gap hold
+
+The renderer only receives new RGB when DDP publishes a complete frame.
+
+Stage 45 removes the former 1-second idle-blackout mutation. If an input frame is partial, dropped, delayed or otherwise never completes, no replacement black frame is generated. The physical LED driver therefore keeps the previous successfully shown state until the next complete DDP frame arrives.
+
+The `frame_held` status flag becomes true after the last complete frame is older than 1 second. It is diagnostic only; it does not trigger a render and it does not impose a later blackout timeout.
+
+A complete all-black DDP frame remains authoritative source data and is rendered normally. Explicit output controls, topology safety blackout, commissioning and factory recovery are unaffected.
 
 ## LED colour order scope
 
@@ -414,7 +425,7 @@ Native contracts cover:
 The lwIP socket service itself is compiled only by the full ESP32-C6 firmware
 build.
 
-Stage 44.1 must not be treated as validated until the full local validation passes:
+Stage 45 must not be treated as validated until the full local validation passes:
 
     tools/check_partition.py
     tools/check_web_ui.py
