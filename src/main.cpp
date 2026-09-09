@@ -885,6 +885,8 @@ bool applyLedMappingProfile(
     restoreLedOutputAfterTopologyChange(
         outputGuard);
 
+    haveLastCalibrationSummary = false;
+
     Serial.printf(
         "LED TOPOLOGY applied; total=%u ddp_bytes=%u persisted=%s. Safety blackout completed automatically; brightness restored to %u. DDP sender lease reset; HyperHDR must use the same LED count.\n",
         static_cast<unsigned>(
@@ -995,6 +997,8 @@ bool resetLedMappingProfile() {
 
     restoreLedOutputAfterTopologyChange(
         outputGuard);
+
+    haveLastCalibrationSummary = false;
 
     Serial.printf(
         "LED TOPOLOGY reset to measured default; persisted=%s; brightness restored to %u.\n",
@@ -1274,6 +1278,7 @@ bool applySpatialProfile(
             profile);
 
     invalidateRenderedGainAfterSpatialChange();
+    haveLastCalibrationSummary = false;
 
     Serial.printf(
         "TOF SPATIAL profile applied; persisted=%s. Waiting for next valid pose rebuild.\n",
@@ -1324,6 +1329,7 @@ bool resetSpatialProfile() {
     }
 
     invalidateRenderedGainAfterSpatialChange();
+    haveLastCalibrationSummary = false;
 
     Serial.printf(
         "TOF SPATIAL profile reset to default; persisted=%s. Waiting for next valid pose rebuild.\n",
