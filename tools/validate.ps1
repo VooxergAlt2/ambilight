@@ -26,6 +26,21 @@ function Resolve-PlatformIo {
         }
     }
 
+    # The official PlatformIO installer (and the VS Code PlatformIO IDE
+    # extension) installs into a dedicated virtualenv rather than the
+    # system/py-launcher Python, so `pio` is frequently absent from PATH
+    # even though PlatformIO itself is fully installed. Check that known
+    # location before falling back to a bare `-m platformio`, which fails
+    # with "No module named platformio" against an unrelated interpreter.
+    $PenvPlatformIo = Join-Path $env:USERPROFILE ".platformio\penv\Scripts\platformio.exe"
+
+    if (Test-Path $PenvPlatformIo) {
+        return @{
+            Kind = "pio"
+            Command = $PenvPlatformIo
+        }
+    }
+
     if (Get-Command py -ErrorAction SilentlyContinue) {
         return @{
             Kind = "python-module"

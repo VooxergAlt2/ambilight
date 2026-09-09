@@ -3977,7 +3977,7 @@ void handleWebUiAction(
                 ambilight::config::kCommissioningMaxBrightness) {
 
             message =
-                "LED test requires brightness 1..255.";
+                "LED test requires brightness 1..64.";
             break;
         }
 

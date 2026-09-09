@@ -27,8 +27,16 @@ for arg in "$@"; do
     esac
 done
 
+# The official PlatformIO installer puts `platformio` in a dedicated
+# virtualenv rather than the system Python, so a bare `python3 -m platformio`
+# frequently fails with "No module named platformio" even though PlatformIO
+# itself is fully installed. Prefer the well-known venv binary when present.
+penv_platformio="$HOME/.platformio/penv/bin/platformio"
+
 if command -v pio >/dev/null 2>&1; then
     pio_cmd=(pio)
+elif [[ -x "$penv_platformio" ]]; then
+    pio_cmd=("$penv_platformio")
 elif command -v python3 >/dev/null 2>&1; then
     pio_cmd=(python3 -m platformio)
 elif command -v python >/dev/null 2>&1; then

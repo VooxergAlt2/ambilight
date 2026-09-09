@@ -124,7 +124,7 @@ button{cursor:pointer}button.primary{background:var(--accent);color:#fff;border-
 <button id="mapApply" class="primary" onclick="applyMap()">Сохранить topology</button>
 <button id="mapReset" onclick="resetMap()">Вернуть измеренный профиль</button>
 </div>
-<div class="muted">Количество 1..230. GPIO только 18/19/20/21, каждый выход используется один раз. Флаг «развернуть» меняет логическое направление стороны.</div>
+<div class="muted">Количество 1..230. GPIO только 18/19/20/21, каждый выход используется один раз. Флаг «развернуть» (REV) меняет только физическую адресацию LED на проводе (с какого конца лента пронумерована 0); видимое направление стороны на схеме телевизора при этом не меняется.</div>
 
 <div class="cols" style="margin-top:16px">
 <div>
@@ -282,7 +282,7 @@ function showPage(name){
 function sourceLabel(v){if(v==='CUSTOM_NVS')return 'Сохранено';if(v==='CUSTOM_RUNTIME')return 'Временно';if(v==='DEFAULT')return 'По умолчанию';return v||'—'}
 function brightnessLabel(v){const n=Number(v)||0;return Math.round(n*100/255)+'% · '+n+'/255'}
 function gainPercent(q){return (Number(q)*100/4096).toFixed(3).replace(/\.0+$/,'').replace(/(\.\d*?)0+$/,'$1')}
-function sideArrow(i,reversed){const normal=['→','↓','←','↑'];const flipped=['←','↑','→','↓'];return (reversed?flipped:normal)[i]}
+function sideArrow(i){return ['→','↓','←','↑'][i]}
 function txt(id,v){$(id).textContent=v}
 function setv(id,v){const e=$(id);if(!e.dataset.dirty)e.value=v}
 function clean(ids){ids.forEach(id=>{const e=$(id);if(e)delete e.dataset.dirty})}
@@ -377,7 +377,7 @@ function renderMap(m){
   m.segments.forEach((x,i)=>{setv('count'+i,x[0]);setv('gpio'+i,x[1]);const e=$('rev'+i);if(!e.dataset.dirty)e.checked=!!x[2]});
   const total=m.segments.reduce((a,x)=>a+x[0],0);
   const tvIds=['tvTop','tvRight','tvBottom','tvLeft'];
-  m.segments.forEach((x,i)=>txt(tvIds[i],mapNames[i]+' · '+x[0]+' · GPIO'+x[1]+' · '+sideArrow(i,!!x[2])));
+  m.segments.forEach((x,i)=>txt(tvIds[i],mapNames[i]+' · '+x[0]+' · GPIO'+x[1]+' · '+sideArrow(i)+' · '+(x[2]?'REV':'FWD')));
   txt('tvSummary','Активно: '+total+' LED · DDP '+(total*3)+' байт · '+sourceLabel(m.source));
   txt('topologyInfo','Всего '+total+' LED · DDP '+(total*3)+' байт · '+sourceLabel(m.source));
   const side=Number($('rangeSide').value||0),len=m.segments[side][0];

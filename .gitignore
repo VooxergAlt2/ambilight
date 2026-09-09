@@ -5,3 +5,5 @@
 *.log
 include/secrets.h
 .artifacts/
+__pycache__/
+*.pyc
