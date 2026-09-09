@@ -4,7 +4,7 @@ Custom ESP32-C6 Ambilight endpoint for HyperHDR.
 
 ## Current development line
 
-Stage 44 is the web-UI UX line on top of the Stage 43 correctness pass. It keeps the realtime DDP/PARLIO/ToF pipeline unchanged while reorganizing the control surface around daily operation, LED commissioning, ToF commissioning, diagnostics and system recovery.
+Stage 44.1 is a hardening patch on top of the Stage 44 web-UI UX line. It keeps the realtime DDP/PARLIO/ToF pipeline unchanged while tightening Wi-Fi provisioning, action correlation, ToF/spatial validation, calibration consistency, autosave recovery and mobile presentation.
 
 The firmware stack now includes:
 
@@ -128,7 +128,7 @@ DDP is serviced before the web layer.
 State-changing requests are acknowledged before they are released to main,
 so Wi-Fi changes and factory reset cannot race the HTTP response.
 
-Saved Wi-Fi passwords are never returned.
+Saved Wi-Fi passwords are never returned. The browser therefore requires either a newly entered password or an explicit «open network» choice before saving Wi-Fi credentials; an empty password field never silently replaces the stored WPA password.
 
 The interface is trusted-LAN only and has no login. Do not expose TCP/80 to
 the public internet.
@@ -147,7 +147,7 @@ Default:
 
     y1437.5,1000,0,0,0,0,0,10
 
-Spatial edits are blocked in ACTIVE.
+Spatial edits are blocked in ACTIVE and while a 60-second calibration capture is active.
 
 ## ToF geometry
 
@@ -257,7 +257,7 @@ Stage 35 was validated locally on Windows with:
     147 native tests passed
     ESP32-C6 firmware build passed
 
-Stage 39 adds a mandatory partition-layout gate before native/firmware checks. Stage 44 also adds `tools/check_web_ui.py`, which validates the embedded page/navigation contract and rejects duplicate static DOM IDs and stale safety guards.
+Stage 39 adds a mandatory partition-layout gate before native/firmware checks. Stage 44 adds `tools/check_web_ui.py`; Stage 44.1 strengthens it with static HTML nesting checks, hardening-control contract checks and an exact integer proof of the 4097-value Q12↔percent round trip.
 The target layout is now committed as:
 
     partitions/ambilight_16mb_ota.csv
@@ -477,7 +477,7 @@ reports:
 
 Current source identity:
 
-    ambilight-c6 0.44.0-dev Stage 44
+    ambilight-c6 0.44.1-dev Stage 44
     serial protocol 2
 
 Startup uses the same centralized FirmwareInfo constants instead of a handwritten stage banner.
