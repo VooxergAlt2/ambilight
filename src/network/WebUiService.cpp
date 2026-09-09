@@ -447,9 +447,15 @@ function render(s){
   txt('stBright',Math.round(s.output.brightness*100/255)+'%');
   const signalFresh=s.ddp.has_frame&&s.ddp.frame_age_ms<=1000;
   txt('stDdp',!s.ddp.running?'ВЫКЛ.':(signalFresh?'ПОЛУЧАЕМ':(s.output.idle_blanked?'НЕТ СИГНАЛА':'ОЖИДАНИЕ')));
-  txt('stTof',s.tof.available?(s.tof.state+(s.tof.gain_fail_open?' · unity':'')):'unavailable');
+  txt('stTof',!s.tof.available?'НЕТ':(s.tof.gain_fail_open?'FALLBACK':'НОРМА'));
   [0,1,2].forEach(i=>$('corr'+i).classList.toggle('primary',s.output.correction===i));
-  setv('brightness',s.output.brightness);txt('brightnessValue',s.output.brightness);
+  setv('brightness',s.output.brightness);txt('brightnessValue',brightnessLabel(s.output.brightness));
+  let home='Подсветка '+(s.output.brightness===0?'выключена':'готова')+'. ';
+  if(s.commissioning.pattern)home+='Пусконаладочный тест: '+commissioningText(s.commissioning)+'. ';
+  else if(signalFresh)home+='Сигнал ПК поступает, последний кадр '+s.ddp.frame_age_ms+' мс назад. ';
+  else home+=s.output.idle_blanked?'Сигнала ПК нет, физический вывод погашен. ':'Ожидаем кадры от ПК. ';
+  home+='Коррекция: '+(corrNames[s.output.correction]||'?')+'.';
+  txt('homeStatus',home);
   txt('testState',commissioningText(s.commissioning));
   const testMax=Number(s.commissioning.max_brightness||0);
   const safeTest=s.output.brightness>0&&testMax>0&&s.output.brightness<=testMax;
@@ -461,16 +467,16 @@ function render(s){
   $('tofDebugStart').disabled=s.output.correction===2||s.tof.debug_active;
   $('tofDebugStop').disabled=!s.tof.debug_active;
   setv('spW',sp.w10/10);setv('spH',sp.h10/10);setv('spX',sp.x10/10);setv('spY',sp.y10/10);setv('spZ',sp.z10/10);setv('spR',sp.rot);setv('spM',sp.mirror);setv('spD',sp.deadband10/10);
-  txt('spSource',sp.source);txt('curveSource',s.curve.source);
+  txt('spSource',sourceLabel(sp.source));txt('curveSource',sourceLabel(s.curve.source));
   const blocked=s.output.correction===2;
   $('spApply').disabled=blocked;$('spReset').disabled=blocked;$('curveApply').disabled=blocked;$('curveReset').disabled=blocked;
-  setv('curve',s.curve.points.map(p=>p[0]+':'+p[1]).join(','));
-  txt('tofDetail',s.tof.available?`state ${s.tof.state}\nage ${s.tof.age_ms} ms · zones ${s.tof.valid_zones}/64 · median ${s.tof.median_mm} mm\nplane ${s.tof.plane_valid?'ok':'bad'} · yaw ${(s.tof.yaw_cdeg/100).toFixed(2)}° · pitch ${(s.tof.pitch_cdeg/100).toFixed(2)}° · accepted ${s.tof.plane_accepted}\nwall ${s.tof.min_mm}..${s.tof.max_mm} mm · ${s.tof.gain_fail_open?'FAIL OPEN / UNITY':'gain usable'}`:'ToF unavailable');
+  setv('curve',s.curve.points.map(p=>{const pct=Math.round((p[1]*100/4096)*10)/10;return p[0]+':'+pct}).join(','));
+  txt('tofDetail',s.tof.available?`Состояние: ${s.tof.state}\nВозраст данных: ${s.tof.age_ms} мс · пригодных зон ${s.tof.valid_zones}/64 · медиана ${s.tof.median_mm} мм\nПлоскость: ${s.tof.plane_valid?'определена':'не определена'} · yaw ${(s.tof.yaw_cdeg/100).toFixed(2)}° · pitch ${(s.tof.pitch_cdeg/100).toFixed(2)}°\nСтена: ${s.tof.min_mm}..${s.tof.max_mm} мм · ${s.tof.gain_fail_open?'fallback 100%':'коррекция доступна'}`:'Датчик ToF недоступен');
   txt('calDetail',calibrationText(s.calibration));
   $('calStart').disabled=s.calibration.active;$('probeStart').disabled=s.output.correction!==1;
-  txt('wifiState',`${s.wifi.connected?'connected':'disconnected'} · ${s.wifi.ip||'no IP'} · RSSI ${s.wifi.rssi} dBm · ${s.wifi.ssid||'no SSID'}`);
+  txt('wifiState',`${s.wifi.connected?'Подключено':'Не подключено'} · ${s.wifi.ip||'без IP'} · RSSI ${s.wifi.rssi} dBm · ${s.wifi.ssid||'SSID не задан'}`);
   setv('ssid',s.wifi.ssid||'');
-  txt('diag',`DDP frames ${s.ddp.frames} · publications ${s.ddp.publications}\nsender ${s.ddp.sender_locked?(s.ddp.sender_ip+':'+s.ddp.sender_port):'none'}\npersistence ${s.persistence?'available':'unavailable'}\nheap free/min ${s.heap.free}/${s.heap.min} B\nweb requests/actions/dropped/bad ${s.web.requests}/${s.web.actions}/${s.web.dropped}/${s.web.bad}`);
+  txt('diag',`DDP: running=${s.ddp.running} frames=${s.ddp.frames} publications=${s.ddp.publications}\nlast frame: ${s.ddp.has_frame?s.ddp.frame_age_ms+' ms':'none'} · idle blackout=${s.output.idle_blanked}\nsender: ${s.ddp.sender_locked?(s.ddp.sender_ip+':'+s.ddp.sender_port):'none'}\nToF: state=${s.tof.state} age=${s.tof.age_ms} ms valid=${s.tof.valid_zones}/64 plane=${s.tof.plane_valid}\npersistence: ${s.persistence?'available':'unavailable'}\nheap free/min: ${s.heap.free}/${s.heap.min} B\nweb requests/actions/dropped/bad: ${s.web.requests}/${s.web.actions}/${s.web.dropped}/${s.web.bad}`);
   $('factory').disabled=s.output.brightness!==0;
 }
 async function refresh(){
@@ -479,7 +485,7 @@ async function refresh(){
   catch(e){txt('action','offline: '+e.message);$('action').className='bad'}
   finally{refreshing=false}
 }
-$('brightness').addEventListener('input',e=>txt('brightnessValue',e.target.value));
+$('brightness').addEventListener('input',e=>txt('brightnessValue',brightnessLabel(e.target.value)));
 $('brightness').addEventListener('change',e=>post('/api/brightness',e.target.value,['brightness']));
 markDirty();refresh();setInterval(()=>{if(tofDebugUiActive)refresh()},1000);setInterval(()=>{if(!tofDebugUiActive)refresh()},2000);
 </script>
