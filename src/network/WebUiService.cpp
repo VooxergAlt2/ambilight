@@ -273,13 +273,20 @@ const $=id=>document.getElementById(id);
 let pendingActionId=0,pendingDirtyIds=[],pendingFieldState={},posting=false,refreshing=false,tofDebugUiActive=false,selectedTofZone=27,activeMap=null;
 const corrNames=['ВЫКЛ.','НАБЛЮДЕНИЕ','ВКЛЮЧЕНА'];
 const mapNames=['TOP','RIGHT','BOTTOM','LEFT'];
+const pages=['home','led','tof','diag','system'];
+function showPage(name){
+  if(!pages.includes(name))name='home';
+  pages.forEach(p=>{$('page'+p[0].toUpperCase()+p.slice(1)).classList.toggle('active',p===name);$('nav'+p[0].toUpperCase()+p.slice(1)).classList.toggle('active',p===name)});
+}
+function sourceLabel(v){if(v==='CUSTOM_NVS')return 'Сохранено';if(v==='CUSTOM_RUNTIME')return 'Временно';if(v==='DEFAULT')return 'По умолчанию';return v||'—'}
+function brightnessLabel(v){const n=Number(v)||0;return Math.round(n*100/255)+'% · '+n+'/255'}
+function sideArrow(i,reversed){const normal=['→','↓','←','↑'];const flipped=['←','↑','→','↓'];return (reversed?flipped:normal)[i]}
 function txt(id,v){$(id).textContent=v}
 function setv(id,v){const e=$(id);if(!e.dataset.dirty)e.value=v}
 function clean(ids){ids.forEach(id=>{const e=$(id);if(e)delete e.dataset.dirty})}
 function fieldState(id){const e=$(id);if(!e)return '';return e.type==='checkbox'?(e.checked?'1':'0'):String(e.value)}
 function cleanPendingIfUnchanged(){pendingDirtyIds.forEach(id=>{if(fieldState(id)===pendingFieldState[id])clean([id])})}
 function markDirty(){document.querySelectorAll('input,select,textarea').forEach(e=>{if(e.dataset.bound)return;e.dataset.bound='1';e.addEventListener('input',()=>e.dataset.dirty='1')})}
-function src(custom,persisted){return custom?(persisted?'CUSTOM_NVS':'CUSTOM_RUNTIME'):'DEFAULT'}
 function actionError(message){txt('action',message);$('action').className='bad';return false}
 async function post(path,body,dirtyIds=[]){
   if(posting||pendingActionId)return actionError('Дождитесь завершения предыдущего действия.');
@@ -339,19 +346,38 @@ function applySpatial(){
   post('/api/spatial',p.join(','),ids)
 }
 function resetSpatial(){post('/api/spatial','reset',spatialFieldIds())}
-function applyCurve(){post('/api/curve',$('curve').value.trim(),['curve'])}
+function applyCurve(){
+  const raw=$('curve').value.trim(),items=raw?raw.split(','):[];
+  if(items.length<2||items.length>8)return actionError('Кривая должна содержать от 2 до 8 точек.');
+  let prevD=-1,prevP=-1;const out=[];
+  for(const item of items){
+    const parts=item.split(':');
+    if(parts.length!==2)return actionError('Используйте формат расстояние_мм:яркость_%.');
+    const d=Number(parts[0].trim()),pct=Number(parts[1].trim());
+    if(!Number.isInteger(d)||d<0||d>65535)return actionError('Расстояние должно быть целым числом 0..65535 мм.');
+    if(!Number.isFinite(pct)||pct<0||pct>100)return actionError('Яркость должна быть в диапазоне 0..100%.');
+    if(d<=prevD)return actionError('Расстояния должны строго возрастать.');
+    if(pct<prevP)return actionError('Яркость не должна уменьшаться с ростом расстояния.');
+    out.push(d+':'+Math.round(pct*4096/100));prevD=d;prevP=pct;
+  }
+  post('/api/curve',out.join(','),['curve'])
+}
 function resetCurve(){post('/api/curve','reset',['curve'])}
 function applyWifi(){const p=$('wifiPass').value;post('/api/wifi',$('ssid').value+'|'+p,['ssid']);$('wifiPass').value='';delete $('wifiPass').dataset.dirty}
+function forgetWifi(){if(confirm('Забыть сохранённую Wi-Fi сеть? После этого web-интерфейс может стать недоступен.'))post('/api/wifi','clear')}
 function factoryReset(){if(confirm('Стереть всю конфигурацию Ambilight и перезагрузить контроллер?'))post('/api/factory','reset')}
 function renderMap(m){
   activeMap=m;
   if(!$('mapping').children.length){
-    mapNames.forEach((n,i)=>{$('mapping').insertAdjacentHTML('beforeend',`<div class="seg"><b>${n}</b><input id="count${i}" type="number" min="1" max="230" step="1"><select id="gpio${i}"><option>18</option><option>19</option><option>20</option><option>21</option></select><label><input id="rev${i}" type="checkbox"> reverse</label></div>`)});
+    mapNames.forEach((n,i)=>{$('mapping').insertAdjacentHTML('beforeend',`<div class="seg"><b>${n}</b><input id="count${i}" title="Количество LED" type="number" min="1" max="230" step="1"><select id="gpio${i}" title="GPIO"><option>18</option><option>19</option><option>20</option><option>21</option></select><label><input id="rev${i}" type="checkbox"> развернуть</label></div>`)});
     markDirty();
   }
   m.segments.forEach((x,i)=>{setv('count'+i,x[0]);setv('gpio'+i,x[1]);const e=$('rev'+i);if(!e.dataset.dirty)e.checked=!!x[2]});
   const total=m.segments.reduce((a,x)=>a+x[0],0);
-  txt('topologyInfo','total '+total+' LEDs · DDP '+(total*3)+' bytes · '+m.source);
+  const tvIds=['tvTop','tvRight','tvBottom','tvLeft'];
+  m.segments.forEach((x,i)=>txt(tvIds[i],mapNames[i]+' · '+x[0]+' · GPIO'+x[1]+' · '+sideArrow(i,!!x[2])));
+  txt('tvSummary','Активно: '+total+' LED · DDP '+(total*3)+' байт · '+sourceLabel(m.source));
+  txt('topologyInfo','Всего '+total+' LED · DDP '+(total*3)+' байт · '+sourceLabel(m.source));
   const side=Number($('rangeSide').value||0),len=m.segments[side][0];
   $('rangeStart').max=Math.max(0,len-1);$('rangeCount').max=len;
 }
@@ -361,12 +387,12 @@ function renderPixelMask(m,map){
     markDirty();
   }
   m.offsets.forEach((v,i)=>{const max=map.segments[i][0]-1;$('mask'+i).max=max;txt('maskLimit'+i,'0..'+max);setv('mask'+i,v<0?'':v)});
-  txt('maskSource',m.source);
+  txt('maskSource',sourceLabel(m.source));
 }
 function tofStatusText(s){
-  if(s===5)return '5 · full confidence';
-  if(s===6||s===9)return s+' · usable, 0.5 plane weight';
-  return s+' · rejected from normal ToF processing';
+  if(s===5)return '5 · полная уверенность';
+  if(s===6||s===9)return s+' · пригодна с пониженным весом';
+  return s+' · исключена из обычной обработки';
 }
 function selectTofZone(i){selectedTofZone=i;document.querySelectorAll('.tofcell').forEach((e,n)=>e.classList.toggle('selected',n===i))}
 function renderTofGrid(t,sp){
@@ -386,19 +412,19 @@ function renderTofGrid(t,sp){
   });
   const x=(t.grid||[])[selectedTofZone];
   if(x){
-    txt('tofZoneDetail','normalized row '+Math.floor(selectedTofZone/8)+' col '+(selectedTofZone%8)+'\nraw index '+x[2]+'\ndistance '+x[0]+' mm\nstatus '+tofStatusText(x[1])+'\nROT '+sp.rot+' · mirrorX '+(sp.mirror?'yes':'no'));
+    txt('tofZoneDetail','Строка '+Math.floor(selectedTofZone/8)+', столбец '+(selectedTofZone%8)+'\nRaw index '+x[2]+'\nРасстояние '+x[0]+' мм\nСтатус '+tofStatusText(x[1])+'\nПоворот '+(sp.rot*90)+'° · отражение '+(sp.mirror?'да':'нет'));
   }
   tofDebugUiActive=!!t.debug_active;
-  txt('tofDebugState',t.debug_active?('LIVE · '+Math.ceil(t.debug_remaining_ms/1000)+' s remaining · ROT '+sp.rot+' · mirrorX '+(sp.mirror?'yes':'no')):('normal cadence · ROT '+sp.rot+' · mirrorX '+(sp.mirror?'yes':'no')));
+  txt('tofDebugState',t.debug_active?('LIVE · осталось '+Math.ceil(t.debug_remaining_ms/1000)+' с · '+(sp.rot*90)+'° · отражение '+(sp.mirror?'да':'нет')):('Обычный режим · '+(sp.rot*90)+'° · отражение '+(sp.mirror?'да':'нет')));
 }
 let lastTofSnapshot={grid:[]},lastSpatialSnapshot={rot:0,mirror:0};
 function calibrationText(c){
-  if(c.active)return 'capture active · samples '+c.samples;
-  if(!c.has_summary)return 'No capture yet.';
+  if(c.active)return 'Сбор данных · кадров '+c.samples;
+  if(!c.has_summary)return 'Калибровка ещё не выполнялась.';
   const s=c.summary;
-  let t='frames '+s.total;
-  if(s.plane_valid)t+=`\nyaw p10/med/p90: ${s.yaw.join('/')} cdeg\npitch: ${s.pitch.join('/')} cdeg\nz0: ${s.z0.join('/')} mm`;
-  if(s.spatial_valid)t+=`\nwall min: ${s.min.join('/')} mm\nwall max: ${s.max.join('/')} mm\nsegments med start/end: ${s.segments.map((x,i)=>mapNames[i]+' '+x[0]+'/'+x[1]).join(', ')}`;
+  let t='Кадров: '+s.total+'\nПлоскость: '+(s.plane_valid?'определена':'не определена');
+  if(s.plane_valid)t+='\nНаклон: yaw '+(s.yaw[1]/100).toFixed(2)+'° · pitch '+(s.pitch[1]/100).toFixed(2)+'°\nРасстояние до плоскости: '+s.z0[1]+' мм';
+  if(s.spatial_valid)t+='\nДиапазон стены: '+s.min[1]+'..'+s.max[1]+' мм\nСтороны: '+s.segments.map((x,i)=>mapNames[i]+' '+x[0]+'→'+x[1]+' мм').join(' · ');
   return t;
 }
 function commissioningText(c){
