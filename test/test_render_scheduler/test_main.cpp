@@ -104,6 +104,35 @@ void test_clean_state_does_not_rerender_static_rgb() {
         scheduler.stats().cleanSkips);
 }
 
+void test_transport_gap_holds_last_rendered_frame() {
+    RenderScheduler scheduler;
+
+    auto first =
+        scheduler.decide(
+            true,
+            true,
+            false,
+            1000);
+
+    TEST_ASSERT_TRUE(first.render);
+    scheduler.markRendered(1000);
+
+    // Even after a long input gap, no new RGB and no explicit state change
+    // must not synthesize another physical frame. The LED hardware therefore
+    // keeps the last successfully shown values.
+    const auto gap =
+        scheduler.decide(
+            true,
+            false,
+            false,
+            5000000);
+
+    TEST_ASSERT_FALSE(gap.render);
+    TEST_ASSERT_EQUAL_UINT32(
+        1,
+        scheduler.stats().cleanSkips);
+}
+
 void test_rgb_and_state_dirty_are_combined_in_one_render() {
     RenderScheduler scheduler;
 
@@ -158,6 +187,7 @@ int main(int, char**) {
     RUN_TEST(test_new_rgb_renders_immediately);
     RUN_TEST(test_state_only_render_is_rate_limited);
     RUN_TEST(test_clean_state_does_not_rerender_static_rgb);
+    RUN_TEST(test_transport_gap_holds_last_rendered_frame);
     RUN_TEST(test_rgb_and_state_dirty_are_combined_in_one_render);
     RUN_TEST(test_time_rollback_allows_state_recovery_render);
 
