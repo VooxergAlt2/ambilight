@@ -34,8 +34,8 @@ R"HTML(<!doctype html>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Ambilight C6</title>
 <style>
-:root{color-scheme:light dark;--bg:#f4f5f7;--card:#fff;--text:#17181a;--muted:#737780;--line:#d9dce2;--accent:#4263eb;--danger:#c92a2a;--ok:#2b8a3e;--soft:#eef1ff}
-@media(prefers-color-scheme:dark){:root{--bg:#111315;--card:#1a1d20;--text:#f3f4f5;--muted:#9aa0a8;--line:#30343a;--accent:#748ffc;--danger:#ff6b6b;--ok:#69db7c;--soft:#252b45}}
+:root{color-scheme:light dark;--bg:#f4f5f7;--card:#fff;--text:#17181a;--muted:#737780;--line:#d9dce2;--accent:#4263eb;--primary:#4263eb;--danger:#c92a2a;--ok:#2b8a3e;--soft:#eef1ff}
+@media(prefers-color-scheme:dark){:root{--bg:#111315;--card:#1a1d20;--text:#f3f4f5;--muted:#9aa0a8;--line:#30343a;--accent:#91a7ff;--primary:#3b5bdb;--danger:#ff6b6b;--ok:#69db7c;--soft:#252b45}}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:14px/1.4 system-ui,-apple-system,Segoe UI,sans-serif}
 main{max-width:960px;margin:auto;padding:22px 16px 64px}header{display:flex;justify-content:space-between;gap:16px;align-items:flex-end;margin-bottom:16px}
 h1{font-size:22px;margin:0}h2{font-size:15px;margin:0 0 12px}h3{font-size:13px;margin:14px 0 8px}.muted{color:var(--muted)}.mono{font-family:ui-monospace,SFMono-Regular,Consolas,monospace}
@@ -49,14 +49,14 @@ details{margin-top:10px}summary{cursor:pointer;font-weight:650;user-select:none}
 label{color:var(--muted);font-size:12px}input,select,textarea,button{font:inherit;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--text);padding:8px 10px}
 input[type=number]{width:105px}input[type=range]{padding:0;width:min(420px,70vw)}input[type=text],input[type=password]{min-width:220px;flex:1}
 textarea{width:100%;min-height:62px;resize:vertical;font-family:ui-monospace,SFMono-Regular,Consolas,monospace}
-button{cursor:pointer}button.primary{background:var(--accent);color:#fff;border-color:transparent}button.danger{color:var(--danger)}button:disabled{opacity:.45;cursor:not-allowed}
+button{cursor:pointer}button.primary{background:var(--primary);color:#fff;border-color:transparent}button.danger{color:var(--danger)}button:disabled{opacity:.45;cursor:not-allowed}
 .seg{display:grid;grid-template-columns:85px 90px 105px minmax(100px,1fr);gap:8px;align-items:center;margin:6px 0}.spatial{display:grid;grid-template-columns:repeat(4,minmax(115px,1fr));gap:8px}.field{display:flex;flex-direction:column;gap:4px}
 #action{min-height:20px;margin:9px 2px}.ok{color:var(--ok)}.bad{color:var(--danger)}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:var(--bg);padding:10px;border-radius:8px;border:1px solid var(--line)}
 .tvwrap{display:grid;grid-template-columns:minmax(220px,360px) 1fr;gap:18px;align-items:center;margin:4px 0 18px}.tv{position:relative;aspect-ratio:16/9;border:8px solid #20242a;border-radius:10px;background:#0d0f12;box-shadow:0 8px 28px #0002}.tvside{position:absolute;font:12px/1.2 ui-monospace,SFMono-Regular,Consolas,monospace;background:var(--card);border:1px solid var(--line);border-radius:7px;padding:4px 6px;white-space:nowrap}.tvtop{top:-38px;left:50%;transform:translateX(-50%)}.tvbottom{bottom:-38px;left:50%;transform:translateX(-50%)}.tvleft{left:-86px;top:50%;transform:translateY(-50%)}.tvright{right:-92px;top:50%;transform:translateY(-50%)}
 .callout{background:var(--soft);border-radius:10px;padding:10px 12px}.source{font-size:12px;color:var(--muted)}
 .tofgrid{display:grid;grid-template-columns:repeat(8,minmax(0,1fr));gap:4px}.tofcell{padding:6px 3px;min-width:0;min-height:48px;overflow:hidden;font:11px/1.15 ui-monospace,SFMono-Regular,Consolas,monospace}.tofcell strong{display:block;font-size:12px}.tofcell.usable{border-color:var(--ok)}.tofcell.weak{border-style:dashed}.tofcell.rejected{opacity:.55}.tofcell.selected{outline:2px solid var(--accent);outline-offset:1px}
 @media(max-width:760px){.cards{grid-template-columns:repeat(2,1fr)}.cols,.spatial,.tvwrap{grid-template-columns:1fr}.tvwrap{padding:30px 62px 34px}.tvleft{left:-58px}.tvright{right:-58px}.seg{grid-template-columns:65px 78px minmax(82px,1fr) minmax(92px,1fr)}header{align-items:flex-start;flex-direction:column}.nav{top:4px}}
-@media(max-width:430px){main{padding-left:10px;padding-right:10px}.cards{gap:7px}.card{padding:11px}.seg{grid-template-columns:1fr 1fr}.seg>b{grid-column:1/-1}.tvwrap{padding-left:44px;padding-right:44px}.tvleft{left:-40px}.tvright{right:-40px}.tofgrid{gap:2px}.tofcell{font-size:0;padding:3px 1px;min-height:36px}.tofcell strong{font-size:10px}.spatial{grid-template-columns:1fr 1fr}input[type=number]{width:100%}}
+@media(max-width:430px){main{padding-left:10px;padding-right:10px}.cards{gap:7px}.card{padding:11px}.seg{grid-template-columns:1fr 1fr}.seg>b{grid-column:1/-1}.tvwrap{padding-left:0;padding-right:0}.tvleft{left:4px}.tvright{right:4px}.tofgrid{gap:2px}.tofcell{font-size:0;padding:3px 1px;min-height:36px}.tofcell strong{font-size:10px}.spatial{grid-template-columns:1fr 1fr}input[type=number]{width:100%}}
 </style>
 </head>
 <body>
@@ -113,7 +113,7 @@ button{cursor:pointer}button.primary{background:var(--accent);color:#fff;border-
 <div id="tvLeft" class="tvside tvleft">LEFT</div>
 </div>
 <div>
-<div class="callout">Сначала проверьте, какой GPIO соответствует каждой физической стороне, затем направление и количество LED. Изменение topology выполняется через автоматический safety blackout.</div>
+<div class="callout">Сначала проверьте, какой GPIO соответствует каждой физической стороне, затем направление и количество LED. Изменение топологии выполняется через автоматическое защитное гашение.</div>
 <div id="tvSummary" class="muted mono" style="margin-top:10px"></div>
 </div>
 </div>
@@ -121,7 +121,7 @@ button{cursor:pointer}button.primary{background:var(--accent);color:#fff;border-
 <div id="mapping"></div>
 <div id="topologyInfo" class="muted mono"></div>
 <div class="row">
-<button id="mapApply" class="primary" onclick="applyMap()">Сохранить topology</button>
+<button id="mapApply" class="primary" onclick="applyMap()">Сохранить топологию</button>
 <button id="mapReset" onclick="resetMap()">Вернуть измеренный профиль</button>
 </div>
 <div class="muted">Количество 1..230. GPIO только 18/19/20/21, каждый выход используется один раз. Флаг «развернуть» (REV) меняет только физическую адресацию LED на проводе (с какого конца лента пронумерована 0); видимое направление стороны на схеме телевизора при этом не меняется.</div>
@@ -138,7 +138,7 @@ button{cursor:pointer}button.primary{background:var(--accent);color:#fff;border-
 <button id="runLogical" onclick="runLogicalRange()">Проверить диапазон</button>
 <button id="runWhole" onclick="runWholeSide()">Вся сторона</button>
 </div>
-<div class="muted">Проверяет применённую topology, направление и маску отключённого пикселя.</div>
+<div class="muted">Проверяет применённую топологию, направление и маску отключённого пикселя.</div>
 </div>
 <div>
 <h2>Определение физического GPIO</h2>
@@ -153,7 +153,7 @@ button{cursor:pointer}button.primary{background:var(--accent);color:#fff;border-
 <button id="testDirection" onclick="post('/api/test','2')">Маркеры направления</button>
 <button onclick="post('/api/test','0')">Стоп</button>
 </div>
-<div class="muted">Этот тест обходит logical mapping и нужен только для определения физически подключённой линии.</div>
+<div class="muted">Этот тест обходит логическое сопоставление и нужен только для определения физически подключённой линии.</div>
 </div>
 </div>
 <div id="testState" class="muted"></div>
@@ -165,7 +165,7 @@ button{cursor:pointer}button.primary{background:var(--accent);color:#fff;border-
 <button onclick="resetPixelMask()">Очистить</button>
 <span id="maskSource" class="muted"></span>
 </div>
-<div class="muted">По одному пикселю на сторону. Пусто = не отключать. Индекс считается от logical START.</div>
+<div class="muted">По одному пикселю на сторону. Пусто = не отключать. Индекс считается от логического начала стороны.</div>
 </div>
 </details>
 </section>
@@ -205,7 +205,7 @@ button{cursor:pointer}button.primary{background:var(--accent);color:#fff;border-
 <div class="field"><label>Плоскость LED Z, мм</label><input id="spZ" type="number" min="-1000" max="1000" step=".1"></div>
 <div class="field"><label>Поворот датчика</label><select id="spR"><option value="0">0°</option><option value="1">90°</option><option value="2">180°</option><option value="3">270°</option></select></div>
 <div class="field"><label>Отразить горизонтально</label><select id="spM"><option value="0">Нет</option><option value="1">Да</option></select></div>
-<div class="field"><label>Deadband плоскости, мм</label><input id="spD" type="number" min="1" max="500" step=".1"></div>
+<div class="field"><label>Порог изменения плоскости, мм</label><input id="spD" type="number" min="1" max="500" step=".1"></div>
 </div>
 <div class="row">
 <button id="spApply" class="primary" onclick="applySpatial()">Сохранить геометрию</button>
@@ -292,6 +292,7 @@ function cleanPendingIfUnchanged(){pendingDirtyIds.forEach(id=>{if(fieldState(id
 function markDirty(){document.querySelectorAll('input,select,textarea').forEach(e=>{if(e.dataset.bound)return;e.dataset.bound='1';e.addEventListener('input',()=>e.dataset.dirty='1')})}
 function actionError(message){txt('action',message);$('action').className='bad';return false}
 function syncActionLock(){$('brightness').disabled=posting||!!pendingActionId}
+function rollbackAutosaveDrafts(){if(pendingDirtyIds.includes('brightness'))clean(['brightness'])}
 function clearPendingAction(){pendingActionId=0;pendingActionStartedMs=0;pendingDirtyIds=[];pendingFieldState={};syncActionLock()}
 function actionSequenceAfter(current,expected){
   const a=Number(current)>>>0,b=Number(expected)>>>0;
@@ -465,7 +466,7 @@ function tofOperationalStatus(t){
   if(!t.available)return 'НЕТ';
   if(t.state==='error')return 'ОШИБКА';
   if(t.state==='initializing'||t.state==='not-started')return 'ЗАПУСК';
-  if(t.gain_fail_open)return 'FALLBACK';
+  if(t.gain_fail_open)return 'БЕЗ КОРР.';
   return t.state==='ranging'?'НОРМА':String(t.state||'?').toUpperCase();
 }
 function commissioningText(c){
@@ -480,14 +481,16 @@ function commissioningText(c){
 function render(s){
   if(pendingActionId){
     if(s.action.id===pendingActionId){
-      if(s.action.ok)cleanPendingIfUnchanged();
+      if(s.action.ok)cleanPendingIfUnchanged();else rollbackAutosaveDrafts();
       txt('action',s.action.msg||(s.action.ok?'ok':'failed'));$('action').className=s.action.ok?'ok':'bad';
       clearPendingAction();
     }else if(actionSequenceAfter(s.action.id,pendingActionId)){
-      actionError('Результат операции вытеснен действием другого клиента. Черновик сохранён; проверьте текущее состояние.');
+      rollbackAutosaveDrafts();
+      actionError('Результат операции вытеснен действием другого клиента. Черновик формы сохранён; текущее состояние обновлено с контроллера.');
       clearPendingAction();
     }else if(pendingActionStartedMs&&Date.now()-pendingActionStartedMs>6000){
-      actionError('Контроллер не подтвердил результат операции. Черновик сохранён; проверьте текущее состояние.');
+      rollbackAutosaveDrafts();
+      actionError('Контроллер не подтвердил результат операции. Черновик формы сохранён; проверьте текущее состояние.');
       clearPendingAction();
     }
   }
@@ -520,7 +523,7 @@ function render(s){
   const blocked=s.output.correction===2;
   $('spApply').disabled=blocked;$('spReset').disabled=blocked;$('curveApply').disabled=blocked;$('curveReset').disabled=blocked;
   setv('curve',s.curve.points.map(p=>p[0]+':'+gainPercent(p[1])).join(','));
-  txt('tofDetail',s.tof.available?`Состояние: ${s.tof.state}\nВозраст данных: ${s.tof.age_ms} мс · пригодных зон ${s.tof.valid_zones}/64 · медиана ${s.tof.median_mm} мм\nПлоскость: ${s.tof.plane_valid?'определена':'не определена'} · yaw ${(s.tof.yaw_cdeg/100).toFixed(2)}° · pitch ${(s.tof.pitch_cdeg/100).toFixed(2)}°\nСтена: ${s.tof.min_mm}..${s.tof.max_mm} мм · ${s.tof.gain_fail_open?'fallback 100%':'коррекция доступна'}`:'Датчик ToF недоступен');
+  txt('tofDetail',s.tof.available?`Состояние: ${s.tof.state}\nВозраст данных: ${s.tof.age_ms} мс · пригодных зон ${s.tof.valid_zones}/64 · медиана ${s.tof.median_mm} мм\nПлоскость: ${s.tof.plane_valid?'определена':'не определена'} · yaw ${(s.tof.yaw_cdeg/100).toFixed(2)}° · pitch ${(s.tof.pitch_cdeg/100).toFixed(2)}°\nСтена: ${s.tof.min_mm}..${s.tof.max_mm} мм · ${s.tof.gain_fail_open?'резерв: 100%':'коррекция доступна'}`:'Датчик ToF недоступен');
   txt('calDetail',calibrationText(s.calibration));
   $('calStart').disabled=s.calibration.active;
   $('probeStart').disabled=s.output.correction!==1||s.probe;
@@ -543,7 +546,7 @@ async function refresh(){
   finally{refreshing=false}
 }
 $('brightness').addEventListener('input',e=>txt('brightnessValue',brightnessLabel(e.target.value)));
-$('brightness').addEventListener('change',e=>post('/api/brightness',e.target.value,['brightness']));
+$('brightness').addEventListener('change',async e=>{if(!await post('/api/brightness',e.target.value,['brightness'])){clean(['brightness']);refresh()}});
 $('wifiOpen').addEventListener('change',e=>{if(e.target.checked){$('wifiPass').value='';delete $('wifiPass').dataset.dirty}$('wifiPass').disabled=e.target.checked});
 markDirty();refresh();setInterval(()=>{if(tofDebugUiActive)refresh()},1000);setInterval(()=>{if(!tofDebugUiActive)refresh()},2000);
 </script>
