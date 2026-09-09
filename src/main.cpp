@@ -3504,6 +3504,9 @@ bool fillWebUiSnapshot(
     snapshot.brightness =
         ledEngine.brightness();
 
+    snapshot.outputIdleBlanked =
+        idleBlanked;
+
     snapshot.wifiEnabled =
         wifi.enabled();
 
@@ -3528,6 +3531,24 @@ bool fillWebUiSnapshot(
 
     snapshot.ddpRunning =
         ddp.running();
+
+    const std::uint64_t lastCompleteFrameUs =
+        ddp.lastCompleteFrameUs();
+
+    snapshot.ddpHasFrame =
+        lastCompleteFrameUs != 0;
+
+    if (snapshot.ddpHasFrame) {
+        const std::uint64_t ddpNowUs =
+            static_cast<std::uint64_t>(
+                esp_timer_get_time());
+
+        snapshot.ddpFrameAgeMs =
+            ddpNowUs >= lastCompleteFrameUs
+                ? (ddpNowUs - lastCompleteFrameUs) /
+                    1000ULL
+                : 0ULL;
+    }
 
     snapshot.ddpCompleteFrames =
         ddp.stats().
@@ -3777,6 +3798,29 @@ bool fillWebUiSnapshot(
                   ) /
                   1000ULL)
             : 0U;
+
+    snapshot.commissioningMaxBrightness =
+        ambilight::config::
+            kCommissioningMaxBrightness;
+
+    snapshot.commissioningSide =
+        static_cast<std::uint8_t>(
+            commissioningRangeSegment);
+
+    snapshot.commissioningGpio =
+        commissioningRawLane <
+                ambilight::config::
+                    kLedGpios.size()
+            ? ambilight::config::
+                  kLedGpios[
+                      commissioningRawLane]
+            : 0U;
+
+    snapshot.commissioningRangeStart =
+        commissioningRangeStart;
+
+    snapshot.commissioningRangeCount =
+        commissioningRangeCount;
 
     snapshot.calibrationActive =
         calibrationCapture.active();
