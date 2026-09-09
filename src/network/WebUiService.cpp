@@ -71,80 +71,107 @@ button{cursor:pointer}button.primary{background:var(--accent);color:#fff;border-
 </section>
 <div id="action" class="muted"></div>
 
-<details open>
-<summary>Основное</summary>
+<nav class="nav" aria-label="Разделы">
+<button id="navHome" class="active" onclick="showPage('home')">Главная</button>
+<button id="navLed" onclick="showPage('led')">LED</button>
+<button id="navTof" onclick="showPage('tof')">ToF</button>
+<button id="navDiag" onclick="showPage('diag')">Диагностика</button>
+<button id="navSystem" onclick="showPage('system')">Система</button>
+</nav>
+
+<section id="pageHome" class="page active">
+<div class="panel">
+<h2>Подсветка и коррекция</h2>
 <div class="section">
-<div class="row">
+<div class="muted">Коррекция по расстоянию</div>
+<div class="row segmented">
 <button id="corr0" onclick="post('/api/correction','0')">Выкл.</button>
 <button id="corr1" onclick="post('/api/correction','1')">Наблюдение</button>
 <button id="corr2" onclick="post('/api/correction','2')">Включена</button>
 </div>
 <div class="row">
-<label>Brightness</label>
+<label>Яркость</label>
 <input id="brightness" type="range" min="0" max="255" value="32">
 <span id="brightnessValue" class="mono">32</span>
 </div>
-<div class="muted">Изменение яркости сохраняется при отпускании ползунка.</div>
+<div class="muted">Изменение яркости сохраняется при отпускании ползунка. Режим «Наблюдение» рассчитывает коррекцию, но не применяет её к LED.</div>
+<div id="homeStatus" class="callout" style="margin-top:12px">Ожидание данных…</div>
 </div>
-</details>
+</section>
 
+<section id="pageLed" class="page">
 <details open>
-<summary>Пусконаладка LED</summary>
+<summary>Настройка LED</summary>
 <div class="section">
-<h2>Runtime topology</h2>
+<h2>Топология телевизора</h2>
+<div class="tvwrap">
+<div class="tv">
+<div id="tvTop" class="tvside tvtop">TOP</div>
+<div id="tvRight" class="tvside tvright">RIGHT</div>
+<div id="tvBottom" class="tvside tvbottom">BOTTOM</div>
+<div id="tvLeft" class="tvside tvleft">LEFT</div>
+</div>
+<div>
+<div class="callout">Сначала проверьте, какой GPIO соответствует каждой физической стороне, затем направление и количество LED. Изменение topology выполняется через автоматический safety blackout.</div>
+<div id="tvSummary" class="muted mono" style="margin-top:10px"></div>
+</div>
+</div>
+<h2>Параметры сторон</h2>
 <div id="mapping"></div>
 <div id="topologyInfo" class="muted mono"></div>
 <div class="row">
-<button id="mapApply" class="primary" onclick="applyMap()">Apply topology</button>
-<button id="mapReset" onclick="resetMap()">Default 230/160/230/160</button>
+<button id="mapApply" class="primary" onclick="applyMap()">Сохранить topology</button>
+<button id="mapReset" onclick="resetMap()">Вернуть измеренный профиль</button>
 </div>
-<div class="muted">COUNT 1..230. GPIO только 18/19/20/21, каждый выход используется один раз. При сохранении контроллер автоматически выполняет короткий safety blackout, применяет topology и восстанавливает текущую brightness.</div>
+<div class="muted">Количество 1..230. GPIO только 18/19/20/21, каждый выход используется один раз. Флаг «развернуть» меняет логическое направление стороны.</div>
 
 <div class="cols" style="margin-top:16px">
 <div>
-<h2>Logical side test</h2>
+<h2>Проверка логической стороны</h2>
 <div class="row">
 <select id="rangeSide"><option value="0">TOP</option><option value="1">RIGHT</option><option value="2">BOTTOM</option><option value="3">LEFT</option></select>
 <input id="rangeStart" type="number" min="0" value="0" step="1">
 <input id="rangeCount" type="number" min="1" value="1" step="1">
 </div>
 <div class="row">
-<button id="runLogical" onclick="runLogicalRange()">Run range</button>
-<button id="runWhole" onclick="runWholeSide()">Run whole side</button>
+<button id="runLogical" onclick="runLogicalRange()">Проверить диапазон</button>
+<button id="runWhole" onclick="runWholeSide()">Вся сторона</button>
 </div>
-<div class="muted">Проверяет итоговую side mapping, REV и disabled-pixel mask.</div>
+<div class="muted">Проверяет применённую topology, направление и маску отключённого пикселя.</div>
 </div>
 <div>
-<h2>Raw GPIO test</h2>
+<h2>Определение физического GPIO</h2>
 <div class="row">
 <select id="rawGpio"><option>18</option><option>19</option><option>20</option><option>21</option></select>
 <input id="rawStart" type="number" min="0" max="229" value="0" step="1">
 <input id="rawCount" type="number" min="1" max="230" value="1" step="1">
 </div>
 <div class="row">
-<button id="runRaw" onclick="runRawRange()">Run raw GPIO</button>
-<button id="testSegments" onclick="post('/api/test','1')">All segments</button>
-<button id="testDirection" onclick="post('/api/test','2')">Direction</button>
-<button onclick="post('/api/test','0')">Stop</button>
+<button id="runRaw" onclick="runRawRange()">Зажечь GPIO</button>
+<button id="testSegments" onclick="post('/api/test','1')">Все стороны</button>
+<button id="testDirection" onclick="post('/api/test','2')">Маркеры направления</button>
+<button onclick="post('/api/test','0')">Стоп</button>
 </div>
-<div class="muted">Raw GPIO обходит logical mapping. Используйте для определения физически подключённой линии.</div>
+<div class="muted">Этот тест обходит logical mapping и нужен только для определения физически подключённой линии.</div>
 </div>
 </div>
 <div id="testState" class="muted"></div>
 
-<h2 style="margin-top:16px">Disabled pixel</h2>
+<h2 style="margin-top:16px">Отключённый пиксель</h2>
 <div id="pixelMask"></div>
 <div class="row">
-<button class="primary" onclick="applyPixelMask()">Apply mask</button>
-<button onclick="resetPixelMask()">Clear mask</button>
+<button class="primary" onclick="applyPixelMask()">Сохранить маску</button>
+<button onclick="resetPixelMask()">Очистить</button>
 <span id="maskSource" class="muted"></span>
 </div>
 <div class="muted">По одному пикселю на сторону. Пусто = не отключать. Индекс считается от logical START.</div>
 </div>
 </details>
+</section>
 
+<section id="pageTof" class="page">
 <details open>
-<summary>Пусконаладка ToF</summary>
+<summary>Настройка ToF</summary>
 <div class="section">
 <h2>Live 8×8 debug</h2>
 <div class="row">
