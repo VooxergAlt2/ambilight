@@ -51,6 +51,7 @@ struct WebUiSnapshot {
         CorrectionMode::Shadow;
 
     std::uint8_t brightness = 0;
+    bool outputIdleBlanked = false;
 
     bool wifiEnabled = false;
     bool wifiConnected = false;
@@ -59,6 +60,8 @@ struct WebUiSnapshot {
     std::int32_t wifiRssi = 0;
 
     bool ddpRunning = false;
+    bool ddpHasFrame = false;
+    std::uint64_t ddpFrameAgeMs = 0;
     std::uint32_t ddpCompleteFrames = 0;
     std::uint32_t ddpPublications = 0;
 
@@ -123,6 +126,11 @@ struct WebUiSnapshot {
 
     std::uint8_t commissioningPattern = 0;
     std::uint32_t commissioningRemainingMs = 0;
+    std::uint8_t commissioningMaxBrightness = 0;
+    std::uint8_t commissioningSide = 0;
+    std::uint8_t commissioningGpio = 0;
+    std::uint16_t commissioningRangeStart = 0;
+    std::uint16_t commissioningRangeCount = 0;
 
     bool calibrationActive = false;
     std::uint32_t calibrationSamples = 0;
