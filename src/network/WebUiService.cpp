@@ -905,11 +905,14 @@ bool WebUiService::buildStatusResponse(
 
     writer.appendf(
         "\"brightness\":%u,"
-        "\"correction\":%u",
+        "\"correction\":%u,"
+        "\"idle_blanked\":%s",
         static_cast<unsigned>(
             snapshot.brightness),
         static_cast<unsigned>(
-            snapshot.correctionMode));
+            snapshot.correctionMode),
+        boolJson(
+            snapshot.outputIdleBlanked));
 
     writer.append(
         "},\"wifi\":{");
@@ -938,11 +941,16 @@ bool WebUiService::buildStatusResponse(
 
     writer.appendf(
         "\"running\":%s,"
+        "\"has_frame\":%s,"
+        "\"frame_age_ms\":%llu,"
         "\"frames\":%lu,"
         "\"publications\":%lu,"
         "\"sender_locked\":%s,"
         "\"sender_ip\":",
         boolJson(snapshot.ddpRunning),
+        boolJson(snapshot.ddpHasFrame),
+        static_cast<unsigned long long>(
+            snapshot.ddpFrameAgeMs),
         static_cast<unsigned long>(
             snapshot.ddpCompleteFrames),
         static_cast<unsigned long>(
@@ -1196,12 +1204,30 @@ bool WebUiService::buildStatusResponse(
     writer.appendf(
         ",\"commissioning\":{"
         "\"pattern\":%u,"
-        "\"remaining_ms\":%lu}",
+        "\"remaining_ms\":%lu,"
+        "\"max_brightness\":%u,"
+        "\"side\":%u,"
+        "\"gpio\":%u,"
+        "\"start\":%u,"
+        "\"count\":%u}",
         static_cast<unsigned>(
             snapshot.commissioningPattern),
         static_cast<unsigned long>(
             snapshot
-                .commissioningRemainingMs));
+                .commissioningRemainingMs),
+        static_cast<unsigned>(
+            snapshot
+                .commissioningMaxBrightness),
+        static_cast<unsigned>(
+            snapshot.commissioningSide),
+        static_cast<unsigned>(
+            snapshot.commissioningGpio),
+        static_cast<unsigned>(
+            snapshot
+                .commissioningRangeStart),
+        static_cast<unsigned>(
+            snapshot
+                .commissioningRangeCount));
 
     writer.appendf(
         ",\"calibration\":{"
