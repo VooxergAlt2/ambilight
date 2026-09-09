@@ -51,7 +51,7 @@ input[type=number]{width:105px}input[type=range]{padding:0;width:min(420px,70vw)
 textarea{width:100%;min-height:62px;resize:vertical;font-family:ui-monospace,SFMono-Regular,Consolas,monospace}
 button{cursor:pointer}button.primary{background:var(--primary);color:#fff;border-color:transparent}button.danger{color:var(--danger)}button:disabled{opacity:.45;cursor:not-allowed}
 .seg{display:grid;grid-template-columns:85px 90px 105px minmax(100px,1fr);gap:8px;align-items:center;margin:6px 0}.spatial{display:grid;grid-template-columns:repeat(4,minmax(115px,1fr));gap:8px}.field{display:flex;flex-direction:column;gap:4px}
-#action{min-height:20px;margin:9px 2px}.ok{color:var(--ok)}.bad{color:var(--danger)}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:var(--bg);padding:10px;border-radius:8px;border:1px solid var(--line)}
+#action{min-height:20px;margin:9px 2px;position:sticky;top:58px;z-index:6}#action:not(:empty){background:var(--card);border:1px solid var(--line);border-radius:8px;padding:8px 10px;box-shadow:0 4px 18px #0002}.ok{color:var(--ok)}.bad{color:var(--danger)}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:var(--bg);padding:10px;border-radius:8px;border:1px solid var(--line)}
 .tvwrap{display:grid;grid-template-columns:minmax(220px,360px) 1fr;gap:18px;align-items:center;margin:4px 0 18px}.tv{position:relative;aspect-ratio:16/9;border:8px solid #20242a;border-radius:10px;background:#0d0f12;box-shadow:0 8px 28px #0002}.tvside{position:absolute;font:12px/1.2 ui-monospace,SFMono-Regular,Consolas,monospace;background:var(--card);border:1px solid var(--line);border-radius:7px;padding:4px 6px;white-space:nowrap}.tvtop{top:-38px;left:50%;transform:translateX(-50%)}.tvbottom{bottom:-38px;left:50%;transform:translateX(-50%)}.tvleft{left:-86px;top:50%;transform:translateY(-50%)}.tvright{right:-92px;top:50%;transform:translateY(-50%)}
 .callout{background:var(--soft);border-radius:10px;padding:10px 12px}.source{font-size:12px;color:var(--muted)}
 .tofgrid{display:grid;grid-template-columns:repeat(8,minmax(0,1fr));gap:4px}.tofcell{padding:6px 3px;min-width:0;min-height:48px;overflow:hidden;font:11px/1.15 ui-monospace,SFMono-Regular,Consolas,monospace}.tofcell strong{display:block;font-size:12px}.tofcell.usable{border-color:var(--ok)}.tofcell.weak{border-style:dashed}.tofcell.rejected{opacity:.55}.tofcell.selected{outline:2px solid var(--accent);outline-offset:1px}
@@ -438,16 +438,17 @@ function renderTofGrid(t,sp){
     }
   }
   lastTofSnapshot=t;lastSpatialSnapshot=sp;
+  const live=t.available&&t.state==='ranging';
   (t.grid||[]).forEach((x,i)=>{
     const e=g.children[i],d=x[0],st=x[1],raw=x[2];
     const usable=st===5||st===6||st===9;
-    e.className='tofcell '+(st===5?'usable':(usable?'usable weak':'rejected'))+(i===selectedTofZone?' selected':'');
+    e.className='tofcell '+(!live?'rejected':(st===5?'usable':(usable?'usable weak':'rejected')))+(i===selectedTofZone?' selected':'');
     e.innerHTML='<strong>'+(d>0?d:'—')+'</strong>r'+raw+' s'+st;
-    e.title='normalized '+Math.floor(i/8)+','+(i%8)+' · raw '+raw+' · '+d+' mm · '+tofStatusText(st);
+    e.title=(live?'':'НЕАКТУАЛЬНЫЕ ДАННЫЕ · ')+'normalized '+Math.floor(i/8)+','+(i%8)+' · raw '+raw+' · '+d+' mm · '+tofStatusText(st);
   });
   const x=(t.grid||[])[selectedTofZone];
   if(x){
-    txt('tofZoneDetail','Строка '+Math.floor(selectedTofZone/8)+', столбец '+(selectedTofZone%8)+'\nRaw index '+x[2]+'\nРасстояние '+x[0]+' мм\nСтатус '+tofStatusText(x[1])+'\nПоворот '+(sp.rot*90)+'° · отражение '+(sp.mirror?'да':'нет'));
+    txt('tofZoneDetail',(live?'Данные актуальны':'Данные неактуальны · '+t.state)+'\nСтрока '+Math.floor(selectedTofZone/8)+', столбец '+(selectedTofZone%8)+'\nRaw index '+x[2]+'\nРасстояние '+x[0]+' мм\nСтатус '+tofStatusText(x[1])+'\nПоворот '+(sp.rot*90)+'° · отражение '+(sp.mirror?'да':'нет'));
   }
   tofDebugUiActive=!!t.debug_active;
   txt('tofDebugState',t.debug_active?('LIVE · осталось '+Math.ceil(t.debug_remaining_ms/1000)+' с · '+(sp.rot*90)+'° · отражение '+(sp.mirror?'да':'нет')):('Обычный режим · '+(sp.rot*90)+'° · отражение '+(sp.mirror?'да':'нет')));
@@ -527,9 +528,11 @@ function render(s){
   const curveBlocked=s.output.correction===2;
   $('curveApply').disabled=curveBlocked;$('curveReset').disabled=curveBlocked;
   setv('curve',s.curve.points.map(p=>p[0]+':'+gainPercent(p[1])).join(','));
-  txt('tofDetail',s.tof.available?`Состояние: ${s.tof.state}\nВозраст данных: ${s.tof.age_ms} мс · пригодных зон ${s.tof.valid_zones}/64 · медиана ${s.tof.median_mm} мм\nПлоскость: ${s.tof.plane_valid?'определена':'не определена'} · yaw ${(s.tof.yaw_cdeg/100).toFixed(2)}° · pitch ${(s.tof.pitch_cdeg/100).toFixed(2)}°\nСтена: ${s.tof.min_mm}..${s.tof.max_mm} мм · ${s.tof.gain_fail_open?'резерв: 100%':'коррекция доступна'}`:'Датчик ToF недоступен');
+  const tofLive=s.tof.available&&s.tof.state==='ranging';
+  const tofGainState=!tofLive?'данные неактуальны':(s.tof.gain_fail_open?'резерв: 100%':'коррекция доступна');
+  txt('tofDetail',s.tof.available?`Состояние: ${s.tof.state}\nВозраст данных: ${s.tof.age_ms} мс · пригодных зон ${s.tof.valid_zones}/64 · медиана ${s.tof.median_mm} мм\nПлоскость: ${s.tof.plane_valid?'определена':'не определена'} · yaw ${(s.tof.yaw_cdeg/100).toFixed(2)}° · pitch ${(s.tof.pitch_cdeg/100).toFixed(2)}°\nСтена: ${s.tof.min_mm}..${s.tof.max_mm} мм · ${tofGainState}`:'Датчик ToF недоступен');
   txt('calDetail',calibrationText(s.calibration));
-  $('calStart').disabled=s.calibration.active;
+  $('calStart').disabled=s.calibration.active||!s.tof.available||s.tof.state!=='ranging';
   $('probeStart').disabled=s.output.correction!==1||s.probe;
   $('probeStart').textContent=s.probe?'Тест модели активен':'Тест модели 10 с';
   const wifiMode=!s.wifi.enabled?'Wi-Fi выключен':(s.wifi.connected?'Подключено':'Не подключено');
