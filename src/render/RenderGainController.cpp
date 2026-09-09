@@ -214,6 +214,11 @@ bool RenderGainController::setTarget(
     copyTargetMetadataToCurrent();
 
     if (renderProfileChanged) {
+        // Start a new slew epoch at the exact moment the target changed.
+        // While the controller is settled, advance() is intentionally skipped,
+        // so lastUpdateUs_ may be arbitrarily old. Reusing that stale timestamp
+        // would turn the first post-change step into a full-range jump.
+        lastUpdateUs_ = nowUs;
         settled_ = false;
     }
 
