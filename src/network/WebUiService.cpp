@@ -173,13 +173,13 @@ button{cursor:pointer}button.primary{background:var(--accent);color:#fff;border-
 <details open>
 <summary>Настройка ToF</summary>
 <div class="section">
-<h2>Live 8×8 debug</h2>
+<h2>Матрица расстояний 8×8</h2>
 <div class="row">
-<button id="tofDebugStart" class="primary" onclick="post('/api/tof-debug','start')">Live debug 60 s</button>
-<button id="tofDebugStop" onclick="post('/api/tof-debug','stop')">Stop</button>
+<button id="tofDebugStart" class="primary" onclick="post('/api/tof-debug','start')">Live-режим 60 с</button>
+<button id="tofDebugStop" onclick="post('/api/tof-debug','stop')">Стоп</button>
 <span id="tofDebugState" class="muted"></span>
 </div>
-<div class="muted">Матрица уже нормализована текущими ROT/MIRROR. Верх сетки = TOP ТВ. status 5 = full confidence, 6/9 = usable lower weight.</div>
+<div class="muted">Матрица уже ориентирована относительно телевизора. Верх сетки соответствует TOP. Зелёная рамка означает пригодную зону, пунктирная — пониженную уверенность.</div>
 <div class="cols" style="margin-top:12px">
 <div>
 <div class="muted" style="text-align:center">TOP ↑</div>
@@ -187,75 +187,86 @@ button{cursor:pointer}button.primary{background:var(--accent);color:#fff;border-
 <div class="muted">← LEFT · RIGHT →</div>
 </div>
 <div>
-<h2>Selected zone</h2>
-<pre id="tofZoneDetail">click a zone</pre>
-<h2>Plane</h2>
+<h2>Выбранная зона</h2>
+<pre id="tofZoneDetail">Выберите ячейку</pre>
+<h2>Плоскость стены</h2>
 <pre id="tofDetail">—</pre>
 </div>
 </div>
 
-<h2 style="margin-top:16px">Spatial profile</h2>
+<h2 style="margin-top:16px">Геометрия установки</h2>
+<div class="callout" style="margin-bottom:10px">Размеры задаются в плоскости телевизора. X/Y — смещение датчика от центра экрана, Z — смещение плоскости LED относительно датчика.</div>
 <div class="spatial">
-<div class="field"><label>Width mm</label><input id="spW" type="number" step=".1"></div>
-<div class="field"><label>Height mm</label><input id="spH" type="number" step=".1"></div>
-<div class="field"><label>Sensor X mm</label><input id="spX" type="number" step=".1"></div>
-<div class="field"><label>Sensor Y mm</label><input id="spY" type="number" step=".1"></div>
-<div class="field"><label>LED Z mm</label><input id="spZ" type="number" step=".1"></div>
-<div class="field"><label>Rotation 0..3</label><input id="spR" type="number" min="0" max="3" step="1"></div>
-<div class="field"><label>Mirror X</label><select id="spM"><option value="0">No</option><option value="1">Yes</option></select></div>
-<div class="field"><label>Deadband mm</label><input id="spD" type="number" step=".1"></div>
+<div class="field"><label>Ширина ТВ, мм</label><input id="spW" type="number" step=".1"></div>
+<div class="field"><label>Высота ТВ, мм</label><input id="spH" type="number" step=".1"></div>
+<div class="field"><label>Датчик X, мм</label><input id="spX" type="number" step=".1"></div>
+<div class="field"><label>Датчик Y, мм</label><input id="spY" type="number" step=".1"></div>
+<div class="field"><label>Плоскость LED Z, мм</label><input id="spZ" type="number" step=".1"></div>
+<div class="field"><label>Поворот датчика</label><select id="spR"><option value="0">0°</option><option value="1">90°</option><option value="2">180°</option><option value="3">270°</option></select></div>
+<div class="field"><label>Отразить горизонтально</label><select id="spM"><option value="0">Нет</option><option value="1">Да</option></select></div>
+<div class="field"><label>Deadband плоскости, мм</label><input id="spD" type="number" step=".1"></div>
 </div>
 <div class="row">
-<button id="spApply" class="primary" onclick="applySpatial()">Apply spatial</button>
-<button id="spReset" onclick="resetSpatial()">Default</button>
-<span id="spSource" class="muted"></span>
+<button id="spApply" class="primary" onclick="applySpatial()">Сохранить геометрию</button>
+<button id="spReset" onclick="resetSpatial()">По умолчанию</button>
+<span id="spSource" class="source"></span>
 </div>
 
-<h2>Distance → gain Q12</h2>
-<textarea id="curve" spellcheck="false" placeholder="50:2048,500:3072,4000:4096"></textarea>
+<h2>Яркость в зависимости от расстояния</h2>
+<div class="muted">Формат: <span class="mono">расстояние_мм:яркость_%</span>. От 2 до 8 точек, расстояние и яркость должны возрастать. Q12 преобразуется автоматически.</div>
+<textarea id="curve" spellcheck="false" placeholder="50:50,500:75,4000:100"></textarea>
 <div class="row">
-<button id="curveApply" class="primary" onclick="applyCurve()">Apply curve</button>
-<button id="curveReset" onclick="resetCurve()">Neutral default</button>
-<span id="curveSource" class="muted"></span>
+<button id="curveApply" class="primary" onclick="applyCurve()">Сохранить кривую</button>
+<button id="curveReset" onclick="resetCurve()">Нейтральная 100%</button>
+<span id="curveSource" class="source"></span>
 </div>
 
 <div class="cols">
 <div>
-<h2>Calibration</h2>
+<h2>Калибровка</h2>
 <div class="row">
-<button id="calStart" onclick="post('/api/calibration','start')">Start 60 s capture</button>
-<button id="probeStart" onclick="post('/api/shadow-probe','start')">Shadow probe 10 s</button>
+<button id="calStart" onclick="post('/api/calibration','start')">Снять данные 60 с</button>
+<button id="probeStart" onclick="post('/api/shadow-probe','start')">Тест модели 10 с</button>
 </div>
-<pre id="calDetail">No capture yet.</pre>
+<pre id="calDetail">Калибровка ещё не выполнялась.</pre>
 </div>
 </div>
-<div class="muted">Spatial/curve changes are refused in ACTIVE. Calibration is observational.</div>
+<div class="muted">Изменения геометрии и кривой запрещены в режиме «Включена». Калибровка не изменяет физический вывод.</div>
 </div>
 </details>
+</section>
 
-<details>
+<section id="pageSystem" class="page">
+<details open>
 <summary>Сеть</summary>
 <div class="section">
 <div id="wifiState" class="muted"></div>
 <div class="row"><input id="ssid" type="text" maxlength="32" placeholder="SSID"><input id="wifiPass" type="password" maxlength="63" placeholder="Password"></div>
 <div class="row">
-<button class="primary" onclick="applyWifi()">Save & reconnect</button>
-<button onclick="post('/api/wifi','clear')">Clear NVS Wi-Fi</button>
+<button class="primary" onclick="applyWifi()">Сохранить и подключиться</button>
+<button onclick="forgetWifi()">Забыть сохранённую сеть</button>
 </div>
 <div class="muted">Пароль никогда не возвращается браузеру. После смены сети эта страница может потерять соединение.</div>
 </div>
 </details>
+<div class="panel" style="margin-top:10px">
+<h2>Сброс конфигурации</h2>
+<div class="row">
+<button id="factory" class="danger" onclick="factoryReset()">Заводской сброс</button>
+</div>
+<div class="muted">Сброс доступен только при яркости 0. Будут удалены Wi-Fi и все runtime-настройки Ambilight.</div>
+</div>
+</section>
 
-<details>
-<summary>Диагностика и восстановление</summary>
+<section id="pageDiag" class="page">
+<details open>
+<summary>Диагностика</summary>
 <div class="section">
 <pre id="diag">—</pre>
-<div class="row">
-<button id="factory" class="danger" onclick="factoryReset()">Factory reset</button>
-</div>
-<div class="muted">Factory reset разрешён только при brightness=0. Web UI не имеет отдельной аутентификации: не публикуйте TCP/80 наружу.</div>
+<div class="muted">Низкоуровневые счётчики предназначены для поиска проблем DDP, памяти и web-сервиса. Web UI не имеет отдельной аутентификации: не публикуйте TCP/80 наружу.</div>
 </div>
 </details>
+</section>
 </main>
 <script>
 const $=id=>document.getElementById(id);
