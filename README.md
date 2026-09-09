@@ -4,7 +4,7 @@ Custom ESP32-C6 Ambilight endpoint for HyperHDR.
 
 ## Current development line
 
-Stage 43 is the web-UI correctness line on top of the Stage 42 hardware baseline. It keeps the realtime DDP/PARLIO/ToF pipeline unchanged while aligning commissioning safety, topology actions and browser state handling with the runtime contracts.
+Stage 44 is the web-UI UX line on top of the Stage 43 correctness pass. It keeps the realtime DDP/PARLIO/ToF pipeline unchanged while reorganizing the control surface around daily operation, LED commissioning, ToF commissioning, diagnostics and system recovery.
 
 The firmware stack now includes:
 
@@ -20,7 +20,7 @@ The firmware stack now includes:
 - persistent output brightness
 - persistent runtime ToF gain curve
 - persistent runtime spatial profile
-- minimal HTTP/80 commissioning/control UI
+- lightweight HTTP/80 control UI with Home / LED / ToF / Diagnostics / System workflows
 - persisted one-disabled-pixel-per-segment mask
 - runtime LED topology: COUNT/GPIO/REV per TV side
 - logical-side and raw-GPIO range commissioning tests
@@ -97,27 +97,21 @@ Startup:
 
     NVS -> secrets.h fallback -> disabled
 
-## Minimal web UI
+## Web UI
 
 When Wi-Fi is enabled:
 
     http://<controller-ip>/
 
-The page provides:
+The page is organized as:
 
-- correction mode
-- brightness
-- LED commissioning patterns
-- runtime side length / GPIO / direction topology
-- ToF spatial profile
-- distance/gain curve
-- 60-second calibration capture
-- SHADOW probe
-- Wi-Fi provisioning
-- guarded factory reset
-- compact DDP/ToF/runtime diagnostics
-- LED logical-side/raw-GPIO range tests
-- live normalized 8x8 ToF zone commissioning
+- **Home**: correction mode, brightness, PC/DDP signal and a compact operational summary
+- **LED**: TV-side topology, physical GPIO identification, direction/range tests and disabled-pixel mask
+- **ToF**: normalized 8x8 matrix, mounting geometry, percentage-based distance/gain editor and calibration
+- **Diagnostics**: compact DDP/ToF/heap/web runtime counters
+- **System**: Wi-Fi provisioning and guarded factory reset
+
+The browser shows distance/gain values as percentages and converts them losslessly to the existing Q12 runtime contract before POSTing.
 
 Implementation constraints:
 
@@ -254,7 +248,7 @@ Local Linux/macOS validation:
 
     bash tools/validate.sh
 
-Each run writes native-test, firmware-build and summary logs under:
+Each run runs the partition gate, embedded Web UI structural gate, native tests and firmware build, then writes logs under:
 
     .artifacts/validation/<timestamp>/
 
@@ -263,7 +257,7 @@ Stage 35 was validated locally on Windows with:
     147 native tests passed
     ESP32-C6 firmware build passed
 
-Stage 39 adds a mandatory partition-layout gate before native/firmware checks.
+Stage 39 adds a mandatory partition-layout gate before native/firmware checks. Stage 44 also adds `tools/check_web_ui.py`, which validates the embedded page/navigation contract and rejects duplicate static DOM IDs and stale safety guards.
 The target layout is now committed as:
 
     partitions/ambilight_16mb_ota.csv
@@ -304,7 +298,7 @@ Rules:
 - GPIO is one of 18/19/20/21
 - every GPIO is used exactly once
 - REV is 0/1
-- brightness must be 0
+- topology changes perform their own controlled blackout; the user does not need to set brightness to 0
 
 Changing topology updates renderer, DDP expected frame bytes and ToF
 perimeter sampling together. Old cached RGB/gains are invalidated safely.
@@ -483,7 +477,7 @@ reports:
 
 Current source identity:
 
-    ambilight-c6 0.43.0-dev Stage 43
+    ambilight-c6 0.44.0-dev Stage 44
     serial protocol 2
 
 Startup uses the same centralized FirmwareInfo constants instead of a handwritten stage banner.
