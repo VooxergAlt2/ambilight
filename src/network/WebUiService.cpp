@@ -213,7 +213,7 @@ button{cursor:pointer}button.primary{background:var(--accent);color:#fff;border-
 </div>
 
 <h2>Яркость в зависимости от расстояния</h2>
-<div class="muted">Формат: <span class="mono">расстояние_мм:яркость_%</span>. От 2 до 8 точек, расстояние и яркость должны возрастать. Q12 преобразуется автоматически.</div>
+<div class="muted">Формат: <span class="mono">расстояние_мм:яркость_%</span>. От 2 до 8 точек; расстояние строго возрастает, яркость не уменьшается. Q12 преобразуется автоматически.</div>
 <textarea id="curve" spellcheck="false" placeholder="50:50,500:75,4000:100"></textarea>
 <div class="row">
 <button id="curveApply" class="primary" onclick="applyCurve()">Сохранить кривую</button>
@@ -280,6 +280,7 @@ function showPage(name){
 }
 function sourceLabel(v){if(v==='CUSTOM_NVS')return 'Сохранено';if(v==='CUSTOM_RUNTIME')return 'Временно';if(v==='DEFAULT')return 'По умолчанию';return v||'—'}
 function brightnessLabel(v){const n=Number(v)||0;return Math.round(n*100/255)+'% · '+n+'/255'}
+function gainPercent(q){return (Number(q)*100/4096).toFixed(3).replace(/\.0+$/,'').replace(/(\.\d*?)0+$/,'$1')}
 function sideArrow(i,reversed){const normal=['→','↓','←','↑'];const flipped=['←','↑','→','↓'];return (reversed?flipped:normal)[i]}
 function txt(id,v){$(id).textContent=v}
 function setv(id,v){const e=$(id);if(!e.dataset.dirty)e.value=v}
@@ -470,7 +471,7 @@ function render(s){
   txt('spSource',sourceLabel(sp.source));txt('curveSource',sourceLabel(s.curve.source));
   const blocked=s.output.correction===2;
   $('spApply').disabled=blocked;$('spReset').disabled=blocked;$('curveApply').disabled=blocked;$('curveReset').disabled=blocked;
-  setv('curve',s.curve.points.map(p=>{const pct=Math.round((p[1]*100/4096)*10)/10;return p[0]+':'+pct}).join(','));
+  setv('curve',s.curve.points.map(p=>p[0]+':'+gainPercent(p[1])).join(','));
   txt('tofDetail',s.tof.available?`Состояние: ${s.tof.state}\nВозраст данных: ${s.tof.age_ms} мс · пригодных зон ${s.tof.valid_zones}/64 · медиана ${s.tof.median_mm} мм\nПлоскость: ${s.tof.plane_valid?'определена':'не определена'} · yaw ${(s.tof.yaw_cdeg/100).toFixed(2)}° · pitch ${(s.tof.pitch_cdeg/100).toFixed(2)}°\nСтена: ${s.tof.min_mm}..${s.tof.max_mm} мм · ${s.tof.gain_fail_open?'fallback 100%':'коррекция доступна'}`:'Датчик ToF недоступен');
   txt('calDetail',calibrationText(s.calibration));
   $('calStart').disabled=s.calibration.active;$('probeStart').disabled=s.output.correction!==1;
