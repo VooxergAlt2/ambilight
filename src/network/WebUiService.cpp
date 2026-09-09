@@ -232,7 +232,7 @@ button{cursor:pointer}button.primary{background:var(--primary);color:#fff;border
 <pre id="calDetail">Калибровка ещё не выполнялась.</pre>
 </div>
 </div>
-<div class="muted">Изменения геометрии и кривой запрещены в режиме «Включена». Калибровка не изменяет физический вывод.</div>
+<div class="muted">Изменения геометрии и кривой запрещены в режиме «Включена». Во время 60-секундной калибровки также блокируются геометрия и LED-топология, чтобы итог не смешивал разные конфигурации. Калибровка не изменяет физический вывод.</div>
 </div>
 </details>
 </section>
@@ -514,14 +514,18 @@ function render(s){
   $('testSegments').disabled=!safeTest;$('testDirection').disabled=!safeTest;$('runLogical').disabled=!safeTest;$('runWhole').disabled=!safeTest;$('runRaw').disabled=!safeTest;
   renderMap(s.map);
   renderPixelMask(s.pixel_mask,s.map);
+  $('mapApply').disabled=s.calibration.active;
+  $('mapReset').disabled=s.calibration.active;
   const sp=s.spatial;
   renderTofGrid(s.tof,sp);
   $('tofDebugStart').disabled=s.output.correction===2||s.tof.debug_active;
   $('tofDebugStop').disabled=!s.tof.debug_active;
   setv('spW',sp.w10/10);setv('spH',sp.h10/10);setv('spX',sp.x10/10);setv('spY',sp.y10/10);setv('spZ',sp.z10/10);setv('spR',sp.rot);setv('spM',sp.mirror);setv('spD',sp.deadband10/10);
   txt('spSource',sourceLabel(sp.source));txt('curveSource',sourceLabel(s.curve.source));
-  const blocked=s.output.correction===2;
-  $('spApply').disabled=blocked;$('spReset').disabled=blocked;$('curveApply').disabled=blocked;$('curveReset').disabled=blocked;
+  const spatialBlocked=s.output.correction===2||s.calibration.active;
+  $('spApply').disabled=spatialBlocked;$('spReset').disabled=spatialBlocked;
+  const curveBlocked=s.output.correction===2;
+  $('curveApply').disabled=curveBlocked;$('curveReset').disabled=curveBlocked;
   setv('curve',s.curve.points.map(p=>p[0]+':'+gainPercent(p[1])).join(','));
   txt('tofDetail',s.tof.available?`Состояние: ${s.tof.state}\nВозраст данных: ${s.tof.age_ms} мс · пригодных зон ${s.tof.valid_zones}/64 · медиана ${s.tof.median_mm} мм\nПлоскость: ${s.tof.plane_valid?'определена':'не определена'} · yaw ${(s.tof.yaw_cdeg/100).toFixed(2)}° · pitch ${(s.tof.pitch_cdeg/100).toFixed(2)}°\nСтена: ${s.tof.min_mm}..${s.tof.max_mm} мм · ${s.tof.gain_fail_open?'резерв: 100%':'коррекция доступна'}`:'Датчик ToF недоступен');
   txt('calDetail',calibrationText(s.calibration));
