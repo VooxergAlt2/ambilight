@@ -7,6 +7,7 @@ The tracker runs only after `LedRenderer` successfully submits a frame through `
 For each rendered frame it records:
 
 - source non-zero pixel count and maximum RGB channel;
+- age of the source DDP frame at the moment it is rendered;
 - post-gain non-zero pixel count;
 - prepared-output non-zero pixel count and maximum RGB channel;
 - active gain minimum/maximum Q12;
@@ -26,11 +27,13 @@ A complete black-output transition is classified as one of:
 
 On the transition into black, Serial prints one line similar to:
 
-    BLACK EVENT reason=SOURCE_BLACK gen=1234 pixels=780 src_nonzero=0 src_max=0 after_gain_nonzero=0 out_nonzero=0 out_max=0 gain=4096..4096 gain_zero=0 brightness=253 active=yes events=1
+    BLACK EVENT reason=SOURCE_BLACK gen=1234 src_age_ms=4 pixels=780 src_nonzero=0 src_max=0 after_gain_nonzero=0 out_nonzero=0 out_max=0 gain=4096..4096 gain_zero=0 brightness=253 active=yes events=1
+
+A small `src_age_ms` on `SOURCE_BLACK` means the black RGB was freshly received from HyperHDR. A large source age combined with `ACTIVE_GAIN` means an older held RGB frame was re-rendered because correction state changed.
 
 On recovery it prints:
 
-    BLACK RECOVERY gen=1235 black_frames=1 last_black_age_ms=10 src_max=190 out_max=190
+    BLACK RECOVERY gen=1235 black_frames=1 last_black_age_ms=10 src_age_ms=3 src_max=190 out_max=190
 
 The in-memory `BlackFrameForensicsStats` remains accessible through:
 
