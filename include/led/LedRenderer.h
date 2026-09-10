@@ -10,6 +10,7 @@
 #include "led/LedMappingProfile.h"
 #include "led/LedPixelMaskProfile.h"
 #include "led/LedRenderPlan.h"
+#include "render/BlackFrameForensics.h"
 #include "render/RenderGainContext.h"
 
 namespace ambilight {
@@ -55,6 +56,10 @@ public:
         return mappingErrors_;
     }
 
+    const BlackFrameForensics& blackFrameForensics() const {
+        return blackFrameForensics_;
+    }
+
     const PerformanceMetric& prepareMetric() const {
         return prepareMetric_;
     }
@@ -75,6 +80,11 @@ private:
         std::uint64_t renderStartedUs,
         std::uint64_t prepareStartedUs);
 
+    void observeBlackFrameForensics(
+        const RgbFrame& frame,
+        const RenderGainContext* activeGain,
+        std::uint64_t observedUs);
+
     LedEngine& engine_;
 
     std::uint32_t renderedFrames_ = 0;
@@ -83,6 +93,7 @@ private:
     LedMappingProfile mappingProfile_{};
     LedPixelMaskProfile pixelMaskProfile_{};
     LedRenderPlan renderPlan_{};
+    BlackFrameForensics blackFrameForensics_{};
 
     PerformanceMetric prepareMetric_{};
     PerformanceMetric postMetric_{};
