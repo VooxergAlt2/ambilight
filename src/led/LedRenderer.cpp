@@ -146,11 +146,14 @@ void LedRenderer::observeBlackFrameForensics(
             after.lastBlack;
 
         Serial.printf(
-            "BLACK EVENT reason=%s gen=%lu pixels=%u src_nonzero=%u src_max=%u after_gain_nonzero=%u out_nonzero=%u out_max=%u gain=%u..%u gain_zero=%u brightness=%u active=%s events=%lu\n",
+            "BLACK EVENT reason=%s gen=%lu src_age_ms=%llu pixels=%u src_nonzero=%u src_max=%u after_gain_nonzero=%u out_nonzero=%u out_max=%u gain=%u..%u gain_zero=%u brightness=%u active=%s events=%lu\n",
             blackFrameReasonName(
                 sample.reason),
             static_cast<unsigned long>(
                 sample.generation),
+            static_cast<unsigned long long>(
+                sample.sourceAgeUs /
+                1000ULL),
             static_cast<unsigned>(
                 sample.pixelCount),
             static_cast<unsigned>(
@@ -190,13 +193,16 @@ void LedRenderer::observeBlackFrameForensics(
                 : 0;
 
         Serial.printf(
-            "BLACK RECOVERY gen=%lu black_frames=%lu last_black_age_ms=%llu src_max=%u out_max=%u\n",
+            "BLACK RECOVERY gen=%lu black_frames=%lu last_black_age_ms=%llu src_age_ms=%llu src_max=%u out_max=%u\n",
             static_cast<unsigned long>(
                 frame.generation),
             static_cast<unsigned long>(
                 previousRun),
             static_cast<unsigned long long>(
                 blackDurationUs /
+                1000ULL),
+            static_cast<unsigned long long>(
+                after.latest.sourceAgeUs /
                 1000ULL),
             static_cast<unsigned>(
                 after.latest.sourceMaxChannel),
