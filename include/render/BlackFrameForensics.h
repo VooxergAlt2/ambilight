@@ -45,6 +45,7 @@ inline const char* blackFrameReasonName(
 struct BlackFrameSample {
     std::uint32_t generation = 0;
     std::uint64_t observedUs = 0;
+    std::uint64_t sourceAgeUs = 0;
 
     std::uint16_t pixelCount = 0;
     std::uint16_t sourceNonZeroPixels = 0;
@@ -114,6 +115,11 @@ public:
             frame.generation;
         sample.observedUs =
             nowUs;
+        sample.sourceAgeUs =
+            frame.receivedUs != 0 &&
+            nowUs >= frame.receivedUs
+                ? nowUs - frame.receivedUs
+                : 0;
         sample.pixelCount =
             frame.pixelCount;
         sample.activeCorrection =
