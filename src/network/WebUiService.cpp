@@ -716,13 +716,15 @@ function render(s){
   }
   txt('fw',s.fw.version+' · Stage '+s.fw.stage+' · '+s.fw.target);
   txt('stCorr',corrName(s.output.correction));
-  txt('stBright',Math.round(s.output.brightness*100/255)+'%');
+  txt('stBright',(s.output.enabled?'':tr('ВЫКЛ. · ','OFF · '))+Math.round(s.output.brightness*100/255)+'%');
   const signalFresh=s.ddp.has_frame&&s.ddp.frame_age_ms<=1000;
   txt('stDdp',!s.ddp.running?tr('ВЫКЛ.','OFF'):(signalFresh?tr('ПОЛУЧАЕМ','RECEIVING'):(s.output.frame_held?tr('УДЕРЖАНИЕ','HOLDING'):tr('ОЖИДАНИЕ','WAITING'))));
   txt('stTof',tofOperationalStatus(s.tof));
+  $('power0').classList.toggle('primary',!s.output.enabled);
+  $('power1').classList.toggle('primary',!!s.output.enabled);
   [0,1,2].forEach(i=>$('corr'+i).classList.toggle('primary',s.output.correction===i));
   setv('brightness',s.output.brightness);txt('brightnessValue',brightnessLabel(s.output.brightness));
-  let home=tr('Подсветка ','Lighting ')+(s.output.brightness===0?tr('выключена','off'):tr('готова','ready'))+'. ';
+  let home=tr('Подсветка ','Lighting ')+(!s.output.enabled||s.output.effective_brightness===0?tr('выключена','off'):tr('готова','ready'))+'. ';
   if(s.commissioning.pattern)home+=tr('Пусконаладочный тест: ','Commissioning test: ')+commissioningText(s.commissioning)+'. ';
   else if(signalFresh)home+=tr('Сигнал ПК поступает, последний кадр ','PC signal is active; last frame ')+s.ddp.frame_age_ms+tr(' мс назад. ',' ms ago. ');
   else if(s.output.frame_held)home+=tr('Новых кадров нет, удерживается последний успешно показанный кадр (','No new frames; holding the last successfully shown frame (')+s.ddp.frame_age_ms+' ms). ';
@@ -731,7 +733,7 @@ function render(s){
   txt('homeStatus',home);
   txt('testState',commissioningText(s.commissioning));
   const testMax=Number(s.commissioning.max_brightness||0);
-  const safeTest=s.output.brightness>0&&testMax>0&&s.output.brightness<=testMax;
+  const safeTest=s.output.effective_brightness>0&&testMax>0&&s.output.effective_brightness<=testMax;
   $('testSegments').disabled=!safeTest;$('testDirection').disabled=!safeTest;$('runLogical').disabled=!safeTest;$('runWhole').disabled=!safeTest;$('runRaw').disabled=!safeTest;
   renderMap(s.map);
   renderPixelMask(s.pixel_mask,s.map);
@@ -759,8 +761,8 @@ function render(s){
   const wifiRssi=s.wifi.connected?(' · RSSI '+s.wifi.rssi+' dBm'):'';
   txt('wifiState',wifiMode+' · '+(s.wifi.ip||tr('без IP','no IP'))+wifiRssi+' · '+(s.wifi.ssid||tr('SSID не задан','SSID not set')));
   setv('ssid',s.wifi.ssid||'');
-  txt('diag',`DDP: running=${s.ddp.running} frames=${s.ddp.frames} publications=${s.ddp.publications}\nlast frame: ${s.ddp.has_frame?s.ddp.frame_age_ms+' ms':'none'} · frame hold=${s.output.frame_held}\nsender: ${s.ddp.sender_locked?(s.ddp.sender_ip+':'+s.ddp.sender_port):'none'}\nToF: state=${s.tof.state} age=${s.tof.age_ms} ms valid=${s.tof.valid_zones}/64 plane=${s.tof.plane_valid}\npersistence: ${s.persistence?'available':'unavailable'}\nheap free/min: ${s.heap.free}/${s.heap.min} B\nweb requests/actions/dropped/bad: ${s.web.requests}/${s.web.actions}/${s.web.dropped}/${s.web.bad}`);
-  $('factory').disabled=s.output.brightness!==0;
+  txt('diag',`output: enabled=${s.output.enabled} configured=${s.output.brightness} effective=${s.output.effective_brightness}\nDDP: running=${s.ddp.running} frames=${s.ddp.frames} publications=${s.ddp.publications}\nlast frame: ${s.ddp.has_frame?s.ddp.frame_age_ms+' ms':'none'} · frame hold=${s.output.frame_held}\nsender: ${s.ddp.sender_locked?(s.ddp.sender_ip+':'+s.ddp.sender_port):'none'}\nToF: state=${s.tof.state} age=${s.tof.age_ms} ms valid=${s.tof.valid_zones}/64 plane=${s.tof.plane_valid}\npersistence: ${s.persistence?'available':'unavailable'}\nheap free/min: ${s.heap.free}/${s.heap.min} B\nweb requests/actions/dropped/bad: ${s.web.requests}/${s.web.actions}/${s.web.dropped}/${s.web.bad}`);
+  $('factory').disabled=s.output.effective_brightness!==0;
   translateStatic();
 }
 async function refresh(){
