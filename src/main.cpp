@@ -1664,25 +1664,34 @@ void printCorrectionMode() {
 }
 
 void printOutputBrightness() {
-    const std::uint8_t brightness =
+    const std::uint8_t configured =
+        runtimeSettings.outputBrightness();
+
+    const std::uint8_t effective =
         ledEngine.brightness();
 
     const std::uint32_t percentX10 =
         (
             static_cast<std::uint32_t>(
-                brightness) *
+                configured) *
             1000U +
             127U
         ) /
         255U;
 
     Serial.printf(
-        "OUTPUT brightness=%u/255 (%lu.%lu%%) persisted=%s\n",
-        static_cast<unsigned>(brightness),
+        "OUTPUT enabled=%s configured=%u/255 (%lu.%lu%%) effective=%u/255 persisted=%s\n",
+        runtimeSettings.outputEnabled()
+            ? "yes"
+            : "no",
+        static_cast<unsigned>(
+            configured),
         static_cast<unsigned long>(
             percentX10 / 10U),
         static_cast<unsigned long>(
             percentX10 % 10U),
+        static_cast<unsigned>(
+            effective),
         runtimeSettings.persistenceAvailable()
             ? "yes"
             : "no");
