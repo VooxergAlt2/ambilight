@@ -364,7 +364,8 @@ const STATIC_EN={
 'Количество LED':'LED count',
 'развернуть':'reverse',
 'нет':'none',
-'Язык интерфейса':'Interface language'
+'Язык интерфейса':'Interface language',
+'Разделы':'Sections'
 };
 function tr(ru,en){return locale==='en'?en:ru}
 function translateStatic(root=document.body){
@@ -412,7 +413,7 @@ function showPage(name){
   if(!pages.includes(name))name='home';
   pages.forEach(p=>{$('page'+p[0].toUpperCase()+p.slice(1)).classList.toggle('active',p===name);$('nav'+p[0].toUpperCase()+p.slice(1)).classList.toggle('active',p===name)});
 }
-function sourceLabel(v){if(v==='CUSTOM_NVS')return 'Сохранено';if(v==='CUSTOM_RUNTIME')return 'Временно';if(v==='DEFAULT')return 'По умолчанию';return v||'—'}
+function sourceLabel(v){if(v==='CUSTOM_NVS')return tr('Сохранено','Saved');if(v==='CUSTOM_RUNTIME')return tr('Временно','Runtime only');if(v==='DEFAULT')return tr('По умолчанию','Default');return v||'—'}
 function brightnessLabel(v){const n=Number(v)||0;return Math.round(n*100/255)+'% · '+n+'/255'}
 function gainPercent(q){return (Number(q)*100/4096).toFixed(3).replace(/\.0+$/,'').replace(/(\.\d*?)0+$/,'$1')}
 function sideArrow(i){return ['→','↓','←','↑'][i]}
@@ -432,8 +433,8 @@ function actionSequenceAfter(current,expected){
   return ((a-b)>>>0)<0x80000000;
 }
 async function post(path,body,dirtyIds=[]){
-  if(posting||pendingActionId)return actionError('Дождитесь завершения предыдущего действия.');
-  posting=true;syncActionLock();txt('action','Отправляем…');$('action').className='muted';
+  if(posting||pendingActionId)return actionError(tr('Дождитесь завершения предыдущего действия.','Wait for the previous action to finish.'));
+  posting=true;syncActionLock();txt('action',tr('Отправляем…','Sending…'));$('action').className='muted';
   try{
     const r=await fetch(path,{method:'POST',headers:{'X-Ambilight-Control':'1'},body:String(body)});
     const j=await r.json();
@@ -441,7 +442,7 @@ async function post(path,body,dirtyIds=[]){
     const queued=Number(j.queued||0);
     if(!queued)throw new Error('controller did not return action id');
     pendingActionId=queued;pendingActionStartedMs=Date.now();pendingDirtyIds=[...dirtyIds];pendingFieldState={};pendingDirtyIds.forEach(id=>pendingFieldState[id]=fieldState(id));
-    txt('action','Применяем…');$('action').className='muted';
+    txt('action',tr('Применяем…','Applying…'));$('action').className='muted';
     setTimeout(refresh,120);
     return true;
   }catch(e){actionError(e.message);return false}
@@ -452,9 +453,9 @@ function validateMap(){
   const gpios=[],p=[];
   for(let i=0;i<4;i++){
     const count=Number($('count'+i).value),gpio=Number($('gpio'+i).value);
-    if(!Number.isInteger(count)||count<1||count>230)return actionError(mapNames[i]+': количество LED должно быть 1..230.');
-    if(![18,19,20,21].includes(gpio))return actionError(mapNames[i]+': допустимы только GPIO18/19/20/21.');
-    if(gpios.includes(gpio))return actionError('GPIO'+gpio+' назначен более чем одной стороне.');
+    if(!Number.isInteger(count)||count<1||count>230)return actionError(mapNames[i]+tr(': количество LED должно быть 1..230.',': LED count must be 1..230.'));
+    if(![18,19,20,21].includes(gpio))return actionError(mapNames[i]+tr(': допустимы только GPIO18/19/20/21.',': only GPIO18/19/20/21 are allowed.'));
+    if(gpios.includes(gpio))return actionError('GPIO'+gpio+tr(' назначен более чем одной стороне.',' is assigned to more than one side.'));
     gpios.push(gpio);p.push(count+':'+gpio+':'+($('rev'+i).checked?'1':'0'));
   }
   return p;
@@ -464,7 +465,7 @@ function resetMap(){post('/api/led-map','reset',mapFieldIds())}
 function runLogicalRange(){post('/api/test','side:'+$('rangeSide').value+':'+$('rangeStart').value+':'+$('rangeCount').value)}
 function runWholeSide(){
   const i=Number($('rangeSide').value);
-  if(!activeMap||!activeMap.segments||!activeMap.segments[i])return actionError('Активная topology ещё не загружена.');
+  if(!activeMap||!activeMap.segments||!activeMap.segments[i])return actionError(tr('Активная топология ещё не загружена.','Active topology is not loaded yet.'));
   $('rangeStart').value=0;$('rangeCount').value=activeMap.segments[i][0];runLogicalRange()
 }
 function runRawRange(){post('/api/test','gpio:'+$('rawGpio').value+':'+$('rawStart').value+':'+$('rawCount').value)}
@@ -474,9 +475,10 @@ function applyPixelMask(){
   for(let i=0;i<ids.length;i++){
     const raw=$(ids[i]).value.trim();
     if(raw===''){p.push('-');continue}
-    const value=Number(raw),max=activeMap&&activeMap.segments?activeMap.segments[i][0]-1:Number($(ids[i]).max);
-    if(!Number.isInteger(value)||value<0||value>max)return actionError(mapNames[i]+': индекс отключённого LED должен быть 0..'+max+'.');
-    p.push(String(value));
+    const max=activeMap&&activeMap.segments?activeMap.segments[i][0]:Number($(ids[i]).max);
+    const value=Number(raw);
+    if(!Number.isInteger(value)||value<1||value>max)return actionError(mapNames[i]+tr(': физический номер LED должен быть 1..',': physical LED number must be 1..')+max+'.');
+    p.push(String(value-1));
   }
   post('/api/pixel-mask',p.join(','),ids)
 }
@@ -484,37 +486,37 @@ function resetPixelMask(){post('/api/pixel-mask','reset',maskFieldIds())}
 function spatialFieldIds(){return ['spW','spH','spX','spY','spZ','spR','spM','spD']}
 function spatialNumber(id,label,min,max){
   const raw=$(id).value.trim();
-  if(raw===''){actionError(label+': заполните поле.');return null}
+  if(raw===''){actionError(label+tr(': заполните поле.',': field is required.'));return null}
   const n=Number(raw);
-  if(!Number.isFinite(n)||n<min||n>max){actionError(label+': допустимо '+min+'..'+max+' мм.');return null}
+  if(!Number.isFinite(n)||n<min||n>max){actionError(label+tr(': допустимо ',': allowed range is ')+min+'..'+max+tr(' мм.',' mm.'));return null}
   return n.toFixed(1)
 }
 function applySpatial(){
   const ids=spatialFieldIds();
-  const w=spatialNumber('spW','Ширина ТВ',100,5000);if(w===null)return;
-  const h=spatialNumber('spH','Высота ТВ',100,5000);if(h===null)return;
-  const x=spatialNumber('spX','Датчик X',-2000,2000);if(x===null)return;
-  const y=spatialNumber('spY','Датчик Y',-2000,2000);if(y===null)return;
-  const z=spatialNumber('spZ','Плоскость LED Z',-1000,1000);if(z===null)return;
-  const d=spatialNumber('spD','Deadband',1,500);if(d===null)return;
+  const w=spatialNumber('spW',tr('Ширина ТВ','TV width'),100,5000);if(w===null)return;
+  const h=spatialNumber('spH',tr('Высота ТВ','TV height'),100,5000);if(h===null)return;
+  const x=spatialNumber('spX',tr('Датчик X','Sensor X'),-2000,2000);if(x===null)return;
+  const y=spatialNumber('spY',tr('Датчик Y','Sensor Y'),-2000,2000);if(y===null)return;
+  const z=spatialNumber('spZ',tr('Плоскость LED Z','LED plane Z'),-1000,1000);if(z===null)return;
+  const d=spatialNumber('spD',tr('Порог плоскости','Plane threshold'),1,500);if(d===null)return;
   const rot=Number($('spR').value),mirror=Number($('spM').value);
-  if(!Number.isInteger(rot)||rot<0||rot>3)return actionError('Поворот датчика должен быть 0°, 90°, 180° или 270°.');
-  if(mirror!==0&&mirror!==1)return actionError('Отражение должно быть «Нет» или «Да».');
+  if(!Number.isInteger(rot)||rot<0||rot>3)return actionError(tr('Поворот датчика должен быть 0°, 90°, 180° или 270°.','Sensor rotation must be 0°, 90°, 180° or 270°.'));
+  if(mirror!==0&&mirror!==1)return actionError(tr('Отражение должно быть «Нет» или «Да».','Mirror must be No or Yes.'));
   post('/api/spatial',[w,h,x,y,z,rot,mirror,d].join(','),ids)
 }
 function resetSpatial(){post('/api/spatial','reset',spatialFieldIds())}
 function applyCurve(){
   const raw=$('curve').value.trim(),items=raw?raw.split(','):[];
-  if(items.length<2||items.length>8)return actionError('Кривая должна содержать от 2 до 8 точек.');
+  if(items.length<2||items.length>8)return actionError(tr('Кривая должна содержать от 2 до 8 точек.','Curve must contain 2 to 8 points.'));
   let prevD=-1,prevP=-1;const out=[];
   for(const item of items){
     const parts=item.split(':');
-    if(parts.length!==2)return actionError('Используйте формат расстояние_мм:яркость_%.');
+    if(parts.length!==2)return actionError(tr('Используйте формат расстояние_мм:яркость_%.','Use distance_mm:brightness_% format.'));
     const d=Number(parts[0].trim()),pct=Number(parts[1].trim());
-    if(!Number.isInteger(d)||d<0||d>65535)return actionError('Расстояние должно быть целым числом 0..65535 мм.');
-    if(!Number.isFinite(pct)||pct<0||pct>100)return actionError('Яркость должна быть в диапазоне 0..100%.');
-    if(d<=prevD)return actionError('Расстояния должны строго возрастать.');
-    if(pct<prevP)return actionError('Яркость не должна уменьшаться с ростом расстояния.');
+    if(!Number.isInteger(d)||d<0||d>65535)return actionError(tr('Расстояние должно быть целым числом 0..65535 мм.','Distance must be an integer from 0 to 65535 mm.'));
+    if(!Number.isFinite(pct)||pct<0||pct>100)return actionError(tr('Яркость должна быть в диапазоне 0..100%.','Brightness must be in the 0..100% range.'));
+    if(d<=prevD)return actionError(tr('Расстояния должны строго возрастать.','Distances must strictly increase.'));
+    if(pct<prevP)return actionError(tr('Яркость не должна уменьшаться с ростом расстояния.','Brightness must not decrease as distance increases.'));
     out.push(d+':'+Math.round(pct*4096/100));prevD=d;prevP=pct;
   }
   post('/api/curve',out.join(','),['curve'])
@@ -522,8 +524,8 @@ function applyCurve(){
 function resetCurve(){post('/api/curve','reset',['curve'])}
 async function applyWifi(){
   const ssid=$('ssid').value.trim(),open=$('wifiOpen').checked,p=$('wifiPass').value;
-  if(!ssid)return actionError('Введите SSID.');
-  if(!open&&p==='')return actionError('Введите пароль защищённой сети или явно отметьте «Открытая сеть».');
+  if(!ssid)return actionError(tr('Введите SSID.','Enter SSID.'));
+  if(!open&&p==='')return actionError(tr('Введите пароль защищённой сети или явно отметьте «Открытая сеть».','Enter the protected-network password or explicitly select “Open network”.'));
   const ok=await post('/api/wifi',ssid+'|'+(open?'':p),['ssid']);
   if(ok){
     $('wifiPass').value='';delete $('wifiPass').dataset.dirty;
@@ -531,8 +533,8 @@ async function applyWifi(){
     $('wifiPass').disabled=false;
   }
 }
-function forgetWifi(){if(confirm('Забыть сохранённую Wi-Fi сеть? После этого web-интерфейс может стать недоступен.'))post('/api/wifi','clear')}
-function factoryReset(){if(confirm('Стереть всю конфигурацию Ambilight и перезагрузить контроллер?'))post('/api/factory','reset')}
+function forgetWifi(){if(confirm(tr('Забыть сохранённую Wi-Fi сеть? После этого web-интерфейс может стать недоступен.','Forget the saved Wi-Fi network? The web interface may become unavailable.')))post('/api/wifi','clear')}
+function factoryReset(){if(confirm(tr('Стереть всю конфигурацию Ambilight и перезагрузить контроллер?','Erase all Ambilight configuration and restart the controller?')))post('/api/factory','reset')}
 function renderMap(m){
   activeMap=m;
   if(!$('mapping').children.length){
@@ -543,23 +545,23 @@ function renderMap(m){
   const total=m.segments.reduce((a,x)=>a+x[0],0);
   const tvIds=['tvTop','tvRight','tvBottom','tvLeft'];
   m.segments.forEach((x,i)=>txt(tvIds[i],mapNames[i]+' · '+x[0]+' · GPIO'+x[1]+' · '+sideArrow(i)+' · '+(x[2]?'REV':'FWD')));
-  txt('tvSummary','Активно: '+total+' LED · DDP '+(total*3)+' байт · '+sourceLabel(m.source));
-  txt('topologyInfo','Всего '+total+' LED · DDP '+(total*3)+' байт · '+sourceLabel(m.source));
+  txt('tvSummary',tr('Активно: ','Active: ')+total+' LED · DDP '+(total*3)+tr(' байт · ',' bytes · ')+sourceLabel(m.source));
+  txt('topologyInfo',tr('Всего ','Total ')+total+' LED · DDP '+(total*3)+tr(' байт · ',' bytes · ')+sourceLabel(m.source));
   const side=Number($('rangeSide').value||0),len=m.segments[side][0];
   $('rangeStart').max=Math.max(0,len-1);$('rangeCount').max=len;
 }
 function renderPixelMask(m,map){
   if(!$('pixelMask').children.length){
-    mapNames.forEach((n,i)=>{$('pixelMask').insertAdjacentHTML('beforeend',`<div class="seg"><b>${n}</b><input id="mask${i}" type="number" min="0" step="1" placeholder="none"><span class="muted" id="maskLimit${i}"></span><span></span></div>`)});
+    mapNames.forEach((n,i)=>{$('pixelMask').insertAdjacentHTML('beforeend',`<div class="seg"><b>${n}</b><input id="mask${i}" type="number" min="1" step="1" placeholder="нет"><span class="muted" id="maskLimit${i}"></span><span></span></div>`)});
     markDirty();
   }
-  m.offsets.forEach((v,i)=>{const max=map.segments[i][0]-1;$('mask'+i).max=max;txt('maskLimit'+i,'0..'+max);setv('mask'+i,v<0?'':v)});
+  m.offsets.forEach((v,i)=>{const max=map.segments[i][0];$('mask'+i).max=max;txt('maskLimit'+i,'1..'+max);setv('mask'+i,v<0?'':v+1)});
   txt('maskSource',sourceLabel(m.source));
 }
 function tofStatusText(s){
-  if(s===5)return '5 · полная уверенность';
-  if(s===6||s===9)return s+' · пригодна с пониженным весом';
-  return s+' · исключена из обычной обработки';
+  if(s===5)return tr('5 · полная уверенность','5 · full confidence');
+  if(s===6||s===9)return s+tr(' · пригодна с пониженным весом',' · usable with reduced weight');
+  return s+tr(' · исключена из обычной обработки',' · excluded from normal processing');
 }
 function selectTofZone(i){selectedTofZone=i;document.querySelectorAll('.tofcell').forEach((e,n)=>e.classList.toggle('selected',n===i))}
 function renderTofGrid(t,sp){
@@ -576,42 +578,43 @@ function renderTofGrid(t,sp){
     const usable=st===5||st===6||st===9;
     e.className='tofcell '+(!live?'rejected':(st===5?'usable':(usable?'usable weak':'rejected')))+(i===selectedTofZone?' selected':'');
     e.innerHTML='<strong>'+(d>0?d:'—')+'</strong>r'+raw+' s'+st;
-    e.title=(live?'':'НЕАКТУАЛЬНЫЕ ДАННЫЕ · ')+'normalized '+Math.floor(i/8)+','+(i%8)+' · raw '+raw+' · '+d+' mm · '+tofStatusText(st);
+    e.title=(live?'':tr('НЕАКТУАЛЬНЫЕ ДАННЫЕ · ','STALE DATA · '))+'normalized '+Math.floor(i/8)+','+(i%8)+' · raw '+raw+' · '+d+' mm · '+tofStatusText(st);
   });
   const x=(t.grid||[])[selectedTofZone];
   if(x){
-    txt('tofZoneDetail',(live?'Данные актуальны':'Данные неактуальны · '+t.state)+'\nСтрока '+Math.floor(selectedTofZone/8)+', столбец '+(selectedTofZone%8)+'\nRaw index '+x[2]+'\nРасстояние '+x[0]+' мм\nСтатус '+tofStatusText(x[1])+'\nПоворот '+(sp.rot*90)+'° · отражение '+(sp.mirror?'да':'нет'));
+    txt('tofZoneDetail',(live?tr('Данные актуальны','Data is current'):tr('Данные неактуальны · ','Data is stale · ')+t.state)+'\n'+tr('Строка ','Row ')+Math.floor(selectedTofZone/8)+tr(', столбец ',', column ')+(selectedTofZone%8)+'\nRaw index '+x[2]+'\n'+tr('Расстояние ','Distance ')+x[0]+' mm\n'+tr('Статус ','Status ')+tofStatusText(x[1])+'\n'+tr('Поворот ','Rotation ')+(sp.rot*90)+'° · '+tr('отражение ','mirror ')+(sp.mirror?tr('да','yes'):tr('нет','no')));
   }
   tofDebugUiActive=!!t.debug_active;
-  txt('tofDebugState',t.debug_active?('LIVE · осталось '+Math.ceil(t.debug_remaining_ms/1000)+' с · '+(sp.rot*90)+'° · отражение '+(sp.mirror?'да':'нет')):('Обычный режим · '+(sp.rot*90)+'° · отражение '+(sp.mirror?'да':'нет')));
+  txt('tofDebugState',t.debug_active?('LIVE · '+tr('осталось ','remaining ')+Math.ceil(t.debug_remaining_ms/1000)+' s · '+(sp.rot*90)+'° · '+tr('отражение ','mirror ')+(sp.mirror?tr('да','yes'):tr('нет','no'))):(tr('Обычный режим · ','Normal mode · ')+(sp.rot*90)+'° · '+tr('отражение ','mirror ')+(sp.mirror?tr('да','yes'):tr('нет','no'))));
 }
 let lastTofSnapshot={grid:[]},lastSpatialSnapshot={rot:0,mirror:0};
 function calibrationText(c){
-  if(c.active)return 'Сбор данных · кадров '+c.samples;
-  if(!c.has_summary)return 'Калибровка ещё не выполнялась.';
+  if(c.active)return tr('Сбор данных · кадров ','Collecting data · frames ')+c.samples;
+  if(!c.has_summary)return tr('Калибровка ещё не выполнялась.','Calibration has not been run yet.');
   const s=c.summary;
-  let t='Кадров: '+s.total+'\nПлоскость: '+(s.plane_valid?'определена':'не определена');
-  if(s.plane_valid)t+='\nНаклон: yaw '+(s.yaw[1]/100).toFixed(2)+'° · pitch '+(s.pitch[1]/100).toFixed(2)+'°\nРасстояние до плоскости: '+s.z0[1]+' мм';
-  if(s.spatial_valid)t+='\nДиапазон стены: '+s.min[1]+'..'+s.max[1]+' мм\nСтороны: '+s.segments.map((x,i)=>mapNames[i]+' '+x[0]+'→'+x[1]+' мм').join(' · ');
+  let t=tr('Кадров: ','Frames: ')+s.total+'\n'+tr('Плоскость: ','Plane: ')+(s.plane_valid?tr('определена','valid'):tr('не определена','invalid'));
+  if(s.plane_valid)t+='\n'+tr('Наклон: yaw ','Tilt: yaw ')+(s.yaw[1]/100).toFixed(2)+'° · pitch '+(s.pitch[1]/100).toFixed(2)+'°\n'+tr('Расстояние до плоскости: ','Plane distance: ')+s.z0[1]+' mm';
+  if(s.spatial_valid)t+='\n'+tr('Диапазон стены: ','Wall range: ')+s.min[1]+'..'+s.max[1]+' mm\n'+tr('Стороны: ','Sides: ')+s.segments.map((x,i)=>mapNames[i]+' '+x[0]+'→'+x[1]+' mm').join(' · ');
   return t;
 }
 function tofOperationalStatus(t){
-  if(!t.available)return 'НЕТ';
-  if(t.state==='error')return 'ОШИБКА';
-  if(t.state==='initializing'||t.state==='not-started')return 'ЗАПУСК';
-  if(t.gain_fail_open)return 'БЕЗ КОРР.';
-  return t.state==='ranging'?'НОРМА':String(t.state||'?').toUpperCase();
+  if(!t.available)return tr('НЕТ','NO DATA');
+  if(t.state==='error')return tr('ОШИБКА','ERROR');
+  if(t.state==='initializing'||t.state==='not-started')return tr('ЗАПУСК','STARTING');
+  if(t.gain_fail_open)return tr('БЕЗ КОРР.','FAIL-OPEN');
+  return t.state==='ranging'?tr('НОРМА','OK'):String(t.state||'?').toUpperCase();
 }
 function commissioningText(c){
-  if(!c.pattern)return 'Тест не запущен';
-  const left=' · '+Math.ceil(c.remaining_ms/1000)+' с';
-  if(c.pattern===1)return 'Все стороны'+left;
-  if(c.pattern===2)return 'Проверка направления'+left;
+  if(!c.pattern)return tr('Тест не запущен','Test not running');
+  const left=' · '+Math.ceil(c.remaining_ms/1000)+' s';
+  if(c.pattern===1)return tr('Все стороны','All sides')+left;
+  if(c.pattern===2)return tr('Проверка направления','Direction test')+left;
   if(c.pattern===3)return (mapNames[c.side]||('side '+c.side))+' · LED '+c.start+'..'+(c.start+c.count-1)+left;
   if(c.pattern===4)return 'GPIO'+c.gpio+' · LED '+c.start+'..'+(c.start+c.count-1)+left;
-  return 'Тест '+c.pattern+left;
+  return tr('Тест ','Test ')+c.pattern+left;
 }
 function render(s){
+  lastStatus=s;
   if(pendingActionId){
     if(s.action.id===pendingActionId){
       if(s.action.ok)cleanPendingIfUnchanged();else rollbackAutosaveDrafts();
@@ -619,28 +622,28 @@ function render(s){
       clearPendingAction();
     }else if(actionSequenceAfter(s.action.id,pendingActionId)){
       rollbackAutosaveDrafts();
-      actionError('Результат операции вытеснен действием другого клиента. Черновик формы сохранён; текущее состояние обновлено с контроллера.');
+      actionError(tr('Результат операции вытеснен действием другого клиента. Черновик формы сохранён; текущее состояние обновлено с контроллера.','Another client superseded this action result. The form draft was kept and controller state was refreshed.'));
       clearPendingAction();
     }else if(pendingActionStartedMs&&Date.now()-pendingActionStartedMs>6000){
       rollbackAutosaveDrafts();
-      actionError('Контроллер не подтвердил результат операции. Черновик формы сохранён; проверьте текущее состояние.');
+      actionError(tr('Контроллер не подтвердил результат операции. Черновик формы сохранён; проверьте текущее состояние.','The controller did not confirm the action result. The form draft was kept; verify the current state.'));
       clearPendingAction();
     }
   }
   txt('fw',s.fw.version+' · Stage '+s.fw.stage+' · '+s.fw.target);
-  txt('stCorr',corrNames[s.output.correction]||'?');
+  txt('stCorr',corrName(s.output.correction));
   txt('stBright',Math.round(s.output.brightness*100/255)+'%');
   const signalFresh=s.ddp.has_frame&&s.ddp.frame_age_ms<=1000;
-  txt('stDdp',!s.ddp.running?'ВЫКЛ.':(signalFresh?'ПОЛУЧАЕМ':(s.output.frame_held?'УДЕРЖАНИЕ':'ОЖИДАНИЕ')));
+  txt('stDdp',!s.ddp.running?tr('ВЫКЛ.','OFF'):(signalFresh?tr('ПОЛУЧАЕМ','RECEIVING'):(s.output.frame_held?tr('УДЕРЖАНИЕ','HOLDING'):tr('ОЖИДАНИЕ','WAITING'))));
   txt('stTof',tofOperationalStatus(s.tof));
   [0,1,2].forEach(i=>$('corr'+i).classList.toggle('primary',s.output.correction===i));
   setv('brightness',s.output.brightness);txt('brightnessValue',brightnessLabel(s.output.brightness));
-  let home='Подсветка '+(s.output.brightness===0?'выключена':'готова')+'. ';
-  if(s.commissioning.pattern)home+='Пусконаладочный тест: '+commissioningText(s.commissioning)+'. ';
-  else if(signalFresh)home+='Сигнал ПК поступает, последний кадр '+s.ddp.frame_age_ms+' мс назад. ';
-  else if(s.output.frame_held)home+='Новых кадров нет, удерживается последний успешно показанный кадр ('+s.ddp.frame_age_ms+' мс). ';
-  else home+='Ожидаем первый кадр от ПК. ';
-  home+='Коррекция: '+(corrNames[s.output.correction]||'?')+'.';
+  let home=tr('Подсветка ','Lighting ')+(s.output.brightness===0?tr('выключена','off'):tr('готова','ready'))+'. ';
+  if(s.commissioning.pattern)home+=tr('Пусконаладочный тест: ','Commissioning test: ')+commissioningText(s.commissioning)+'. ';
+  else if(signalFresh)home+=tr('Сигнал ПК поступает, последний кадр ','PC signal is active; last frame ')+s.ddp.frame_age_ms+tr(' мс назад. ',' ms ago. ');
+  else if(s.output.frame_held)home+=tr('Новых кадров нет, удерживается последний успешно показанный кадр (','No new frames; holding the last successfully shown frame (')+s.ddp.frame_age_ms+' ms). ';
+  else home+=tr('Ожидаем первый кадр от ПК. ','Waiting for the first PC frame. ');
+  home+=tr('Коррекция: ','Correction: ')+corrName(s.output.correction)+'.';
   txt('homeStatus',home);
   txt('testState',commissioningText(s.commissioning));
   const testMax=Number(s.commissioning.max_brightness||0);
@@ -662,25 +665,26 @@ function render(s){
   $('curveApply').disabled=curveBlocked;$('curveReset').disabled=curveBlocked;
   setv('curve',s.curve.points.map(p=>p[0]+':'+gainPercent(p[1])).join(','));
   const tofLive=s.tof.available&&s.tof.state==='ranging';
-  const tofGainState=!tofLive?'данные неактуальны':(s.tof.gain_fail_open?'резерв: 100%':'коррекция доступна');
-  txt('tofDetail',s.tof.available?`Состояние: ${s.tof.state}\nВозраст данных: ${s.tof.age_ms} мс · пригодных зон ${s.tof.valid_zones}/64 · медиана ${s.tof.median_mm} мм\nПлоскость: ${s.tof.plane_valid?'определена':'не определена'} · yaw ${(s.tof.yaw_cdeg/100).toFixed(2)}° · pitch ${(s.tof.pitch_cdeg/100).toFixed(2)}°\nСтена: ${s.tof.min_mm}..${s.tof.max_mm} мм · ${tofGainState}`:'Датчик ToF недоступен');
+  const tofGainState=!tofLive?tr('данные неактуальны','data stale'):(s.tof.gain_fail_open?tr('резерв: 100%','fail-open: 100%'):tr('коррекция доступна','correction available'));
+  txt('tofDetail',s.tof.available?(locale==='en'?`State: ${s.tof.state}\nData age: ${s.tof.age_ms} ms · usable zones ${s.tof.valid_zones}/64 · median ${s.tof.median_mm} mm\nPlane: ${s.tof.plane_valid?'valid':'invalid'} · yaw ${(s.tof.yaw_cdeg/100).toFixed(2)}° · pitch ${(s.tof.pitch_cdeg/100).toFixed(2)}°\nWall: ${s.tof.min_mm}..${s.tof.max_mm} mm · ${tofGainState}`:`Состояние: ${s.tof.state}\nВозраст данных: ${s.tof.age_ms} мс · пригодных зон ${s.tof.valid_zones}/64 · медиана ${s.tof.median_mm} мм\nПлоскость: ${s.tof.plane_valid?'определена':'не определена'} · yaw ${(s.tof.yaw_cdeg/100).toFixed(2)}° · pitch ${(s.tof.pitch_cdeg/100).toFixed(2)}°\nСтена: ${s.tof.min_mm}..${s.tof.max_mm} мм · ${tofGainState}`):tr('Датчик ToF недоступен','ToF sensor unavailable'));
   txt('calDetail',calibrationText(s.calibration));
   $('calStart').disabled=s.calibration.active||!s.tof.available||s.tof.state!=='ranging';
   $('probeStart').disabled=s.output.correction!==1||s.probe;
-  $('probeStart').textContent=s.probe?'Тест модели активен':'Тест модели 10 с';
-  const wifiMode=!s.wifi.enabled?'Wi-Fi выключен':(s.wifi.connected?'Подключено':'Не подключено');
+  $('probeStart').textContent=s.probe?tr('Тест модели активен','Model test active'):tr('Тест модели 10 с','Model test 10 s');
+  const wifiMode=!s.wifi.enabled?tr('Wi-Fi выключен','Wi-Fi disabled'):(s.wifi.connected?tr('Подключено','Connected'):tr('Не подключено','Disconnected'));
   const wifiRssi=s.wifi.connected?(' · RSSI '+s.wifi.rssi+' dBm'):'';
-  txt('wifiState',wifiMode+' · '+(s.wifi.ip||'без IP')+wifiRssi+' · '+(s.wifi.ssid||'SSID не задан'));
+  txt('wifiState',wifiMode+' · '+(s.wifi.ip||tr('без IP','no IP'))+wifiRssi+' · '+(s.wifi.ssid||tr('SSID не задан','SSID not set')));
   setv('ssid',s.wifi.ssid||'');
   txt('diag',`DDP: running=${s.ddp.running} frames=${s.ddp.frames} publications=${s.ddp.publications}\nlast frame: ${s.ddp.has_frame?s.ddp.frame_age_ms+' ms':'none'} · frame hold=${s.output.frame_held}\nsender: ${s.ddp.sender_locked?(s.ddp.sender_ip+':'+s.ddp.sender_port):'none'}\nToF: state=${s.tof.state} age=${s.tof.age_ms} ms valid=${s.tof.valid_zones}/64 plane=${s.tof.plane_valid}\npersistence: ${s.persistence?'available':'unavailable'}\nheap free/min: ${s.heap.free}/${s.heap.min} B\nweb requests/actions/dropped/bad: ${s.web.requests}/${s.web.actions}/${s.web.dropped}/${s.web.bad}`);
   $('factory').disabled=s.output.brightness!==0;
+  translateStatic();
 }
 async function refresh(){
   if(refreshing)return;refreshing=true;
   try{
     const r=await fetch('/api/status',{cache:'no-store'});if(!r.ok)throw new Error('status HTTP '+r.status);
     const wasOffline=offlineBanner;const s=await r.json();offlineBanner=false;render(s);
-    if(wasOffline&&$('action').textContent.startsWith('offline:')){txt('action','Связь восстановлена.');$('action').className='ok'}
+    if(wasOffline&&$('action').textContent.startsWith('offline:')){txt('action',tr('Связь восстановлена.','Connection restored.'));$('action').className='ok'}
   }
   catch(e){offlineBanner=true;txt('action','offline: '+e.message);$('action').className='bad'}
   finally{refreshing=false}
@@ -688,6 +692,8 @@ async function refresh(){
 $('brightness').addEventListener('input',e=>txt('brightnessValue',brightnessLabel(e.target.value)));
 $('brightness').addEventListener('change',async e=>{if(!await post('/api/brightness',e.target.value,['brightness'])){clean(['brightness']);refresh()}});
 $('wifiOpen').addEventListener('change',e=>{if(e.target.checked){$('wifiPass').value='';delete $('wifiPass').dataset.dirty}$('wifiPass').disabled=e.target.checked});
+$('localeSelect').addEventListener('change',e=>setLocale(e.target.value));
+setLocale(locale);
 markDirty();refresh();setInterval(()=>{if(tofDebugUiActive)refresh()},1000);setInterval(()=>{if(!tofDebugUiActive)refresh()},2000);
 </script>
 </body>
