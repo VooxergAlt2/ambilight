@@ -325,6 +325,58 @@ void test_topology_reset_data_cleanup_failure_cannot_resurrect_old_blob() {
             "led_map"));
 }
 
+void test_schema1_pixel_mask_is_invalidated_after_physical_index_migration() {
+    Preferences legacy;
+
+    TEST_ASSERT_TRUE(
+        legacy.begin(
+            "ambilight"));
+
+    LedPixelMaskProfile stale;
+    stale.disabledOffset[0] = 0;
+
+    TEST_ASSERT_EQUAL_UINT16(
+        sizeof(stale),
+        legacy.putBytes(
+            "pixel_mask",
+            &stale,
+            sizeof(stale)));
+
+    TEST_ASSERT_EQUAL_UINT16(
+        sizeof(std::uint16_t),
+        legacy.putUShort(
+            "pixel_mask_ver",
+            1));
+
+    legacy.end();
+
+    RuntimeSettings settings;
+
+    TEST_ASSERT_TRUE(
+        settings.begin());
+
+    TEST_ASSERT_EQUAL_UINT16(
+        2,
+        LedPixelMaskProfile::
+            kSchemaVersion);
+
+    TEST_ASSERT_FALSE(
+        settings.
+            ledPixelMaskProfileCustomized());
+
+    TEST_ASSERT_FALSE(
+        settings.
+            ledPixelMaskProfilePersisted());
+
+    TEST_ASSERT_FALSE(
+        Preferences::testHasKey(
+            "pixel_mask"));
+
+    TEST_ASSERT_FALSE(
+        Preferences::testHasKey(
+            "pixel_mask_ver"));
+}
+
 void test_pixel_mask_reset_marker_failure_keeps_live_mask() {
     RuntimeSettings settings;
     TEST_ASSERT_TRUE(settings.begin());
@@ -520,6 +572,9 @@ int main(int, char**) {
 
     RUN_TEST(
         test_topology_reset_data_cleanup_failure_cannot_resurrect_old_blob);
+
+    RUN_TEST(
+        test_schema1_pixel_mask_is_invalidated_after_physical_index_migration);
 
     RUN_TEST(
         test_pixel_mask_reset_marker_failure_keeps_live_mask);
