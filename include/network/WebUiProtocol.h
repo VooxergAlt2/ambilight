@@ -61,8 +61,7 @@ enum class WebUiParseResult : std::uint8_t {
 enum class WebUiHttpMethod : std::uint8_t {
     Unknown = 0,
     Get,
-    Post,
-    Put
+    Post
 };
 
 struct WebUiHttpRequest {
