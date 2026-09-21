@@ -216,9 +216,10 @@ public:
                 }
 
                 const Rgb8 output =
-                    pixelMask.disabled(
+                    pixelMask.disabledLogical(
                         segmentId,
-                        offset)
+                        offset,
+                        topology)
                         ? Rgb8{}
                         : afterGain;
 
