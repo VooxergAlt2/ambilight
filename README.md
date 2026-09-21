@@ -22,6 +22,7 @@ The firmware stack now includes:
 - persistent runtime ToF gain curve
 - persistent runtime spatial profile
 - lightweight HTTP/80 control UI with Home / LED / ToF / Diagnostics / System workflows
+- browser-local Russian / English UI localization
 - persisted one-disabled-pixel-per-segment mask
 - runtime LED topology: COUNT/GPIO/REV per TV side
 - logical-side and raw-GPIO range commissioning tests
@@ -101,6 +102,10 @@ Startup:
     NVS -> secrets.h fallback -> disabled
 
 ## Web UI
+
+The header includes a Русский / English selector. The choice is stored only in
+that browser's `localStorage`, so different clients may use different
+languages without changing controller NVS or API payloads.
 
 When Wi-Fi is enabled:
 
@@ -312,33 +317,37 @@ old RGB values.
 
 ## Disabled pixel mask
 
-One pixel per logical segment can be forced permanently black at render time.
+One physical pixel per strip can be forced permanently black at render time.
 
-Serial:
+Serial/API payloads remain zero-based:
 
     d<Enter>            status
-    d-,12,-,0<Enter>    TOP none, RIGHT 12, BOTTOM none, LEFT 0
+    d-,12,-,0<Enter>    TOP none, RIGHT physical offset 12,
+                        BOTTOM none, LEFT physical offset 0
     dreset<Enter>       remove persisted mask
 
 Web:
 
     LED commissioning -> Disabled pixel
 
-Indexing is segment-relative and follows the commissioning START marker.
+The Web UI is 1-based: enter `1` for the first physical LED from the DATA
+input, regardless of REV/FWD. Blank means no disabled pixel.
 
-Ranges:
+Default active web ranges are therefore:
 
-    TOP     0..229
-    RIGHT   0..159
-    BOTTOM  0..229
-    LEFT    0..159
+    TOP     1..230
+    RIGHT   1..160
+    BOTTOM  1..230
+    LEFT    1..160
 
-Use `-` or an empty web field for no disabled pixel.
+Internally LedRenderer compares the stored physical offset against the
+post-reversal `physicalIndex()`. Stage 45.3 bumps the pixel-mask NVS schema
+from 1 to 2; old logical-offset masks are discarded at boot rather than being
+reinterpreted.
 
-The mask is applied after correction and logical-to-physical mapping, so the
-selected pixel remains black in DISABLED, SHADOW, ACTIVE and commissioning
-patterns. It does not remove a logical LED, shift neighbours or alter ToF
-gain indexing.
+The mask does not remove a logical LED, shift neighbours or alter DDP/ToF gain
+indexing. Logical render/commissioning paths honor it; raw-GPIO tests bypass
+logical mapping and are intended for physical lane identification.
 
 ## LED commissioning
 
@@ -500,7 +509,7 @@ reports:
 
 Current source identity:
 
-    ambilight-c6 0.45.1-dev Stage 45
+    ambilight-c6 0.45.3-dev Stage 45
     serial protocol 2
 
 Startup uses the same centralized FirmwareInfo constants instead of a handwritten stage banner.
