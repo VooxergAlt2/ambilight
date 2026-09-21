@@ -635,14 +635,6 @@ WebUiParseResult WebUiProtocol::parse(
 
         request.method =
             WebUiHttpMethod::Post;
-    } else if (
-        spanEquals(
-            data,
-            firstSpace,
-            "PUT")) {
-
-        request.method =
-            WebUiHttpMethod::Put;
     } else {
         return
             WebUiParseResult::
@@ -692,14 +684,10 @@ WebUiParseResult WebUiProtocol::parse(
         request.method ==
             WebUiHttpMethod::Post;
 
-    const bool isPut =
-        request.method ==
-            WebUiHttpMethod::Put;
-
     const bool isWledWrite =
         wledWriteRoute(
             request.route) &&
-        (isPost || isPut);
+        isPost;
 
     if (isGet) {
         if (
@@ -912,17 +900,11 @@ WebUiParseResult WebUiProtocol::parse(
                     BadRequest;
         }
 
-        // python-wled/HA uses JSON POST. Keep POST restricted to
-        // application/json so an ordinary cross-origin HTML form cannot
-        // mutate state. HyperHDR uses PUT via Qt and does not control the
-        // generated Content-Type consistently. PUT is already a non-simple
-        // CORS method and therefore always requires browser preflight, so its
-        // MIME type does not need to be part of our security boundary.
-        if (
-            isPost &&
-            !request
-                 .jsonContentTypePresent
-        ) {
+        // python-wled/HA uses JSON POST. Keep the compatibility write
+        // route restricted to application/json so an ordinary cross-origin
+        // HTML form cannot mutate state.
+        if (!request
+                 .jsonContentTypePresent) {
 
             return
                 WebUiParseResult::
