@@ -1136,6 +1136,12 @@ bool appendWledInfo(
 
     writer.append(
         ",\"vid\":2609210"
+        ",\"cn\":");
+
+    writer.appendJsonString(
+        config::kFirmwareVersion);
+
+    writer.append(
         ",\"name\":\"Ambilight C6\""
         ",\"brand\":\"Ambilight\""
         ",\"product\":\"ESP32-C6 DDP Ambilight\""
