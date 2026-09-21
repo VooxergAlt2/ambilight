@@ -25,31 +25,37 @@ WledStateParseResult parse(
             command);
 }
 
-std::string buildJson(
+bool buildJson(
     ambilight::WledJsonDocument document,
     const ambilight::WledCompatSnapshot& snapshot,
+    std::string& json,
     const WledStateCommand* overlay = nullptr) {
 
     char buffer[2048] = {};
     std::size_t length = 0;
 
-    TEST_ASSERT_TRUE(
-        WledCompat::buildJson(
+    if (!WledCompat::buildJson(
             document,
             snapshot,
             overlay,
             buffer,
             sizeof(buffer),
-            length));
+            length)) {
 
-    TEST_ASSERT_EQUAL_UINT32(
-        std::strlen(buffer),
+        return false;
+    }
+
+    if (std::strlen(buffer) !=
+        length) {
+
+        return false;
+    }
+
+    json.assign(
+        buffer,
         length);
 
-    return
-        std::string(
-            buffer,
-            length);
+    return true;
 }
 
 } // namespace
@@ -281,12 +287,15 @@ void test_wled_state_json_uses_master_brightness_and_fixed_segment_brightness() 
     snapshot.defaultBrightness = 32;
     snapshot.ledCount = 780;
 
-    const std::string json =
+    std::string json;
+
+    TEST_ASSERT_TRUE(
         buildJson(
             ambilight::
                 WledJsonDocument::
                     State,
-            snapshot);
+            snapshot,
+            json));
 
     TEST_ASSERT_NOT_NULL(
         std::strstr(
@@ -325,13 +334,16 @@ void test_wled_state_json_overlay_matches_resolver_prediction() {
     command.hasOn = true;
     command.on = false;
 
-    const std::string json =
+    std::string json;
+
+    TEST_ASSERT_TRUE(
         buildJson(
             ambilight::
                 WledJsonDocument::
                     State,
             snapshot,
-            &command);
+            json,
+            &command));
 
     TEST_ASSERT_NOT_NULL(
         std::strstr(
@@ -365,12 +377,15 @@ void test_wled_info_json_matches_current_ha_and_hyperk_contract() {
         snapshot.senderIp.data(),
         "192.168.1.10");
 
-    const std::string json =
+    std::string json;
+
+    TEST_ASSERT_TRUE(
         buildJson(
             ambilight::
                 WledJsonDocument::
                     Info,
-            snapshot);
+            snapshot,
+            json));
 
     const char* required[] = {
         "\"ver\":\"0.15.3\"",
@@ -404,12 +419,15 @@ void test_wled_combined_and_auxiliary_documents_are_self_contained() {
     snapshot.defaultBrightness = 32;
     snapshot.ledCount = 780;
 
-    const std::string combined =
+    std::string combined;
+
+    TEST_ASSERT_TRUE(
         buildJson(
             ambilight::
                 WledJsonDocument::
                     Combined,
-            snapshot);
+            snapshot,
+            combined));
 
     TEST_ASSERT_NOT_NULL(
         std::strstr(
@@ -431,14 +449,19 @@ void test_wled_combined_and_auxiliary_documents_are_self_contained() {
             combined.c_str(),
             "\"palettes\":[\"Default\"]"));
 
-    TEST_ASSERT_EQUAL_STRING(
-        "{}",
+    std::string presets;
+
+    TEST_ASSERT_TRUE(
         buildJson(
             ambilight::
                 WledJsonDocument::
                     Presets,
-            snapshot).
-            c_str());
+            snapshot,
+            presets));
+
+    TEST_ASSERT_EQUAL_STRING(
+        "{}",
+        presets.c_str());
 }
 
 void test_wled_json_builder_fails_closed_on_overflow_and_wrong_overlay_document() {
