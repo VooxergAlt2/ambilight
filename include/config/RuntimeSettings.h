@@ -122,6 +122,10 @@ public:
     bool setCorrectionMode(
         CorrectionMode mode);
 
+    bool setOutputState(
+        bool enabled,
+        std::uint8_t brightness);
+
     bool setOutputBrightness(
         std::uint8_t brightness);
 
@@ -174,9 +178,13 @@ private:
         "ambilight";
     static constexpr const char* kCorrectionModeKey =
         "corr_mode";
-    static constexpr const char* kOutputBrightnessKey =
+    static constexpr const char* kOutputStateKey =
+        "output_state";
+
+    // Migration-only keys from Stage <=45 and early Stage 46 builds.
+    static constexpr const char* kLegacyOutputBrightnessKey =
         "brightness";
-    static constexpr const char* kOutputEnabledKey =
+    static constexpr const char* kLegacyOutputEnabledKey =
         "output_on";
     static constexpr const char* kWifiSsidKey =
         "wifi_ssid";
