@@ -479,7 +479,7 @@ const ACTION_RU={
 'ToF live debug stopped.':'Live-режим ToF остановлен.',
 'Invalid ToF debug action.':'Некорректная команда ToF debug.',
 'Invalid factory reset action.':'Некорректная команда заводского сброса.',
-'Factory reset requires brightness 0.':'Для заводского сброса установите яркость 0.',
+'Factory reset requires effective output brightness 0.':'Для заводского сброса эффективная яркость выхода должна быть 0.',
 'Factory reset accepted.':'Заводской сброс принят.',
 'Factory reset failed: NVS clear failed.':'Заводской сброс не выполнен: не удалось очистить NVS.',
 'Unknown web action.':'Неизвестная web-команда.',
