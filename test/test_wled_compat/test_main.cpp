@@ -263,6 +263,92 @@ void test_segment_preflight_does_not_change_master_output() {
         state.brightness);
 }
 
+void test_home_assistant_one_segment_sequence_has_no_preflight_flash() {
+    bool enabled = false;
+    std::uint8_t brightness = 80;
+
+    WledStateCommand segmentPreflight;
+
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(
+            WledStateParseResult::Ok),
+        static_cast<int>(
+            parse(
+                "{\"seg\":[{\"id\":0,\"on\":true,\"bri\":255}],\"v\":true}",
+                segmentPreflight)));
+
+    auto state =
+        WledCompat::resolveOutputState(
+            enabled,
+            brightness,
+            32,
+            segmentPreflight);
+
+    // HA sends this request first. It must not illuminate the strip at the
+    // remembered brightness while the authoritative master request is still
+    // in flight.
+    TEST_ASSERT_FALSE(
+        state.enabled);
+
+    TEST_ASSERT_EQUAL_UINT8(
+        80,
+        state.brightness);
+
+    enabled = state.enabled;
+    brightness = state.brightness;
+
+    WledStateCommand masterOn;
+
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(
+            WledStateParseResult::Ok),
+        static_cast<int>(
+            parse(
+                "{\"on\":true,\"bri\":120,\"v\":true}",
+                masterOn)));
+
+    state =
+        WledCompat::resolveOutputState(
+            enabled,
+            brightness,
+            32,
+            masterOn);
+
+    TEST_ASSERT_TRUE(
+        state.enabled);
+
+    TEST_ASSERT_EQUAL_UINT8(
+        120,
+        state.brightness);
+
+    enabled = state.enabled;
+    brightness = state.brightness;
+
+    WledStateCommand masterOff;
+
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(
+            WledStateParseResult::Ok),
+        static_cast<int>(
+            parse(
+                "{\"on\":false,\"v\":true}",
+                masterOff)));
+
+    state =
+        WledCompat::resolveOutputState(
+            enabled,
+            brightness,
+            32,
+            masterOff);
+
+    TEST_ASSERT_FALSE(
+        state.enabled);
+
+    TEST_ASSERT_EQUAL_UINT8(
+        120,
+        state.brightness);
+}
+
 void test_reported_brightness_and_signal_are_wled_safe() {
     TEST_ASSERT_EQUAL_UINT8(
         1,
@@ -539,6 +625,8 @@ int main(int, char**) {
         test_resolve_nonzero_brightness_updates_memory_and_explicit_on);
     RUN_TEST(
         test_segment_preflight_does_not_change_master_output);
+    RUN_TEST(
+        test_home_assistant_one_segment_sequence_has_no_preflight_flash);
     RUN_TEST(
         test_reported_brightness_and_signal_are_wled_safe);
 
