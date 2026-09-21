@@ -188,8 +188,18 @@ void test_wled_state_accepts_post_and_put_json_without_custom_header() {
     }
 }
 
-void test_wled_write_requires_json_content_type() {
+void test_wled_write_content_type_rules_cover_ha_and_hyperhdr() {
     WebUiHttpRequest request;
+
+    // Browser/HA-style POST must carry JSON content type.
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(
+            WebUiParseResult::Forbidden),
+        static_cast<int>(
+            parse(
+                "POST /json/state HTTP/1.1\r\n"
+                "Content-Length: 2\r\n\r\n{}",
+                request)));
 
     TEST_ASSERT_EQUAL_INT(
         static_cast<int>(
@@ -201,12 +211,26 @@ void test_wled_write_requires_json_content_type() {
                 "Content-Length: 2\r\n\r\n{}",
                 request)));
 
+    // HyperHDR's current Qt REST client performs PUT without explicitly
+    // supplying Content-Type. PUT itself is non-simple CORS, so this remains
+    // safe from an ordinary cross-origin HTML form.
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(
+            WebUiParseResult::Ok),
+        static_cast<int>(
+            parse(
+                "PUT /json/state HTTP/1.1\r\n"
+                "Content-Length: 2\r\n\r\n{}",
+                request)));
+
+    // If a PUT does declare a type, it must still be JSON.
     TEST_ASSERT_EQUAL_INT(
         static_cast<int>(
             WebUiParseResult::Forbidden),
         static_cast<int>(
             parse(
-                "PUT /json HTTP/1.1\r\n"
+                "PUT /json/state HTTP/1.1\r\n"
+                "Content-Type: text/plain\r\n"
                 "Content-Length: 2\r\n\r\n{}",
                 request)));
 }
@@ -483,7 +507,7 @@ int main(int, char**) {
     RUN_TEST(
         test_wled_state_accepts_post_and_put_json_without_custom_header);
     RUN_TEST(
-        test_wled_write_requires_json_content_type);
+        test_wled_write_content_type_rules_cover_ha_and_hyperhdr);
     RUN_TEST(
         test_runtime_payload_limit_remains_127_bytes);
     RUN_TEST(
