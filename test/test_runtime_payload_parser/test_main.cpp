@@ -210,7 +210,7 @@ void test_commissioning_range_rejects_unknown_gpio_and_overflow() {
                     request)));
 }
 
-void test_led_pixel_mask_parses_none_and_segment_offsets() {
+void test_led_pixel_mask_parses_none_and_physical_offsets() {
     LedPixelMaskProfile profile;
 
     const auto result =
@@ -239,14 +239,53 @@ void test_led_pixel_mask_parses_none_and_segment_offsets() {
         profile.disabledOffset[3]);
 
     TEST_ASSERT_TRUE(
-        profile.disabled(
+        profile.disabledPhysical(
             ambilight::SegmentId::Right,
             12));
 
     TEST_ASSERT_FALSE(
-        profile.disabled(
+        profile.disabledPhysical(
             ambilight::SegmentId::Right,
             13));
+}
+
+void test_led_pixel_mask_physical_zero_respects_reversal() {
+    LedPixelMaskProfile profile;
+    LedMappingProfile topology;
+
+    profile.disabledOffset[
+        static_cast<std::size_t>(
+            ambilight::SegmentId::Top)] = 0;
+
+    profile.disabledOffset[
+        static_cast<std::size_t>(
+            ambilight::SegmentId::Left)] = 0;
+
+    // TOP is REV by default: physical LED 0 is logical offset 229.
+    TEST_ASSERT_FALSE(
+        profile.disabledLogical(
+            ambilight::SegmentId::Top,
+            0,
+            topology));
+
+    TEST_ASSERT_TRUE(
+        profile.disabledLogical(
+            ambilight::SegmentId::Top,
+            229,
+            topology));
+
+    // LEFT is FWD by default: physical LED 0 is logical offset 0.
+    TEST_ASSERT_TRUE(
+        profile.disabledLogical(
+            ambilight::SegmentId::Left,
+            0,
+            topology));
+
+    TEST_ASSERT_FALSE(
+        profile.disabledLogical(
+            ambilight::SegmentId::Left,
+            1,
+            topology));
 }
 
 void test_led_pixel_mask_enforces_segment_lengths() {
@@ -509,7 +548,8 @@ int main(int, char**) {
     RUN_TEST(test_led_mapping_rejects_bad_syntax);
     RUN_TEST(test_commissioning_range_parses_side_and_gpio_targets);
     RUN_TEST(test_commissioning_range_rejects_unknown_gpio_and_overflow);
-    RUN_TEST(test_led_pixel_mask_parses_none_and_segment_offsets);
+    RUN_TEST(test_led_pixel_mask_parses_none_and_physical_offsets);
+    RUN_TEST(test_led_pixel_mask_physical_zero_respects_reversal);
     RUN_TEST(test_led_pixel_mask_enforces_segment_lengths);
     RUN_TEST(test_led_pixel_mask_rejects_bad_syntax_without_mutating_output);
     RUN_TEST(test_spatial_profile_parses_fixed_point_and_negative_offsets);
