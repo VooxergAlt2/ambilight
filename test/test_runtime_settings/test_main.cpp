@@ -2,6 +2,7 @@
 
 #include <Preferences.h>
 
+#include "config/BoardConfig.h"
 #include "config/RuntimeSettings.h"
 
 using ambilight::GainPoint;
