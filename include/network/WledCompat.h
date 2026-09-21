@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 
@@ -35,6 +36,36 @@ struct WledResolvedOutputState {
     std::uint8_t brightness = 1;
 };
 
+enum class WledJsonDocument : std::uint8_t {
+    Combined = 0,
+    State,
+    Info,
+    Effects,
+    Palettes,
+    Presets
+};
+
+struct WledCompatSnapshot {
+    bool outputEnabled = true;
+    std::uint8_t brightness = 1;
+    std::uint8_t defaultBrightness = 1;
+    std::uint16_t ledCount = 0;
+
+    bool wifiConnected = false;
+    std::int32_t wifiRssi = 0;
+    std::uint8_t wifiChannel = 0;
+
+    std::array<char, 13> wifiMac{};
+    std::array<char, 16> wifiIp{};
+
+    std::uint32_t uptimeSeconds = 0;
+    std::uint32_t freeHeapBytes = 0;
+
+    bool ddpLive = false;
+    bool senderLocked = false;
+    std::array<char, 16> senderIp{};
+};
+
 class WledCompat {
 public:
     static constexpr const char kApiVersion[] =
@@ -59,6 +90,14 @@ public:
 
     static std::uint8_t rssiToSignalPercent(
         std::int32_t rssiDbm);
+
+    static bool buildJson(
+        WledJsonDocument document,
+        const WledCompatSnapshot& snapshot,
+        const WledStateCommand* overlay,
+        char* output,
+        std::size_t capacity,
+        std::size_t& length);
 };
 
 } // namespace ambilight
