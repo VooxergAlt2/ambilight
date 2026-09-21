@@ -460,7 +460,7 @@ void test_wled_combined_and_auxiliary_documents_are_self_contained() {
             presets));
 
     TEST_ASSERT_EQUAL_STRING(
-        "{}",
+        "{\"0\":{}}",
         presets.c_str());
 }
 
