@@ -903,20 +903,16 @@ WebUiParseResult WebUiProtocol::parse(
                     BadRequest;
         }
 
-        // python-wled/HA uses JSON POST. HyperHDR's current Qt WLED/Hyperk
-        // driver sends PUT /json/state without explicitly setting
-        // Content-Type. POST must remain application/json so a browser cannot
-        // turn this into a simple cross-origin form request. PUT is already a
-        // non-simple CORS method and therefore may omit Content-Type, but an
-        // explicitly non-JSON Content-Type is still rejected.
+        // python-wled/HA uses JSON POST. Keep POST restricted to
+        // application/json so an ordinary cross-origin HTML form cannot
+        // mutate state. HyperHDR uses PUT via Qt and does not control the
+        // generated Content-Type consistently. PUT is already a non-simple
+        // CORS method and therefore always requires browser preflight, so its
+        // MIME type does not need to be part of our security boundary.
         if (
-            (isPost &&
-             !request
-                  .jsonContentTypePresent) ||
-            (isPut &&
-             contentTypeSeen &&
-             !request
-                  .jsonContentTypePresent)
+            isPost &&
+            !request
+                 .jsonContentTypePresent
         ) {
 
             return
