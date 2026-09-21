@@ -351,6 +351,24 @@ void test_spatial_bridge_missing_snapshot_keeps_active_topology() {
     TEST_ASSERT_EQUAL_UINT16(
         632,
         context.topology.totalLedCount());
+
+    PerimeterGainSnapshot unusableSnapshot{};
+    unusableSnapshot.timestampUs = 1000000;
+    unusableSnapshot.topology = LedMappingProfile{};
+
+    const auto unusableContext =
+        TofRenderGainBridge::make(
+            unusableSnapshot,
+            true,
+            1000000,
+            activeTopology);
+
+    TEST_ASSERT_TRUE(unusableContext.sourcePresent);
+    TEST_ASSERT_FALSE(unusableContext.sourceUsable);
+    TEST_ASSERT_TRUE(unusableContext.failOpen);
+    TEST_ASSERT_TRUE(
+        unusableContext.topology.segment ==
+        activeTopology.segment);
 }
 
 void test_tof_bridge_maps_four_uniform_side_gains() {

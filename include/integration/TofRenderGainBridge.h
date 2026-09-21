@@ -31,9 +31,6 @@ public:
             return context;
         }
 
-        context.topology =
-            gains.topology;
-
         context.sourceGeneration =
             gains.generation;
 
@@ -66,6 +63,9 @@ public:
         if (!context.sourceUsable) {
             return context;
         }
+
+        context.topology =
+            gains.topology;
 
         for (std::size_t index = 0;
              index <
