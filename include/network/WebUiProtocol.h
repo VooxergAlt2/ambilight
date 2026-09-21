@@ -14,6 +14,7 @@ enum class WebUiRoute : std::uint8_t {
     WledInfo,
     WledEffects,
     WledPalettes,
+    WledPresets,
     Power,
     Brightness,
     Correction,
