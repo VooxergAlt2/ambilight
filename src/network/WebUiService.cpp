@@ -12,7 +12,9 @@
 #include <lwip/inet.h>
 #include <lwip/sockets.h>
 
+#include "config/BoardConfig.h"
 #include "config/FirmwareInfo.h"
+#include "network/WledCompat.h"
 
 namespace ambilight {
 namespace {
@@ -1018,6 +1020,206 @@ private:
     std::size_t length_ = 0;
     bool ok_ = true;
 };
+
+WledResolvedOutputState wledOutputState(
+    const WebUiSnapshot& snapshot,
+    const WledStateCommand* overlay) {
+
+    if (overlay == nullptr) {
+        WledResolvedOutputState state;
+        state.enabled =
+            snapshot.outputEnabled;
+        state.brightness =
+            snapshot.brightness;
+
+        return state;
+    }
+
+    return
+        WledCompat::resolveOutputState(
+            snapshot.outputEnabled,
+            snapshot.brightness,
+            config::kDefaultOutputBrightness,
+            *overlay);
+}
+
+bool appendWledState(
+    BufferWriter& writer,
+    const WebUiSnapshot& snapshot,
+    const WledStateCommand* overlay) {
+
+    const auto output =
+        wledOutputState(
+            snapshot,
+            overlay);
+
+    const bool on =
+        output.enabled &&
+        output.brightness != 0;
+
+    const std::uint8_t brightness =
+        WledCompat::reportedBrightness(
+            output.brightness);
+
+    writer.appendf(
+        "{\"on\":%s,"
+        "\"bri\":%u,"
+        "\"mainseg\":0,"
+        "\"lor\":0,"
+        "\"seg\":[{"
+        "\"id\":0,"
+        "\"start\":0,"
+        "\"stop\":%u,"
+        "\"on\":%s,"
+        "\"bri\":255,"
+        "\"fx\":0,"
+        "\"pal\":0,"
+        "\"sel\":true,"
+        "\"cct\":0"
+        "}],"
+        "\"nl\":{"
+        "\"on\":false,"
+        "\"dur\":60,"
+        "\"mode\":1,"
+        "\"tbri\":0"
+        "},"
+        "\"udpn\":{"
+        "\"send\":false,"
+        "\"recv\":false"
+        "}}",
+        boolJson(on),
+        static_cast<unsigned>(
+            brightness),
+        static_cast<unsigned>(
+            snapshot
+                .ledMapping
+                .totalLedCount()),
+        boolJson(on));
+
+    return writer.ok();
+}
+
+bool appendWledInfo(
+    BufferWriter& writer,
+    const WebUiSnapshot& snapshot) {
+
+    const bool live =
+        snapshot.ddpRunning &&
+        snapshot.ddpHasFrame &&
+        snapshot.ddpFrameAgeMs <= 1000ULL;
+
+    const std::uint8_t signal =
+        snapshot.wifiConnected
+            ? WledCompat::
+                  rssiToSignalPercent(
+                      snapshot.wifiRssi)
+            : 0U;
+
+    writer.append(
+        "{\"ver\":");
+
+    writer.appendJsonString(
+        WledCompat::kApiVersion);
+
+    writer.append(
+        ",\"vid\":2609210"
+        ",\"name\":\"Ambilight C6\""
+        ",\"brand\":\"Ambilight\""
+        ",\"product\":\"ESP32-C6 DDP Ambilight\""
+        ",\"arch\":\"ESP32-C6\""
+        ",\"mac\":");
+
+    writer.appendJsonString(
+        snapshot.wifiMac.data());
+
+    writer.append(
+        ",\"ip\":");
+
+    writer.appendJsonString(
+        snapshot.wifiIp.data());
+
+    writer.appendf(
+        ",\"uptime\":%lu"
+        ",\"freeheap\":%lu"
+        ",\"live\":%s"
+        ",\"lm\":%s"
+        ",\"lip\":",
+        static_cast<unsigned long>(
+            snapshot.uptimeSeconds),
+        static_cast<unsigned long>(
+            snapshot.freeHeapBytes),
+        boolJson(live),
+        live
+            ? "\"DDP\""
+            : "\"\"");
+
+    writer.appendJsonString(
+        live &&
+        snapshot.senderLocked
+            ? snapshot.senderIp.data()
+            : "");
+
+    writer.appendf(
+        ",\"ws\":-1"
+        ",\"leds\":{"
+        "\"count\":%u,"
+        "\"maxseg\":1,"
+        "\"lc\":%u,"
+        "\"seglc\":[%u],"
+        "\"cct\":false,"
+        "\"wv\":false,"
+        "\"maxpwr\":0,"
+        "\"pwr\":0,"
+        "\"rgbw\":false"
+        "},"
+        "\"wifi\":{"
+        "\"rssi\":%ld,"
+        "\"signal\":%u,"
+        "\"channel\":%u"
+        "},"
+        "\"fs\":{"
+        "\"u\":1,"
+        "\"t\":1,"
+        "\"pmt\":0"
+        "}"
+        "}",
+        static_cast<unsigned>(
+            snapshot
+                .ledMapping
+                .totalLedCount()),
+        static_cast<unsigned>(
+            WledCompat::
+                kBrightnessCapability),
+        static_cast<unsigned>(
+            WledCompat::
+                kBrightnessCapability),
+        static_cast<long>(
+            snapshot.wifiConnected
+                ? snapshot.wifiRssi
+                : 0),
+        static_cast<unsigned>(
+            signal),
+        static_cast<unsigned>(
+            snapshot.wifiChannel));
+
+    return writer.ok();
+}
+
+bool appendWledEffects(
+    BufferWriter& writer) {
+
+    return
+        writer.append(
+            "[\"Solid\"]");
+}
+
+bool appendWledPalettes(
+    BufferWriter& writer) {
+
+    return
+        writer.append(
+            "[\"Default\"]");
+}
 
 } // namespace
 
