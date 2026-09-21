@@ -214,6 +214,7 @@ private:
 
     std::uint8_t outputBrightness_ = 32;
     bool outputEnabled_ = true;
+    bool outputStatePersisted_ = false;
 
     std::array<
         char,
