@@ -1716,18 +1716,15 @@ void applyOutputState(
     std::uint8_t brightness,
     const char* source) {
 
-    const bool brightnessPersisted =
-        runtimeSettings.setOutputBrightness(
+    const bool persisted =
+        runtimeSettings.setOutputState(
+            enabled,
             brightness);
-
-    const bool powerPersisted =
-        runtimeSettings.setOutputEnabled(
-            enabled);
 
     applyEffectiveOutputBrightness();
 
     Serial.printf(
-        "OUTPUT source=%s enabled=%s configured=%u/255 effective=%u/255 persisted_bri=%s persisted_on=%s.\n",
+        "OUTPUT source=%s enabled=%s configured=%u/255 effective=%u/255 persisted=%s.\n",
         source != nullptr
             ? source
             : "unknown",
@@ -1738,10 +1735,7 @@ void applyOutputState(
             runtimeSettings.outputBrightness()),
         static_cast<unsigned>(
             ledEngine.brightness()),
-        brightnessPersisted
-            ? "yes"
-            : "no",
-        powerPersisted
+        persisted
             ? "yes"
             : "no");
 }
