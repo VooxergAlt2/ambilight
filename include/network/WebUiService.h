@@ -7,6 +7,7 @@
 #include "led/LedMappingProfile.h"
 #include "led/LedPixelMaskProfile.h"
 #include "network/WebUiProtocol.h"
+#include "network/WledCompat.h"
 #include "render/CorrectionMode.h"
 #include "tof/TofCalibrationCapture.h"
 #include "tof/TofGainModel.h"
@@ -50,14 +51,20 @@ struct WebUiSnapshot {
     CorrectionMode correctionMode =
         CorrectionMode::Shadow;
 
+    bool outputEnabled = true;
     std::uint8_t brightness = 0;
+    std::uint8_t effectiveBrightness = 0;
     bool outputFrameHeld = false;
 
     bool wifiEnabled = false;
     bool wifiConnected = false;
     std::array<char, 33> wifiSsid{};
     std::array<char, 16> wifiIp{};
+    std::array<char, 13> wifiMac{};
     std::int32_t wifiRssi = 0;
+    std::uint8_t wifiChannel = 0;
+
+    std::uint32_t uptimeSeconds = 0;
 
     bool ddpRunning = false;
     bool ddpHasFrame = false;
@@ -240,6 +247,11 @@ private:
 
     bool buildStatusResponse(
         const WebUiSnapshot& snapshot);
+
+    bool buildWledResponse(
+        WebUiRoute route,
+        const WebUiSnapshot& snapshot,
+        const WledStateCommand* overlay = nullptr);
 
     bool buildQueuedResponse(
         std::uint32_t sequence);
