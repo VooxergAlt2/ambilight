@@ -469,13 +469,13 @@ bool handleFactoryCommand(
             "reset") != 0) {
 
         Serial.println(
-            "FACTORY RESET not executed. Use freset + Enter with brightness=0.");
+            "FACTORY RESET not executed. Use freset + Enter with effective output brightness=0.");
         return false;
     }
 
     if (ledEngine.brightness() != 0) {
         Serial.printf(
-            "FACTORY RESET refused: brightness must be 0. Current=%u.\n",
+            "FACTORY RESET refused: effective output brightness must be 0. Current=%u.\n",
             static_cast<unsigned>(
                 ledEngine.brightness()));
 
