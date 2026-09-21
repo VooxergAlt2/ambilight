@@ -1034,210 +1034,59 @@ private:
     bool ok_ = true;
 };
 
-WledResolvedOutputState wledOutputState(
-    const WebUiSnapshot& snapshot,
-    const WledStateCommand* overlay) {
-
-    if (overlay == nullptr) {
-        WledResolvedOutputState state;
-        state.enabled =
-            snapshot.outputEnabled;
-        state.brightness =
-            snapshot.brightness;
-
-        return state;
-    }
-
-    return
-        WledCompat::resolveOutputState(
-            snapshot.outputEnabled,
-            snapshot.brightness,
-            config::kDefaultOutputBrightness,
-            *overlay);
-}
-
-bool appendWledState(
-    BufferWriter& writer,
-    const WebUiSnapshot& snapshot,
-    const WledStateCommand* overlay) {
-
-    const auto output =
-        wledOutputState(
-            snapshot,
-            overlay);
-
-    const bool on =
-        output.enabled &&
-        output.brightness != 0;
-
-    const std::uint8_t brightness =
-        WledCompat::reportedBrightness(
-            output.brightness);
-
-    writer.appendf(
-        "{\"on\":%s,"
-        "\"bri\":%u,"
-        "\"mainseg\":0,"
-        "\"lor\":0,"
-        "\"seg\":[{"
-        "\"id\":0,"
-        "\"start\":0,"
-        "\"stop\":%u,"
-        "\"on\":%s,"
-        "\"bri\":255,"
-        "\"fx\":0,"
-        "\"pal\":0,"
-        "\"sel\":true,"
-        "\"cct\":0"
-        "}],"
-        "\"nl\":{"
-        "\"on\":false,"
-        "\"dur\":60,"
-        "\"mode\":1,"
-        "\"tbri\":0"
-        "},"
-        "\"udpn\":{"
-        "\"send\":false,"
-        "\"recv\":false"
-        "}}",
-        boolJson(on),
-        static_cast<unsigned>(
-            brightness),
-        static_cast<unsigned>(
-            snapshot
-                .ledMapping
-                .totalLedCount()),
-        boolJson(on));
-
-    return writer.ok();
-}
-
-bool appendWledInfo(
-    BufferWriter& writer,
+WledCompatSnapshot wledCompatSnapshot(
     const WebUiSnapshot& snapshot) {
 
-    const bool live =
+    WledCompatSnapshot result;
+
+    result.outputEnabled =
+        snapshot.outputEnabled;
+
+    result.brightness =
+        snapshot.brightness;
+
+    result.defaultBrightness =
+        config::kDefaultOutputBrightness;
+
+    result.ledCount =
+        snapshot
+            .ledMapping
+            .totalLedCount();
+
+    result.wifiConnected =
+        snapshot.wifiConnected;
+
+    result.wifiRssi =
+        snapshot.wifiRssi;
+
+    result.wifiChannel =
+        snapshot.wifiChannel;
+
+    result.wifiMac =
+        snapshot.wifiMac;
+
+    result.wifiIp =
+        snapshot.wifiIp;
+
+    result.uptimeSeconds =
+        snapshot.uptimeSeconds;
+
+    result.freeHeapBytes =
+        snapshot.freeHeapBytes;
+
+    result.ddpLive =
         snapshot.ddpRunning &&
         snapshot.ddpHasFrame &&
-        snapshot.ddpFrameAgeMs <= 1000ULL;
+        snapshot.ddpFrameAgeMs <=
+            1000ULL;
 
-    const std::uint8_t signal =
-        snapshot.wifiConnected
-            ? WledCompat::
-                  rssiToSignalPercent(
-                      snapshot.wifiRssi)
-            : 0U;
+    result.senderLocked =
+        snapshot.senderLocked;
 
-    writer.append(
-        "{\"ver\":");
+    result.senderIp =
+        snapshot.senderIp;
 
-    writer.appendJsonString(
-        WledCompat::kApiVersion);
-
-    writer.append(
-        ",\"vid\":2609210"
-        ",\"cn\":");
-
-    writer.appendJsonString(
-        config::kFirmwareVersion);
-
-    writer.append(
-        ",\"name\":\"Ambilight C6\""
-        ",\"brand\":\"Ambilight\""
-        ",\"product\":\"ESP32-C6 DDP Ambilight\""
-        ",\"arch\":\"ESP32-C6\""
-        ",\"mac\":");
-
-    writer.appendJsonString(
-        snapshot.wifiMac.data());
-
-    writer.append(
-        ",\"ip\":");
-
-    writer.appendJsonString(
-        snapshot.wifiIp.data());
-
-    writer.appendf(
-        ",\"uptime\":%lu"
-        ",\"freeheap\":%lu"
-        ",\"live\":%s"
-        ",\"lm\":%s"
-        ",\"lip\":",
-        static_cast<unsigned long>(
-            snapshot.uptimeSeconds),
-        static_cast<unsigned long>(
-            snapshot.freeHeapBytes),
-        boolJson(live),
-        live
-            ? "\"DDP\""
-            : "\"\"");
-
-    writer.appendJsonString(
-        live &&
-        snapshot.senderLocked
-            ? snapshot.senderIp.data()
-            : "");
-
-    writer.appendf(
-        ",\"ws\":-1"
-        ",\"leds\":{"
-        "\"count\":%u,"
-        "\"maxseg\":1,"
-        "\"lc\":%u,"
-        "\"seglc\":[%u],"
-        "\"cct\":false,"
-        "\"wv\":false,"
-        "\"maxpwr\":0,"
-        "\"pwr\":0,"
-        "\"rgbw\":false"
-        "},"
-        "\"wifi\":{"
-        "\"rssi\":%ld,"
-        "\"signal\":%u,"
-        "\"channel\":%u"
-        "},"
-        "\"fs\":{"
-        "\"u\":1,"
-        "\"t\":2,"
-        "\"pmt\":1"
-        "}"
-        "}",
-        static_cast<unsigned>(
-            snapshot
-                .ledMapping
-                .totalLedCount()),
-        static_cast<unsigned>(
-            WledCompat::
-                kBrightnessCapability),
-        static_cast<unsigned>(
-            WledCompat::
-                kBrightnessCapability),
-        static_cast<long>(
-            snapshot.wifiConnected
-                ? snapshot.wifiRssi
-                : 0),
-        static_cast<unsigned>(
-            signal),
-        static_cast<unsigned>(
-            snapshot.wifiChannel));
-
-    return writer.ok();
-}
-
-bool appendWledEffects(
-    BufferWriter& writer) {
-
-    return
-        writer.append(
-            "[\"Solid\"]");
-}
-
-bool appendWledPalettes(
-    BufferWriter& writer) {
-
-    return
-        writer.append(
-            "[\"Default\"]");
+    return result;
 }
 
 } // namespace
@@ -1498,72 +1347,45 @@ bool WebUiService::buildWledResponse(
         "X-Content-Type-Options: nosniff\r\n"
         "Connection: close\r\n\r\n");
 
-    if (overlay != nullptr) {
-        if (!appendWledState(
-                writer,
-                snapshot,
-                overlay)) {
+    if (!writer.ok()) {
+        return false;
+    }
 
-            return false;
-        }
+    WledJsonDocument document;
+
+    if (overlay != nullptr) {
+        document =
+            WledJsonDocument::State;
     } else {
         switch (route) {
         case WebUiRoute::WledCombined:
-            writer.append(
-                "{\"state\":");
-
-            appendWledState(
-                writer,
-                snapshot,
-                nullptr);
-
-            writer.append(
-                ",\"info\":");
-
-            appendWledInfo(
-                writer,
-                snapshot);
-
-            writer.append(
-                ",\"effects\":");
-
-            appendWledEffects(
-                writer);
-
-            writer.append(
-                ",\"palettes\":");
-
-            appendWledPalettes(
-                writer);
-
-            writer.append("}");
+            document =
+                WledJsonDocument::Combined;
             break;
 
         case WebUiRoute::WledState:
-            appendWledState(
-                writer,
-                snapshot,
-                nullptr);
+            document =
+                WledJsonDocument::State;
             break;
 
         case WebUiRoute::WledInfo:
-            appendWledInfo(
-                writer,
-                snapshot);
+            document =
+                WledJsonDocument::Info;
             break;
 
         case WebUiRoute::WledEffects:
-            appendWledEffects(
-                writer);
+            document =
+                WledJsonDocument::Effects;
             break;
 
         case WebUiRoute::WledPalettes:
-            appendWledPalettes(
-                writer);
+            document =
+                WledJsonDocument::Palettes;
             break;
 
         case WebUiRoute::WledPresets:
-            writer.append("{}");
+            document =
+                WledJsonDocument::Presets;
             break;
 
         default:
@@ -1571,12 +1393,31 @@ bool WebUiService::buildWledResponse(
         }
     }
 
-    if (!writer.ok()) {
+    const std::size_t headerLength =
+        writer.length();
+
+    std::size_t bodyLength = 0;
+
+    const WledCompatSnapshot compat =
+        wledCompatSnapshot(
+            snapshot);
+
+    if (!WledCompat::buildJson(
+            document,
+            compat,
+            overlay,
+            dynamicResponse_.data() +
+                headerLength,
+            dynamicResponse_.size() -
+                headerLength,
+            bodyLength)) {
+
         return false;
     }
 
     selectDynamicResponse(
-        writer.length());
+        headerLength +
+        bodyLength);
 
     return true;
 }
