@@ -509,6 +509,78 @@ void test_spatial_reset_version_failure_keeps_live_profile() {
             widthMmX10);
 }
 
+void test_output_power_state_is_independent_and_persists() {
+    RuntimeSettings settings;
+
+    TEST_ASSERT_TRUE(
+        settings.begin());
+
+    TEST_ASSERT_TRUE(
+        settings.outputEnabled());
+
+    TEST_ASSERT_EQUAL_UINT8(
+        ambilight::config::
+            kDefaultOutputBrightness,
+        settings.outputBrightness());
+
+    TEST_ASSERT_TRUE(
+        settings.setOutputBrightness(
+            77));
+
+    TEST_ASSERT_TRUE(
+        settings.setOutputEnabled(
+            false));
+
+    TEST_ASSERT_FALSE(
+        settings.outputEnabled());
+
+    TEST_ASSERT_EQUAL_UINT8(
+        77,
+        settings.outputBrightness());
+
+    RuntimeSettings restored;
+
+    TEST_ASSERT_TRUE(
+        restored.begin());
+
+    TEST_ASSERT_FALSE(
+        restored.outputEnabled());
+
+    TEST_ASSERT_EQUAL_UINT8(
+        77,
+        restored.outputBrightness());
+}
+
+void test_invalid_output_power_value_self_heals_to_on() {
+    Preferences legacy;
+
+    TEST_ASSERT_TRUE(
+        legacy.begin(
+            "ambilight"));
+
+    TEST_ASSERT_EQUAL_UINT16(
+        sizeof(std::uint8_t),
+        legacy.putUChar(
+            "output_on",
+            7));
+
+    legacy.end();
+
+    RuntimeSettings settings;
+
+    TEST_ASSERT_TRUE(
+        settings.begin());
+
+    TEST_ASSERT_TRUE(
+        settings.outputEnabled());
+
+    TEST_ASSERT_EQUAL_UINT8(
+        1,
+        Preferences::testGetUChar(
+            "output_on",
+            0));
+}
+
 void test_wifi_clear_ssid_failure_keeps_live_credentials() {
     RuntimeSettings settings;
     TEST_ASSERT_TRUE(settings.begin());
@@ -550,6 +622,17 @@ void test_factory_reset_failure_leaves_live_runtime_untouched() {
     TEST_ASSERT_EQUAL_UINT8(
         77,
         settings.outputBrightness());
+
+    TEST_ASSERT_TRUE(
+        settings.setOutputEnabled(
+            false));
+
+    TEST_ASSERT_FALSE(
+        settings.factoryReset());
+
+    // Failed durable reset must not mutate the live power state either.
+    TEST_ASSERT_FALSE(
+        settings.outputEnabled());
 }
 
 int main(int, char**) {
@@ -587,6 +670,12 @@ int main(int, char**) {
 
     RUN_TEST(
         test_spatial_reset_version_failure_keeps_live_profile);
+
+    RUN_TEST(
+        test_output_power_state_is_independent_and_persists);
+
+    RUN_TEST(
+        test_invalid_output_power_value_self_heals_to_on);
 
     RUN_TEST(
         test_wifi_clear_ssid_failure_keeps_live_credentials);
