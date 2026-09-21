@@ -17,7 +17,7 @@ It intentionally does not add:
 
 The existing lwIP socket stack is reused directly.
 
-The page remains one embedded HTML/CSS/JS document with no external assets. Stage 44 adds five client-side views only:
+The page remains one embedded HTML/CSS/JS document with no external assets. Stage 45.3 adds browser-local RU/EN localization while keeping the backend and HTTP payloads language-neutral. The UI still has five client-side views:
 
     Home
     LED
@@ -26,6 +26,8 @@ The page remains one embedded HTML/CSS/JS document with no external assets. Stag
     System
 
 No route or socket architecture changes are required for navigation.
+
+The header contains a Русский / English selector. The selected locale is stored only in browser localStorage under `ambilight.locale`; it is not written to controller NVS. On the first visit, Russian browser locales default to RU and other locales default to EN. Different clients may therefore use different languages at the same time.
 
 This keeps the web layer small and prevents it from competing with realtime
 DDP processing.
@@ -252,31 +254,42 @@ The gain editor accepts `distance_mm:percent` values. JavaScript validates 2..8 
 
 ## Disabled pixel mask
 
-The LED commissioning section exposes one optional disabled index for each
-logical segment.
+The LED commissioning section exposes one optional disabled **physical** LED
+for each strip/lane.
 
-Blank web field means no disabled pixel.
+The Web UI is 1-based for humans:
 
-The HTTP payload uses:
+    1 = first physical LED from the controller / DATA input
+    N = last active physical LED on that strip
+    blank = no disabled pixel
+
+REV/FWD does not change this number. Reversal maps logical perimeter positions
+onto the physical strip, while the mask is applied after that mapping.
+
+The compact HTTP/serial payload remains zero-based:
 
     TOP,RIGHT,BOTTOM,LEFT
 
-with `-` for none.
-
-Example:
+with `-` for none. For example:
 
     -,12,-,0
 
-The index is relative to the logical START marker shown by the direction
-commissioning pattern.
+means no TOP mask, physical offset 12 on RIGHT, no BOTTOM mask, and physical
+offset 0 (the first LED on the wire) on LEFT.
 
 Bounds follow the active runtime length of each side. If a topology change
-shortens a side below a stored disabled-pixel offset, that mask entry is
+shortens a side below a stored physical offset, that mask entry is
 automatically cleared.
 
-The mask is persisted in NVS and is applied by LedRenderer after correction
-selection. It therefore remains black in DISABLED, SHADOW, ACTIVE and test
-patterns without changing DDP or ToF indexing.
+Stage 45.3 changes the persisted meaning from logical offset to physical strip
+offset and therefore bumps `LedPixelMaskProfile::kSchemaVersion` to 2.
+Schema-1 masks are invalidated on boot instead of being silently reinterpreted.
+
+The mask is applied by LedRenderer after logical-to-physical mapping and after
+correction selection. It therefore remains black in DISABLED, SHADOW and
+ACTIVE render paths without removing a logical LED or changing DDP/ToF
+indexing. Raw-GPIO commissioning intentionally bypasses logical rendering and
+is not a mask verification path; logical-side tests do exercise the mask.
 
 ## Calibration
 
@@ -299,7 +312,6 @@ The compact status endpoint includes:
 - Wi-Fi state, SSID, IP and RSSI
 - DDP state, active sender and age of the most recent complete frame
 - frame-hold state when input silence is being bridged by the last successfully shown frame
-- output idle-blackout state
 - ToF state/age/zones/median
 - plane yaw/pitch/accepted zones
 - perimeter min/max distance and fail-open state
@@ -318,6 +330,13 @@ The compact status endpoint includes:
 
 Saved Wi-Fi password is never returned. Because the password field is intentionally blank on every page load, saving Wi-Fi requires either a newly entered password or an explicit «open network» checkbox. Blank password input by itself is never interpreted as permission to overwrite a stored protected-network password.
 
+
+## Localization
+
+Static labels, validation messages and live operational summaries are available
+in Russian and English. Localization is a browser concern only: route names,
+JSON fields, runtime parsers and persisted controller settings do not depend on
+the selected language.
 
 ## Operational-state hardening
 
