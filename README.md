@@ -5,9 +5,9 @@ Custom ESP32-C6 Ambilight endpoint for HyperHDR.
 ## Current development line
 
 Stage 46 adds a bounded WLED-compatible control/discovery facade for Home
-Assistant and the HyperHDR Hyperk driver on top of the Stage 45 transport and
-render hardening. Realtime RGB remains native DDP/UDP 4048; the compatibility
-surface controls only power/brightness and exposes device state.
+Assistant on top of the Stage 45 transport and render hardening. HyperHDR
+continues to use native DDP/UDP 4048; the WLED compatibility surface controls
+only power/brightness and exposes device state.
 
 The firmware stack now includes:
 
@@ -27,7 +27,7 @@ The firmware stack now includes:
 - lightweight HTTP/80 control UI with Home / LED / ToF / Diagnostics / System workflows
 - browser-local Russian / English UI localization
 - WLED-compatible HTTP state/info facade for Home Assistant
-- mDNS _wled._tcp and _hyperk._tcp discovery
+- mDNS _wled._tcp discovery for Home Assistant
 - persisted one-disabled-pixel-per-segment mask
 - runtime LED topology: COUNT/GPIO/REV per TV side
 - logical-side and raw-GPIO range commissioning tests
@@ -117,15 +117,17 @@ Home Assistant discovery/control:
     GET /json
     POST /json/state
 
-HyperHDR Hyperk discovery/control:
+HyperHDR remains independent of this compatibility facade:
 
-    _hyperk._tcp.local.
-    GET /json
-    PUT /json/state
     realtime RGB -> DDP UDP/4048
 
-The normal WLED realtime UDP transport is not implemented. Use the HyperHDR
-Hyperk device type (or direct DDP), not the ordinary WLED realtime driver.
+Do not select the HyperHDR Hyperk or ordinary WLED realtime device type for
+this firmware. Current HyperHDR Hyperk defaults can force a WLED-compatible
+device brightness to 255/255 on power-on, while Stage 46 deliberately treats
+WLED `bri` as the real Ambilight global brightness. Direct DDP avoids that
+control-plane coupling.
+
+The normal WLED realtime UDP transport is not implemented.
 
 See:
 
