@@ -97,7 +97,7 @@ void test_pywled_verbose_and_transition_fields_are_accepted() {
     TEST_ASSERT_TRUE(command.verbose);
 }
 
-void test_segment_zero_on_is_supported_and_other_segment_ignored() {
+void test_segment_fields_are_validated_without_claiming_master_state() {
     WledStateCommand command;
 
     TEST_ASSERT_EQUAL_INT(
@@ -109,10 +109,11 @@ void test_segment_zero_on_is_supported_and_other_segment_ignored() {
                 "{\"id\":0,\"on\":true,\"bri\":255}]}",
                 command)));
 
-    TEST_ASSERT_TRUE(
-        command.hasSegmentOn);
-    TEST_ASSERT_TRUE(
-        command.segmentOn);
+    TEST_ASSERT_FALSE(
+        command.hasOn);
+
+    TEST_ASSERT_FALSE(
+        command.hasBrightness);
 }
 
 void test_unknown_nested_fields_are_safely_skipped() {
@@ -236,21 +237,30 @@ void test_resolve_nonzero_brightness_updates_memory_and_explicit_on() {
         state.brightness);
 }
 
-void test_master_on_takes_precedence_over_segment_on() {
+void test_segment_preflight_does_not_change_master_output() {
     WledStateCommand command;
-    command.hasOn = true;
-    command.on = false;
-    command.hasSegmentOn = true;
-    command.segmentOn = true;
+
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(
+            WledStateParseResult::Ok),
+        static_cast<int>(
+            parse(
+                "{\"seg\":[{\"id\":0,\"on\":true,\"bri\":255}],\"v\":true}",
+                command)));
 
     const WledResolvedOutputState state =
         WledCompat::resolveOutputState(
-            true,
+            false,
             80,
             32,
             command);
 
-    TEST_ASSERT_FALSE(state.enabled);
+    TEST_ASSERT_FALSE(
+        state.enabled);
+
+    TEST_ASSERT_EQUAL_UINT8(
+        80,
+        state.brightness);
 }
 
 void test_reported_brightness_and_signal_are_wled_safe() {
@@ -357,7 +367,7 @@ void test_wled_state_json_overlay_matches_resolver_prediction() {
             "\"bri\":140"));
 }
 
-void test_wled_info_json_matches_current_ha_and_hyperk_contract() {
+void test_wled_info_json_matches_current_ha_contract() {
     ambilight::WledCompatSnapshot snapshot;
     snapshot.ledCount = 780;
     snapshot.wifiConnected = true;
@@ -512,7 +522,7 @@ int main(int, char**) {
     RUN_TEST(
         test_pywled_verbose_and_transition_fields_are_accepted);
     RUN_TEST(
-        test_segment_zero_on_is_supported_and_other_segment_ignored);
+        test_segment_fields_are_validated_without_claiming_master_state);
     RUN_TEST(
         test_unknown_nested_fields_are_safely_skipped);
     RUN_TEST(
@@ -526,7 +536,7 @@ int main(int, char**) {
     RUN_TEST(
         test_resolve_nonzero_brightness_updates_memory_and_explicit_on);
     RUN_TEST(
-        test_master_on_takes_precedence_over_segment_on);
+        test_segment_preflight_does_not_change_master_output);
     RUN_TEST(
         test_reported_brightness_and_signal_are_wled_safe);
 
@@ -535,7 +545,7 @@ int main(int, char**) {
     RUN_TEST(
         test_wled_state_json_overlay_matches_resolver_prediction);
     RUN_TEST(
-        test_wled_info_json_matches_current_ha_and_hyperk_contract);
+        test_wled_info_json_matches_current_ha_contract);
     RUN_TEST(
         test_wled_combined_and_auxiliary_documents_are_self_contained);
     RUN_TEST(
