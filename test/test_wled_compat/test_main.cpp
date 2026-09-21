@@ -1,6 +1,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <string>
 
 #include <unity.h>
 
@@ -22,6 +23,33 @@ WledStateParseResult parse(
             json,
             std::strlen(json),
             command);
+}
+
+std::string buildJson(
+    ambilight::WledJsonDocument document,
+    const ambilight::WledCompatSnapshot& snapshot,
+    const WledStateCommand* overlay = nullptr) {
+
+    char buffer[2048] = {};
+    std::size_t length = 0;
+
+    TEST_ASSERT_TRUE(
+        WledCompat::buildJson(
+            document,
+            snapshot,
+            overlay,
+            buffer,
+            sizeof(buffer),
+            length));
+
+    TEST_ASSERT_EQUAL_UINT32(
+        std::strlen(buffer),
+        length);
+
+    return
+        std::string(
+            buffer,
+            length);
 }
 
 } // namespace
@@ -246,6 +274,213 @@ void test_reported_brightness_and_signal_are_wled_safe() {
             -50));
 }
 
+void test_wled_state_json_uses_master_brightness_and_fixed_segment_brightness() {
+    ambilight::WledCompatSnapshot snapshot;
+    snapshot.outputEnabled = true;
+    snapshot.brightness = 91;
+    snapshot.defaultBrightness = 32;
+    snapshot.ledCount = 780;
+
+    const std::string json =
+        buildJson(
+            ambilight::
+                WledJsonDocument::
+                    State,
+            snapshot);
+
+    TEST_ASSERT_NOT_NULL(
+        std::strstr(
+            json.c_str(),
+            "\"on\":true"));
+
+    TEST_ASSERT_NOT_NULL(
+        std::strstr(
+            json.c_str(),
+            "\"bri\":91"));
+
+    TEST_ASSERT_NOT_NULL(
+        std::strstr(
+            json.c_str(),
+            "\"stop\":780"));
+
+    TEST_ASSERT_NOT_NULL(
+        std::strstr(
+            json.c_str(),
+            "\"seg\":[{\"id\":0"));
+
+    TEST_ASSERT_NOT_NULL(
+        std::strstr(
+            json.c_str(),
+            "\"on\":true,\"bri\":255"));
+}
+
+void test_wled_state_json_overlay_matches_resolver_prediction() {
+    ambilight::WledCompatSnapshot snapshot;
+    snapshot.outputEnabled = true;
+    snapshot.brightness = 140;
+    snapshot.defaultBrightness = 32;
+    snapshot.ledCount = 780;
+
+    WledStateCommand command;
+    command.hasOn = true;
+    command.on = false;
+
+    const std::string json =
+        buildJson(
+            ambilight::
+                WledJsonDocument::
+                    State,
+            snapshot,
+            &command);
+
+    TEST_ASSERT_NOT_NULL(
+        std::strstr(
+            json.c_str(),
+            "\"on\":false"));
+
+    // WLED reports the remembered brightness while off.
+    TEST_ASSERT_NOT_NULL(
+        std::strstr(
+            json.c_str(),
+            "\"bri\":140"));
+}
+
+void test_wled_info_json_matches_current_ha_and_hyperk_contract() {
+    ambilight::WledCompatSnapshot snapshot;
+    snapshot.ledCount = 780;
+    snapshot.wifiConnected = true;
+    snapshot.wifiRssi = -62;
+    snapshot.wifiChannel = 6;
+    std::strcpy(
+        snapshot.wifiMac.data(),
+        "a1b2c3d4e5f6");
+    std::strcpy(
+        snapshot.wifiIp.data(),
+        "192.168.1.55");
+    snapshot.uptimeSeconds = 1234;
+    snapshot.freeHeapBytes = 190000;
+    snapshot.ddpLive = true;
+    snapshot.senderLocked = true;
+    std::strcpy(
+        snapshot.senderIp.data(),
+        "192.168.1.10");
+
+    const std::string json =
+        buildJson(
+            ambilight::
+                WledJsonDocument::
+                    Info,
+            snapshot);
+
+    const char* required[] = {
+        "\"ver\":\"0.15.3\"",
+        "\"mac\":\"a1b2c3d4e5f6\"",
+        "\"ip\":\"192.168.1.55\"",
+        "\"live\":true",
+        "\"lm\":\"DDP\"",
+        "\"lip\":\"192.168.1.10\"",
+        "\"ws\":-1",
+        "\"count\":780",
+        "\"maxseg\":1",
+        "\"lc\":2",
+        "\"seglc\":[2]",
+        "\"signal\":76",
+        "\"channel\":6",
+        "\"pmt\":1"
+    };
+
+    for (const char* token : required) {
+        TEST_ASSERT_NOT_NULL(
+            std::strstr(
+                json.c_str(),
+                token));
+    }
+}
+
+void test_wled_combined_and_auxiliary_documents_are_self_contained() {
+    ambilight::WledCompatSnapshot snapshot;
+    snapshot.outputEnabled = true;
+    snapshot.brightness = 32;
+    snapshot.defaultBrightness = 32;
+    snapshot.ledCount = 780;
+
+    const std::string combined =
+        buildJson(
+            ambilight::
+                WledJsonDocument::
+                    Combined,
+            snapshot);
+
+    TEST_ASSERT_NOT_NULL(
+        std::strstr(
+            combined.c_str(),
+            "\"state\":{"));
+
+    TEST_ASSERT_NOT_NULL(
+        std::strstr(
+            combined.c_str(),
+            "\"info\":{"));
+
+    TEST_ASSERT_NOT_NULL(
+        std::strstr(
+            combined.c_str(),
+            "\"effects\":[\"Solid\"]"));
+
+    TEST_ASSERT_NOT_NULL(
+        std::strstr(
+            combined.c_str(),
+            "\"palettes\":[\"Default\"]"));
+
+    TEST_ASSERT_EQUAL_STRING(
+        "{}",
+        buildJson(
+            ambilight::
+                WledJsonDocument::
+                    Presets,
+            snapshot).
+            c_str());
+}
+
+void test_wled_json_builder_fails_closed_on_overflow_and_wrong_overlay_document() {
+    ambilight::WledCompatSnapshot snapshot;
+    snapshot.ledCount = 780;
+
+    char tiny[8] = {};
+    std::size_t length = 99;
+
+    TEST_ASSERT_FALSE(
+        WledCompat::buildJson(
+            ambilight::
+                WledJsonDocument::
+                    Combined,
+            snapshot,
+            nullptr,
+            tiny,
+            sizeof(tiny),
+            length));
+
+    TEST_ASSERT_EQUAL_UINT32(
+        0,
+        length);
+
+    WledStateCommand command;
+    command.hasOn = true;
+    command.on = false;
+
+    char normal[512] = {};
+
+    TEST_ASSERT_FALSE(
+        WledCompat::buildJson(
+            ambilight::
+                WledJsonDocument::
+                    Info,
+            snapshot,
+            &command,
+            normal,
+            sizeof(normal),
+            length));
+}
+
 int main(int, char**) {
     UNITY_BEGIN();
 
@@ -271,6 +506,17 @@ int main(int, char**) {
         test_master_on_takes_precedence_over_segment_on);
     RUN_TEST(
         test_reported_brightness_and_signal_are_wled_safe);
+
+    RUN_TEST(
+        test_wled_state_json_uses_master_brightness_and_fixed_segment_brightness);
+    RUN_TEST(
+        test_wled_state_json_overlay_matches_resolver_prediction);
+    RUN_TEST(
+        test_wled_info_json_matches_current_ha_and_hyperk_contract);
+    RUN_TEST(
+        test_wled_combined_and_auxiliary_documents_are_self_contained);
+    RUN_TEST(
+        test_wled_json_builder_fails_closed_on_overflow_and_wrong_overlay_document);
 
     return UNITY_END();
 }
