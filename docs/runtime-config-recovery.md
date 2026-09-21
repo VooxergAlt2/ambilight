@@ -24,9 +24,14 @@ It prints the required command instead.
 
 ## Safety condition
 
-Factory reset is accepted only when:
+Factory reset is accepted only when the effective physical output brightness is
+zero:
 
-    output brightness = 0
+    effective brightness = 0
+
+This is true when output power is off or when configured brightness is zero.
+The check therefore follows what the LED driver is actually emitting rather
+than only the remembered brightness value.
 
 This prevents an accidental reset while live LEDs are visibly active.
 
@@ -38,7 +43,7 @@ The reset deliberately clears persistent storage before changing the RuntimeSett
 
 Sequence:
 
-1. verify brightness=0
+1. verify effective physical brightness=0
 2. clear/show LED buffer
 3. Preferences::clear() for namespace ambilight
 4. only if clear succeeds, replace RuntimeSettings members with defaults
@@ -59,9 +64,10 @@ Correction mode:
 
     SHADOW
 
-Output brightness:
+Output state:
 
-    32/255
+    enabled
+    brightness 32/255
 
 Wi-Fi NVS credentials:
 
