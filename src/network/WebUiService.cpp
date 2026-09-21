@@ -2261,6 +2261,135 @@ WebUiActionEvent WebUiService::receiveStep(
         return event;
     }
 
+    const bool wledRoute =
+        request.route ==
+            WebUiRoute::WledCombined ||
+        request.route ==
+            WebUiRoute::WledState ||
+        request.route ==
+            WebUiRoute::WledInfo ||
+        request.route ==
+            WebUiRoute::WledEffects ||
+        request.route ==
+            WebUiRoute::WledPalettes;
+
+    if (
+        wledRoute &&
+        request.method ==
+            WebUiHttpMethod::Get
+    ) {
+
+        WebUiSnapshot snapshot;
+
+        if (snapshotProvider == nullptr ||
+            !snapshotProvider(
+                snapshot)) {
+
+            selectStaticResponse(
+                kServiceUnavailableResponse,
+                sizeof(
+                    kServiceUnavailableResponse) -
+                    1);
+
+            return event;
+        }
+
+        if (!buildWledResponse(
+                request.route,
+                snapshot,
+                nullptr)) {
+
+            selectStaticResponse(
+                kInternalErrorResponse,
+                sizeof(
+                    kInternalErrorResponse) -
+                    1);
+        }
+
+        return event;
+    }
+
+    if (request.action ==
+        WebUiActionKind::WledState) {
+
+        WledStateCommand command;
+
+        const auto parsed =
+            WledCompat::parseStateCommand(
+                requestBuffer_.data() +
+                    request.bodyOffset,
+                request.bodyLength,
+                command);
+
+        if (parsed !=
+            WledStateParseResult::Ok) {
+
+            selectErrorResponse(
+                WebUiParseResult::
+                    BadRequest);
+
+            return event;
+        }
+
+        WebUiSnapshot snapshot;
+
+        if (snapshotProvider == nullptr ||
+            !snapshotProvider(
+                snapshot)) {
+
+            selectStaticResponse(
+                kServiceUnavailableResponse,
+                sizeof(
+                    kServiceUnavailableResponse) -
+                    1);
+
+            return event;
+        }
+
+        ++nextActionSequence_;
+
+        if (nextActionSequence_ == 0) {
+            ++nextActionSequence_;
+        }
+
+        event.sequence =
+            nextActionSequence_;
+
+        event.kind =
+            WebUiActionKind::
+                WledState;
+
+        std::memcpy(
+            event.payload.data(),
+            requestBuffer_.data() +
+                request.bodyOffset,
+            request.bodyLength);
+
+        event.payload[
+            request.bodyLength] = '\0';
+
+        if (!buildWledResponse(
+                WebUiRoute::WledState,
+                snapshot,
+                &command)) {
+
+            event = {};
+
+            selectStaticResponse(
+                kInternalErrorResponse,
+                sizeof(
+                    kInternalErrorResponse) -
+                    1);
+
+            return event;
+        }
+
+        pendingAction_ = event;
+        ++stats_.actionsQueued;
+
+        return {};
+    }
+
     ++nextActionSequence_;
 
     if (nextActionSequence_ == 0) {
