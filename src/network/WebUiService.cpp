@@ -1198,8 +1198,8 @@ bool appendWledInfo(
         "},"
         "\"fs\":{"
         "\"u\":1,"
-        "\"t\":1,"
-        "\"pmt\":0"
+        "\"t\":2,"
+        "\"pmt\":1"
         "}"
         "}",
         static_cast<unsigned>(
@@ -1560,6 +1560,10 @@ bool WebUiService::buildWledResponse(
         case WebUiRoute::WledPalettes:
             appendWledPalettes(
                 writer);
+            break;
+
+        case WebUiRoute::WledPresets:
+            writer.append("{}");
             break;
 
         default:
@@ -2290,7 +2294,9 @@ WebUiActionEvent WebUiService::receiveStep(
         request.route ==
             WebUiRoute::WledEffects ||
         request.route ==
-            WebUiRoute::WledPalettes;
+            WebUiRoute::WledPalettes ||
+        request.route ==
+            WebUiRoute::WledPresets;
 
     if (
         wledRoute &&
