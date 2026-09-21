@@ -65,6 +65,7 @@ bool RuntimeSettings::begin() {
         config::kDefaultOutputBrightness;
 
     outputEnabled_ = true;
+    outputStatePersisted_ = false;
 
     wifiSsid_.fill('\0');
     wifiPassword_.fill('\0');
@@ -165,6 +166,7 @@ bool RuntimeSettings::begin() {
                 stored.enabled != 0U;
 
             outputStateLoaded = true;
+            outputStatePersisted_ = true;
         } else {
             ++stats_.invalidStoredValues;
 
@@ -220,6 +222,7 @@ bool RuntimeSettings::begin() {
                 sizeof(migrated));
 
         if (written == sizeof(migrated)) {
+            outputStatePersisted_ = true;
             ++stats_.writes;
 
             // Legacy values are now inert. Remove them only after the new
@@ -544,19 +547,25 @@ bool RuntimeSettings::setOutputState(
     bool enabled,
     std::uint8_t brightness) {
 
-    if (outputEnabled_ == enabled &&
-        outputBrightness_ == brightness) {
+    const bool stateChanged =
+        outputEnabled_ != enabled ||
+        outputBrightness_ != brightness;
 
-        return persistenceAvailable_;
+    if (!stateChanged &&
+        outputStatePersisted_) {
+
+        return true;
     }
 
     // Runtime control remains available even when NVS is unavailable or a
-    // write fails. The persisted form itself is a single record, so a reboot
-    // can never observe half of an output-state update.
+    // write fails. Keep a separate persistence flag so a later identical
+    // request retries a previously failed durable commit instead of reporting
+    // a false success merely because Preferences is available.
     outputEnabled_ = enabled;
     outputBrightness_ = brightness;
 
     if (!persistenceAvailable_) {
+        outputStatePersisted_ = false;
         ++stats_.writeFailures;
         return false;
     }
@@ -577,10 +586,12 @@ bool RuntimeSettings::setOutputState(
             sizeof(record));
 
     if (written != sizeof(record)) {
+        outputStatePersisted_ = false;
         ++stats_.writeFailures;
         return false;
     }
 
+    outputStatePersisted_ = true;
     ++stats_.writes;
     return true;
 }
@@ -1201,6 +1212,7 @@ bool RuntimeSettings::factoryReset() {
         config::kDefaultOutputBrightness;
 
     outputEnabled_ = true;
+    outputStatePersisted_ = false;
 
     wifiSsid_.fill('\0');
     wifiPassword_.fill('\0');
