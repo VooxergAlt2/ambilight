@@ -16,7 +16,7 @@ The active firmware now combines:
 - exact active-perimeter distance/gain field
 - runtime ToF spatial and photometric calibration
 - DISABLED / SHADOW / ACTIVE correction modes
-- runtime output brightness
+- atomic runtime output power + remembered brightness
 - commissioning patterns
 - guarded NVS factory recovery
 - generic non-RGB render-state scheduling
@@ -24,6 +24,8 @@ The active firmware now combines:
 - typed pure-C++ runtime payload parsing
 - centralized firmware identity/version diagnostics
 - minimal lwIP HTTP/80 commissioning/control UI
+- WLED-compatible Home Assistant / Hyperk control facade
+- mDNS WLED / Hyperk discovery
 - persisted per-segment disabled-pixel mask
 - logical-side and raw-GPIO LED range probes
 - transient normalized 8x8 ToF live-debug mode
@@ -50,6 +52,8 @@ USB/AWA work remains preserved separately in:
 
 ## Web control path
 
+Native browser control:
+
     browser
       -> TCP/80
       -> WebUiService
@@ -59,8 +63,28 @@ USB/AWA work remains preserved separately in:
       -> existing typed parser/domain object
       -> existing apply/reset handler
 
-The web layer does not emulate serial bytes and does not duplicate domain
-validation.
+Compatibility control:
+
+    Home Assistant / HyperHDR Hyperk
+      -> mDNS discovery
+      -> TCP/80
+      -> WebUiProtocol
+      -> WledCompat parser / serializer / state resolver
+      -> acknowledged queued WledState action
+      -> shared output-state apply path
+
+WledCompat owns the compatibility schema. WebUiService only supplies HTTP
+transport/envelopes and snapshot adaptation.
+
+Realtime RGB remains:
+
+    HyperHDR Hyperk
+      -> DDP UDP/4048
+
+No WLED realtime UDP transport is implemented.
+
+The native web layer does not emulate serial bytes and does not duplicate
+domain validation.
 
 The listener is deliberately small:
 
@@ -68,16 +92,20 @@ The listener is deliberately small:
     no keep-alive
     no WebSocket
     1536 B request buffer
-    <=127 B body
+    <=127 B native /api body
+    <=511 B WLED JSON body
     <=512 B recv per loop
     <=1024 B send per loop
     2 s idle timeout
 
 DDP polling and its backlog gate run before the web service in the main loop.
 
-POST actions are released to main only after the HTTP acknowledgement has
-been sent and the client socket closed. This prevents Wi-Fi reconfiguration
-or factory reset from tearing down the connection before acknowledgement.
+Native actions are released to main only after their HTTP acknowledgement has
+been sent and the client socket closed.
+
+WLED writes return a predicted WLED state body before mutation, then release
+the already validated action after the response closes. Prediction and actual
+application use the same WledCompat state resolver.
 
 Developer-only raw ToF/render dumps remain serial-only.
 
@@ -121,7 +149,7 @@ Memory capacity is fixed and heap-free:
 
     4 PARLIO lanes x 230 = 920 LED capacity
 
-LedMappingProfile schema 2 is the authoritative topology. For each logical TV
+LedMappingProfile schema 3 is the authoritative topology. For each logical TV
 side it stores:
 
 - active logical length, 1..230
@@ -143,17 +171,20 @@ Every physical GPIO must be assigned exactly once. ToF gains are indexed in
 logical screen space before physical reversal, so wiring cannot reverse the
 wall model.
 
-A topology apply requires brightness=0 and acts as a coordinated transaction:
+A topology apply owns its safety blackout and does not require the operator to
+set brightness to zero manually. It acts as a coordinated transaction:
 
-1. queue the new topology to ToF
-2. reconfigure DDP expected frame bytes and reset sender/assembly epoch
-3. switch renderer mapping
-4. clear fixed physical lane buffers when mapping actually changes
-5. prepare a sanitized disabled-pixel mask without mutating persistence yet
-6. commit/reset the runtime topology in NVS
-7. persist any required mask sanitation only after topology commit
-8. publish a black frame with the new pixelCount
-9. reset gain-controller state and wait fail-open for fresh ToF projection
+1. cancel active commissioning and enter controlled physical blackout
+2. queue the new topology to ToF
+3. reconfigure DDP expected frame bytes and reset sender/assembly epoch
+4. switch renderer mapping
+5. clear fixed physical lane buffers when mapping actually changes
+6. prepare a sanitized disabled-pixel mask without mutating persistence yet
+7. commit/reset the runtime topology in NVS
+8. persist any required mask sanitation only after topology commit
+9. publish a black frame with the new pixelCount
+10. reset gain-controller state and wait fail-open for fresh ToF projection
+11. restore configured effective output state
 
 ## ToF path
 
@@ -378,11 +409,11 @@ NVS namespace:
 Runtime configuration includes:
 
 - correction mode
-- output brightness
+- atomic output_state (power + remembered brightness)
 - Wi-Fi credentials
 - ToF gain curve
 - ToF spatial profile
-- LED topology profile (LedMappingProfile schema 2)
+- LED topology profile (LedMappingProfile schema 3)
 - disabled-pixel mask profile
 
 Versioned blobs use a data-first/version-last commit pattern.
@@ -393,7 +424,7 @@ Invalid persisted profiles fail back to firmware defaults.
 
 Factory recovery requires:
 
-    brightness = 0
+    effective physical brightness = 0
     freset
 
 The NVS namespace is cleared before in-memory defaults are changed.
