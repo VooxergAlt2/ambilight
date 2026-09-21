@@ -2,18 +2,22 @@
 
 ## Purpose
 
-The Stage 45 web surface remains LAN-only and bounded. Stage 45 keeps the Stage 44.1 hardening and changes only the runtime policy for missing DDP complete frames: output now holds the last successfully shown frame instead of synthesizing an idle blackout.
+Stage 46 keeps the bounded LAN-only Stage 45 web surface and adds a small
+WLED-compatible control/discovery facade for Home Assistant and the HyperHDR
+Hyperk driver.
 
-It intentionally does not add:
+It still intentionally does not add:
 
 - Arduino WebServer
 - AsyncWebServer
 - WebSocket
 - external JavaScript/CSS frameworks
 - CDN assets
-- mDNS
 - authentication database
 - a dedicated FreeRTOS web task
+
+Stage 46 does add ESPmDNS for the compatibility discovery services. The HTTP
+server itself remains the existing direct lwIP socket implementation.
 
 The existing lwIP socket stack is reused directly.
 
@@ -57,7 +61,8 @@ The service is deliberately bounded:
 
     one active HTTP client
     request buffer       1536 B
-    request body         <= 127 B
+    native /api body     <= 127 B
+    WLED JSON body        <= 511 B
     receive per loop     <= 512 B
     send per loop        <= 1024 B
     client idle timeout  2 s
@@ -73,9 +78,16 @@ Read-only:
 
     GET /
     GET /api/status
+    GET /json
+    GET /json/state
+    GET /json/info
+    GET /json/eff
+    GET /json/pal
+    GET /presets.json
 
-Runtime actions:
+Native runtime actions:
 
+    POST /api/power
     POST /api/brightness
     POST /api/correction
     POST /api/test
@@ -89,7 +101,17 @@ Runtime actions:
     POST /api/tof-debug
     POST /api/factory
 
-POST bodies use the same compact text payloads as existing runtime commands.
+WLED-compatible state writes:
+
+    POST /json/state
+    PUT  /json/state
+
+The WLED endpoints accept JSON and intentionally do not require the browser-only
+X-Ambilight-Control header. Their parser/serializer is isolated in WledCompat,
+while WebUiService remains the TCP/HTTP transport.
+
+Native POST bodies use the same compact text payloads as existing runtime
+commands.
 
 Examples:
 
@@ -388,14 +410,19 @@ server.
 
 There is no user/password authentication.
 
-State-changing requests require:
+Native /api state-changing requests require:
 
     X-Ambilight-Control: 1
 
+WLED-compatible /json/state writes are a separate LAN integration contract and
+accept application/json from Home Assistant and HyperHDR without that custom
+browser header.
+
 The firmware sends no CORS permission and does not implement OPTIONS.
 
-This prevents ordinary cross-origin browser forms/fetches from issuing simple
-control requests without a preflight failure.
+This prevents ordinary cross-origin browser scripts from gaining a generic
+native /api control path while still allowing trusted-LAN WLED clients to use
+their standard protocol.
 
 It is not a substitute for network isolation.
 
@@ -429,7 +456,9 @@ WebUiProtocol is pure C++ and participates in the native PlatformIO gate.
 Native contracts cover:
 
 - GET index/status
-- every POST action route
+- WLED GET routes including /presets.json
+- WLED POST/PUT state writes and JSON content-type rules
+- every native POST action route
 - required control header
 - incomplete request/body
 - exact 127-byte payload boundary
@@ -444,7 +473,7 @@ Native contracts cover:
 The lwIP socket service itself is compiled only by the full ESP32-C6 firmware
 build.
 
-Stage 45 must not be treated as validated until the full local validation passes:
+Stage 46 must not be treated as validated until the full local validation passes:
 
     tools/check_partition.py
     tools/check_web_ui.py
