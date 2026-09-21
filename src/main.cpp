@@ -2547,7 +2547,9 @@ bool refreshTargetGainContext(
         ambilight::TofRenderGainBridge::make(
             cachedPerimeterGainSnapshot,
             haveCachedPerimeterGainSnapshot,
-            nowUs);
+            nowUs,
+            runtimeSettings.
+                ledMappingProfile());
 
     if (shadowProbeUntilUs != 0 &&
         nowUs < shadowProbeUntilUs &&

@@ -9,6 +9,7 @@
 
 using ambilight::CorrectionMode;
 using ambilight::GainSnapshot;
+using ambilight::LedMappingProfile;
 using ambilight::PerimeterGainSnapshot;
 using ambilight::RenderGainContext;
 using ambilight::RenderGainMath;
@@ -322,6 +323,36 @@ void test_spatial_bridge_stale_snapshot_fails_open() {
             620));
 }
 
+void test_spatial_bridge_missing_snapshot_keeps_active_topology() {
+    LedMappingProfile activeTopology;
+
+    activeTopology.segment[0].logicalLength = 200;
+    activeTopology.segment[1].logicalLength = 116;
+    activeTopology.segment[2].logicalLength = 202;
+    activeTopology.segment[3].logicalLength = 114;
+
+    TEST_ASSERT_TRUE(activeTopology.valid());
+
+    const PerimeterGainSnapshot noSnapshot{};
+
+    const auto context =
+        TofRenderGainBridge::make(
+            noSnapshot,
+            false,
+            1000000,
+            activeTopology);
+
+    TEST_ASSERT_FALSE(context.sourcePresent);
+    TEST_ASSERT_FALSE(context.sourceUsable);
+    TEST_ASSERT_TRUE(context.failOpen);
+    TEST_ASSERT_TRUE(
+        context.topology.segment ==
+        activeTopology.segment);
+    TEST_ASSERT_EQUAL_UINT16(
+        632,
+        context.topology.totalLedCount());
+}
+
 void test_tof_bridge_maps_four_uniform_side_gains() {
     GainSnapshot gains;
     gains.generation = 42;
@@ -438,6 +469,7 @@ int main(int, char**) {
     RUN_TEST(test_render_profile_comparison_ignores_metadata_but_not_usability);
     RUN_TEST(test_spatial_bridge_preserves_segment_endpoints);
     RUN_TEST(test_spatial_bridge_stale_snapshot_fails_open);
+    RUN_TEST(test_spatial_bridge_missing_snapshot_keeps_active_topology);
     RUN_TEST(test_tof_bridge_maps_four_uniform_side_gains);
     RUN_TEST(test_tof_bridge_stale_or_future_snapshot_fails_open);
     RUN_TEST(test_bridge_clamps_gain_above_unity);

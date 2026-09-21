@@ -17,9 +17,14 @@ public:
     static RenderGainContext make(
         const PerimeterGainSnapshot& gains,
         bool snapshotPresent,
-        std::uint64_t nowUs) {
+        std::uint64_t nowUs,
+        const LedMappingProfile& activeTopology =
+            LedMappingProfile{}) {
 
-        RenderGainContext context;
+        RenderGainContext context =
+            RenderGainContext::unity(
+                activeTopology);
+
         context.sourcePresent = snapshotPresent;
 
         if (!snapshotPresent) {
@@ -78,9 +83,14 @@ public:
     static RenderGainContext make(
         const GainSnapshot& gains,
         bool snapshotPresent,
-        std::uint64_t nowUs) {
+        std::uint64_t nowUs,
+        const LedMappingProfile& activeTopology =
+            LedMappingProfile{}) {
 
-        RenderGainContext context;
+        RenderGainContext context =
+            RenderGainContext::unity(
+                activeTopology);
+
         context.sourcePresent = snapshotPresent;
 
         if (!snapshotPresent) {
