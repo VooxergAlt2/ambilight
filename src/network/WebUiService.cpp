@@ -279,7 +279,9 @@ function initialLocale(){
     const saved=localStorage.getItem('ambilight.locale');
     if(saved==='ru'||saved==='en')return saved;
   }catch(e){}
-  return ((navigator.language||'').toLowerCase().startsWith('ru'))?'ru':'en';
+  // Preserve the historical Russian UI until the operator explicitly
+  // chooses another locale. The selection is then remembered per browser.
+  return 'ru';
 }
 let locale=initialLocale();
 const staticOriginalText=new WeakMap(),staticOriginalAttrs=new WeakMap();
@@ -417,6 +419,64 @@ function setLocale(value){
   if(lastStatus)render(lastStatus);
 }
 function corrName(index){return [tr('ВЫКЛ.','OFF'),tr('НАБЛЮДЕНИЕ','SHADOW'),tr('ВКЛЮЧЕНА','ACTIVE')][index]||'?'}
+const ACTION_RU={
+'Brightness applied.':'Яркость применена.',
+'Invalid brightness. Use 0..255.':'Некорректная яркость. Допустимо 0..255.',
+'Correction mode applied.':'Режим коррекции применён.',
+'Invalid correction mode.':'Некорректный режим коррекции.',
+'LED test stopped.':'LED-тест остановлен.',
+'LED test requires brightness 1..64.':'Для LED-теста требуется яркость 1..64.',
+'LED test started.':'LED-тест запущен.',
+'Invalid/refused LED test.':'LED-тест отклонён или имеет неверные параметры.',
+'LED mapping reset.':'Топология LED сброшена.',
+'LED mapping reset refused.':'Сброс топологии LED отклонён.',
+'Invalid LED mapping.':'Некорректная топология LED.',
+'LED mapping applied and saved.':'Топология LED применена и сохранена.',
+'LED mapping applied runtime-only; NVS is unavailable.':'Топология LED применена только до перезагрузки: NVS недоступна.',
+'LED mapping save/apply refused; previous mapping restored.':'Изменение топологии LED отклонено; предыдущая топология восстановлена.',
+'Disabled-pixel mask reset.':'Маска отключённого пикселя сброшена.',
+'Disabled-pixel mask reset failed.':'Не удалось сбросить маску отключённого пикселя.',
+'Invalid disabled-pixel mask.':'Некорректная маска отключённого пикселя.',
+'Disabled-pixel mask applied.':'Маска отключённого пикселя применена.',
+'Disabled-pixel mask change failed.':'Не удалось изменить маску отключённого пикселя.',
+'Spatial profile reset.':'Профиль геометрии сброшен.',
+'Spatial reset refused.':'Сброс геометрии отклонён.',
+'Invalid spatial profile.':'Некорректный профиль геометрии.',
+'Spatial profile applied.':'Профиль геометрии применён.',
+'Spatial change refused.':'Изменение геометрии отклонено.',
+'Gain curve reset.':'Кривая яркости сброшена.',
+'Gain curve reset refused.':'Сброс кривой яркости отклонён.',
+'Invalid gain curve.':'Некорректная кривая яркости.',
+'Gain curve applied.':'Кривая яркости применена.',
+'Gain curve change refused.':'Изменение кривой яркости отклонено.',
+'Wi-Fi NVS credentials cleared.':'Сохранённые данные Wi-Fi удалены.',
+'Wi-Fi runtime changed; NVS clear failed.':'Wi-Fi изменён в текущем сеансе, но очистка NVS не удалась.',
+'Wi-Fi payload must be SSID|PASSWORD.':'Неверный формат Wi-Fi: требуется SSID|PASSWORD.',
+'Wi-Fi credentials rejected.':'Данные Wi-Fi отклонены.',
+'Wi-Fi saved; reconnecting.':'Wi-Fi сохранён, выполняется переподключение.',
+'Wi-Fi applied runtime-only; NVS write failed.':'Wi-Fi применён только до перезагрузки: запись NVS не удалась.',
+'Invalid calibration action.':'Некорректная команда калибровки.',
+'Calibration capture is already active.':'Сбор данных калибровки уже выполняется.',
+'60 s calibration capture started.':'Сбор данных калибровки на 60 с запущен.',
+'Invalid shadow probe action.':'Некорректная команда теста модели.',
+'Shadow probe requires SHADOW mode.':'Тест модели доступен только в режиме «Наблюдение».',
+'10 s shadow probe started.':'Тест модели на 10 с запущен.',
+'60 s ToF live debug started.':'Live-режим ToF на 60 с запущен.',
+'ToF debug requires DISABLED or SHADOW.':'ToF debug доступен только в режимах «Выкл.» или «Наблюдение».',
+'ToF live debug stopped.':'Live-режим ToF остановлен.',
+'Invalid ToF debug action.':'Некорректная команда ToF debug.',
+'Invalid factory reset action.':'Некорректная команда заводского сброса.',
+'Factory reset requires brightness 0.':'Для заводского сброса установите яркость 0.',
+'Factory reset accepted.':'Заводской сброс принят.',
+'Factory reset failed: NVS clear failed.':'Заводской сброс не выполнен: не удалось очистить NVS.',
+'Unknown web action.':'Неизвестная web-команда.',
+'ok':'Готово.',
+'failed':'Ошибка.'
+};
+function actionMessage(value){
+  const raw=String(value||'');
+  return locale==='ru'?(ACTION_RU[raw]||raw):raw;
+}
 
 const mapNames=['TOP','RIGHT','BOTTOM','LEFT'];
 const pages=['home','led','tof','diag','system'];
@@ -629,7 +689,7 @@ function render(s){
   if(pendingActionId){
     if(s.action.id===pendingActionId){
       if(s.action.ok)cleanPendingIfUnchanged();else rollbackAutosaveDrafts();
-      txt('action',s.action.msg||(s.action.ok?'ok':'failed'));$('action').className=s.action.ok?'ok':'bad';
+      txt('action',actionMessage(s.action.msg||(s.action.ok?'ok':'failed')));$('action').className=s.action.ok?'ok':'bad';
       clearPendingAction();
     }else if(actionSequenceAfter(s.action.id,pendingActionId)){
       rollbackAutosaveDrafts();
