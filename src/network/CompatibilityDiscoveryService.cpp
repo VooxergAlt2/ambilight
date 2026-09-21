@@ -191,11 +191,13 @@ bool CompatibilityDiscoveryService::start() {
             mac,
             sizeof(mac))) {
 
+        const char* const macTxt = mac;
+
         MDNS.addServiceTxt(
             "wled",
             "tcp",
             "mac",
-            mac);
+            macTxt);
     }
 
     running_ = true;
