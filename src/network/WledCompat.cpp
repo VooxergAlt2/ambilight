@@ -549,8 +549,7 @@ bool keyEquals(
 }
 
 WledStateParseResult parseSegmentObject(
-    JsonCursor& cursor,
-    WledStateCommand& command) {
+    JsonCursor& cursor) {
 
     if (!cursor.consume('{')) {
         return
@@ -558,9 +557,7 @@ WledStateParseResult parseSegmentObject(
                 InvalidJson;
     }
 
-    bool idKnown = false;
     std::uint32_t id = 0;
-    bool hasOn = false;
     bool on = false;
 
     if (cursor.consume('}')) {
@@ -593,7 +590,8 @@ WledStateParseResult parseSegmentObject(
                         InvalidJson;
             }
 
-            idKnown = true;
+            // Segment id is syntax-validated only. The facade exposes one
+            // structural segment, while master state owns physical output.
         } else if (
             keyEquals(
                 key,
@@ -607,7 +605,8 @@ WledStateParseResult parseSegmentObject(
                         InvalidJson;
             }
 
-            hasOn = true;
+            // Accepted for python-wled segment preflight, intentionally not
+            // promoted into master output state.
         } else if (
             keyEquals(
                 key,
@@ -649,26 +648,18 @@ WledStateParseResult parseSegmentObject(
         }
     }
 
-    if (
-        hasOn &&
-        (!idKnown || id == 0U)
-    ) {
-
-        command.hasSegmentOn = true;
-        command.segmentOn = on;
-    }
+    (void)id;
+    (void)on;
 
     return WledStateParseResult::Ok;
 }
 
 WledStateParseResult parseSegments(
-    JsonCursor& cursor,
-    WledStateCommand& command) {
+    JsonCursor& cursor) {
 
     if (cursor.peek('{')) {
         return parseSegmentObject(
-            cursor,
-            command);
+            cursor);
     }
 
     if (!cursor.consume('[')) {
@@ -685,8 +676,7 @@ WledStateParseResult parseSegments(
         if (cursor.peek('{')) {
             const auto result =
                 parseSegmentObject(
-                    cursor,
-                    command);
+                    cursor);
 
             if (result !=
                 WledStateParseResult::Ok) {
@@ -1208,8 +1198,7 @@ WledStateParseResult WledCompat::parseStateCommand(
 
             const auto result =
                 parseSegments(
-                    cursor,
-                    command);
+                    cursor);
 
             if (result !=
                 WledStateParseResult::Ok) {
@@ -1263,18 +1252,9 @@ WledResolvedOutputState WledCompat::resolveOutputState(
         }
     }
 
-    const bool hasPowerRequest =
-        command.hasOn ||
-        command.hasSegmentOn;
-
-    const bool powerRequest =
-        command.hasOn
-            ? command.on
-            : command.segmentOn;
-
-    if (hasPowerRequest) {
+    if (command.hasOn) {
         resolved.enabled =
-            powerRequest;
+            command.on;
 
         if (resolved.enabled &&
             resolved.brightness == 0) {
