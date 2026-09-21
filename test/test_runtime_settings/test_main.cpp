@@ -574,11 +574,19 @@ void test_invalid_output_power_value_self_heals_to_on() {
     TEST_ASSERT_TRUE(
         settings.outputEnabled());
 
+    Preferences verify;
+
+    TEST_ASSERT_TRUE(
+        verify.begin(
+            "ambilight"));
+
     TEST_ASSERT_EQUAL_UINT8(
         1,
-        Preferences::testGetUChar(
+        verify.getUChar(
             "output_on",
             0));
+
+    verify.end();
 }
 
 void test_wifi_clear_ssid_failure_keeps_live_credentials() {
