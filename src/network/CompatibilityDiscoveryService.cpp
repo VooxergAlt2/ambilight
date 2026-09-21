@@ -21,6 +21,70 @@ bool deadlineReached(
             nowMs - deadlineMs) >= 0;
 }
 
+bool normalizedMac(
+    char* output,
+    std::size_t capacity) {
+
+    if (output == nullptr ||
+        capacity < 13U) {
+
+        return false;
+    }
+
+    const String mac =
+        WiFi.macAddress();
+
+    std::size_t written = 0;
+
+    for (std::size_t index = 0;
+         index <
+             static_cast<std::size_t>(
+                 mac.length()) &&
+         written < 12U;
+         ++index) {
+
+        char value =
+            mac[
+                static_cast<unsigned>(
+                    index)];
+
+        if (value == ':' ||
+            value == '-' ||
+            value == '.') {
+
+            continue;
+        }
+
+        if (value >= 'A' &&
+            value <= 'F') {
+
+            value =
+                static_cast<char>(
+                    value - 'A' + 'a');
+        }
+
+        const bool hex =
+            (value >= '0' &&
+             value <= '9') ||
+            (value >= 'a' &&
+             value <= 'f');
+
+        if (!hex) {
+            return false;
+        }
+
+        output[written++] =
+            value;
+    }
+
+    if (written != 12U) {
+        return false;
+    }
+
+    output[written] = '\0';
+    return true;
+}
+
 } // namespace
 
 void CompatibilityDiscoveryService::buildHostname() {
@@ -96,31 +160,62 @@ bool CompatibilityDiscoveryService::start() {
     MDNS.setInstanceName(
         "Ambilight C6");
 
+    const bool httpAdded =
+        MDNS.addService(
+            "http",
+            "tcp",
+            80);
+
     const bool wledAdded =
         MDNS.addService(
             "wled",
             "tcp",
             80);
 
-    const bool hyperkAdded =
-        MDNS.addService(
-            "hyperk",
-            "tcp",
-            80);
-
-    if (!wledAdded ||
-        !hyperkAdded) {
+    if (!httpAdded ||
+        !wledAdded) {
 
         MDNS.end();
         ++stats_.startFailures;
         return false;
     }
 
+    // Match the real WLED discovery contract used by Home Assistant.
+    // The TXT record lets HA deduplicate the device before its first /json
+    // request. A failed MAC normalization is non-fatal because /json still
+    // exposes the canonical MAC and remains the final authority.
+    char mac[13] = {};
+
+    if (normalizedMac(
+            mac,
+            sizeof(mac))) {
+
+        MDNS.addServiceTxt(
+            "wled",
+            "tcp",
+            "mac",
+            mac);
+    }
+
+    // Hyperk discovery is useful to HyperHDR tooling, but WLED/HA discovery
+    // is the compatibility contract. Do not tear down a working _wled service
+    // merely because this optional alias cannot be registered.
+    const bool hyperkAdded =
+        MDNS.addService(
+            "hyperk",
+            "tcp",
+            80);
+
+    if (!hyperkAdded) {
+        Serial.println(
+            "Compatibility discovery warning: optional _hyperk._tcp service could not be registered.");
+    }
+
     running_ = true;
     ++stats_.starts;
 
     Serial.printf(
-        "Compatibility discovery started: hostname=%s services=_wled._tcp,_hyperk._tcp port=80.\n",
+        "Compatibility discovery started: hostname=%s services=_http._tcp,_wled._tcp,_hyperk._tcp port=80.\n",
         hostname_.data());
 
     return true;
