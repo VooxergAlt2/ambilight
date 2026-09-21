@@ -4053,6 +4053,49 @@ void handleWebUiAction(
 
     switch (event.kind) {
     case ambilight::WebUiActionKind::
+        WledState:
+
+        ok =
+            applyWledOutputCommand(
+                event.text());
+
+        message =
+            ok
+                ? "WLED state applied."
+                : "Invalid WLED state payload.";
+
+        break;
+
+    case ambilight::WebUiActionKind::
+        Power:
+
+        if (std::strcmp(
+                event.text(),
+                "0") == 0) {
+
+            setOutputEnabled(
+                false);
+
+            ok = true;
+        } else if (
+            std::strcmp(
+                event.text(),
+                "1") == 0) {
+
+            setOutputEnabled(
+                true);
+
+            ok = true;
+        }
+
+        message =
+            ok
+                ? "Output power applied."
+                : "Invalid output power.";
+
+        break;
+
+    case ambilight::WebUiActionKind::
         Brightness: {
 
         std::uint8_t value = 0;
