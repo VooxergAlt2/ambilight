@@ -61,7 +61,7 @@ button{cursor:pointer}button.primary{background:var(--primary);color:#fff;border
 </head>
 <body>
 <main>
-<header><div><h1>Ambilight C6</h1><div id="fw" class="muted mono">connecting…</div></div><div class="muted">LAN control · HTTP/80</div></header>
+<header><div><h1>Ambilight C6</h1><div id="fw" class="muted mono">connecting…</div></div><div class="row"><select id="localeSelect" title="Язык интерфейса" aria-label="Язык интерфейса"><option value="ru">Русский</option><option value="en">English</option></select><div class="muted">LAN control · HTTP/80</div></div></header>
 
 <section class="cards">
 <div class="card"><span class="muted">Коррекция ToF</span><b id="stCorr">—</b></div>
@@ -165,7 +165,7 @@ button{cursor:pointer}button.primary{background:var(--primary);color:#fff;border
 <button onclick="resetPixelMask()">Очистить</button>
 <span id="maskSource" class="muted"></span>
 </div>
-<div class="muted">По одному пикселю на сторону. Пусто = не отключать. Индекс считается от логического начала стороны.</div>
+<div class="muted">По одному пикселю на сторону. Укажите физический номер LED от входа DATA: 1 = первый LED на проводе. Пусто = не отключать. REV/FWD на это число не влияет.</div>
 </div>
 </details>
 </section>
@@ -272,8 +272,140 @@ button{cursor:pointer}button.primary{background:var(--primary);color:#fff;border
 </main>
 <script>
 const $=id=>document.getElementById(id);
-let pendingActionId=0,pendingActionStartedMs=0,pendingDirtyIds=[],pendingFieldState={},posting=false,refreshing=false,offlineBanner=false,tofDebugUiActive=false,selectedTofZone=27,activeMap=null;
-const corrNames=['ВЫКЛ.','НАБЛЮДЕНИЕ','ВКЛЮЧЕНА'];
+let pendingActionId=0,pendingActionStartedMs=0,pendingDirtyIds=[],pendingFieldState={},posting=false,refreshing=false,offlineBanner=false,tofDebugUiActive=false,selectedTofZone=27,activeMap=null,lastStatus=null;
+
+function initialLocale(){
+  try{
+    const saved=localStorage.getItem('ambilight.locale');
+    if(saved==='ru'||saved==='en')return saved;
+  }catch(e){}
+  return ((navigator.language||'').toLowerCase().startsWith('ru'))?'ru':'en';
+}
+let locale=initialLocale();
+const staticOriginalText=new WeakMap(),staticOriginalAttrs=new WeakMap();
+const STATIC_EN={
+'Коррекция ToF':'ToF correction',
+'Яркость':'Brightness',
+'Сигнал ПК':'PC signal',
+'Датчик ToF':'ToF sensor',
+'Главная':'Home',
+'Диагностика':'Diagnostics',
+'Система':'System',
+'Подсветка и коррекция':'Lighting and correction',
+'Коррекция по расстоянию':'Distance correction',
+'Выкл.':'Off',
+'Наблюдение':'Shadow',
+'Включена':'Active',
+'Изменение яркости сохраняется при отпускании ползунка. Режим «Наблюдение» рассчитывает коррекцию, но не применяет её к LED.':'Brightness is saved when the slider is released. Shadow mode calculates correction but does not apply it to the LEDs.',
+'Ожидание данных…':'Waiting for data…',
+'Настройка LED':'LED setup',
+'Топология телевизора':'TV topology',
+'Сначала проверьте, какой GPIO соответствует каждой физической стороне, затем направление и количество LED. Изменение топологии выполняется через автоматическое защитное гашение.':'First identify which GPIO belongs to each physical side, then verify direction and LED count. Topology changes use an automatic safety blackout.',
+'Параметры сторон':'Side parameters',
+'Сохранить топологию':'Save topology',
+'Вернуть измеренный профиль':'Restore measured profile',
+'Количество 1..230. GPIO только 18/19/20/21, каждый выход используется один раз. Флаг «развернуть» (REV) меняет только физическую адресацию LED на проводе (с какого конца лента пронумерована 0); видимое направление стороны на схеме телевизора при этом не меняется.':'Count 1..230. GPIO may only be 18/19/20/21 and each output may be used once. REV changes only physical LED addressing on the wire; the visible side direction on the TV diagram does not change.',
+'Проверка логической стороны':'Logical side test',
+'Проверить диапазон':'Test range',
+'Вся сторона':'Whole side',
+'Проверяет применённую топологию, направление и маску отключённого пикселя.':'Tests the applied topology, direction and disabled-pixel mask.',
+'Определение физического GPIO':'Physical GPIO identification',
+'Зажечь GPIO':'Light GPIO',
+'Все стороны':'All sides',
+'Маркеры направления':'Direction markers',
+'Стоп':'Stop',
+'Этот тест обходит логическое сопоставление и нужен только для определения физически подключённой линии.':'This test bypasses logical mapping and is only for identifying the physically connected lane.',
+'Отключённый пиксель':'Disabled pixel',
+'Сохранить маску':'Save mask',
+'Очистить':'Clear',
+'По одному пикселю на сторону. Укажите физический номер LED от входа DATA: 1 = первый LED на проводе. Пусто = не отключать. REV/FWD на это число не влияет.':'One pixel per side. Enter the physical LED number from the DATA input: 1 = first LED on the wire. Blank = none. REV/FWD does not affect this number.',
+'Настройка ToF':'ToF setup',
+'Матрица расстояний 8×8':'8×8 distance matrix',
+'Live-режим 60 с':'Live mode 60 s',
+'Матрица уже ориентирована относительно телевизора. Верх сетки соответствует TOP. Зелёная рамка означает пригодную зону, пунктирная — пониженную уверенность.':'The matrix is already oriented relative to the TV. The top of the grid corresponds to TOP. A green border means a usable zone; dashed means reduced confidence.',
+'Выбранная зона':'Selected zone',
+'Выберите ячейку':'Select a cell',
+'Плоскость стены':'Wall plane',
+'Геометрия установки':'Installation geometry',
+'Размеры задаются в плоскости телевизора. X/Y — смещение датчика от центра экрана, Z — смещение плоскости LED относительно датчика.':'Dimensions are defined in the TV plane. X/Y are sensor offsets from screen center; Z is the LED-plane offset relative to the sensor.',
+'Ширина ТВ, мм':'TV width, mm',
+'Высота ТВ, мм':'TV height, mm',
+'Датчик X, мм':'Sensor X, mm',
+'Датчик Y, мм':'Sensor Y, mm',
+'Плоскость LED Z, мм':'LED plane Z, mm',
+'Поворот датчика':'Sensor rotation',
+'Отразить горизонтально':'Mirror horizontally',
+'Нет':'No',
+'Да':'Yes',
+'Порог изменения плоскости, мм':'Plane change threshold, mm',
+'Сохранить геометрию':'Save geometry',
+'По умолчанию':'Default',
+'Яркость в зависимости от расстояния':'Brightness vs distance',
+'Формат:':'Format:',
+'расстояние_мм:яркость_%':'distance_mm:brightness_%',
+'. От 2 до 8 точек; расстояние строго возрастает, яркость не уменьшается. Q12 преобразуется автоматически.':'. 2 to 8 points; distance must increase strictly and brightness must not decrease. Q12 conversion is automatic.',
+'Сохранить кривую':'Save curve',
+'Нейтральная 100%':'Neutral 100%',
+'Калибровка':'Calibration',
+'Снять данные 60 с':'Capture 60 s',
+'Тест модели 10 с':'Model test 10 s',
+'Калибровка ещё не выполнялась.':'Calibration has not been run yet.',
+'Изменения геометрии и кривой запрещены в режиме «Включена». Во время 60-секундной калибровки также блокируются геометрия и LED-топология, чтобы итог не смешивал разные конфигурации. Калибровка не изменяет физический вывод.':'Geometry and curve edits are blocked in Active mode. During the 60-second calibration, geometry and LED topology are also locked so one result cannot mix configurations. Calibration does not alter physical output.',
+'Сеть':'Network',
+'Открытая сеть, без пароля':'Open network, no password',
+'Сохранить и подключиться':'Save and connect',
+'Забыть сохранённую сеть':'Forget saved network',
+'Пароль никогда не возвращается браузеру. Пустое поле не означает «оставить прежний пароль»: для защищённой сети введите пароль заново; для сети без пароля явно отметьте «Открытая сеть». После смены сети эта страница может потерять соединение.':'The password is never returned to the browser. A blank field does not mean “keep the old password”: re-enter the password for a protected network, or explicitly select “Open network”. This page may disconnect after changing networks.',
+'Сброс конфигурации':'Configuration reset',
+'Заводской сброс':'Factory reset',
+'Сброс доступен только при яркости 0. Будут удалены Wi-Fi и все runtime-настройки Ambilight.':'Reset is available only at brightness 0. Wi-Fi and all Ambilight runtime settings will be deleted.',
+'Низкоуровневые счётчики предназначены для поиска проблем DDP, памяти и web-сервиса. Web UI не имеет отдельной аутентификации: не публикуйте TCP/80 наружу.':'Low-level counters are intended for DDP, memory and web-server diagnostics. The Web UI has no separate authentication: do not expose TCP/80 publicly.',
+'Новый пароль':'New password',
+'Количество LED':'LED count',
+'развернуть':'reverse',
+'нет':'none',
+'Язык интерфейса':'Interface language'
+};
+function tr(ru,en){return locale==='en'?en:ru}
+function translateStatic(root=document.body){
+  if(!root)return;
+  const walker=document.createTreeWalker(root,NodeFilter.SHOW_TEXT);
+  let node;
+  while((node=walker.nextNode())){
+    const parent=node.parentElement;
+    if(!parent||parent.tagName==='SCRIPT'||parent.tagName==='STYLE')continue;
+    if(!staticOriginalText.has(node))staticOriginalText.set(node,node.nodeValue);
+    const original=staticOriginalText.get(node),trimmed=original.trim();
+    if(!trimmed)continue;
+    const translated=locale==='en'?(STATIC_EN[trimmed]||trimmed):trimmed;
+    const lead=original.match(/^\s*/)[0],tail=original.match(/\s*$/)[0];
+    node.nodeValue=lead+translated+tail;
+  }
+  root.querySelectorAll('[title],[placeholder],[aria-label]').forEach(el=>{
+    if(!staticOriginalAttrs.has(el)){
+      staticOriginalAttrs.set(el,{
+        title:el.getAttribute('title'),
+        placeholder:el.getAttribute('placeholder'),
+        aria:el.getAttribute('aria-label')
+      });
+    }
+    const o=staticOriginalAttrs.get(el);
+    [['title',o.title],['placeholder',o.placeholder],['aria-label',o.aria]].forEach(([name,value])=>{
+      if(value===null)return;
+      el.setAttribute(name,locale==='en'?(STATIC_EN[value]||value):value);
+    });
+  });
+}
+function setLocale(value){
+  locale=value==='en'?'en':'ru';
+  document.documentElement.lang=locale;
+  $('localeSelect').value=locale;
+  try{localStorage.setItem('ambilight.locale',locale)}catch(e){}
+  translateStatic();
+  if(lastStatus)render(lastStatus);
+}
+function corrName(index){return [tr('ВЫКЛ.','OFF'),tr('НАБЛЮДЕНИЕ','SHADOW'),tr('ВКЛЮЧЕНА','ACTIVE')][index]||'?'}
+
 const mapNames=['TOP','RIGHT','BOTTOM','LEFT'];
 const pages=['home','led','tof','diag','system'];
 function showPage(name){
