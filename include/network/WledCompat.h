@@ -20,13 +20,9 @@ struct WledStateCommand {
     bool hasBrightness = false;
     std::uint8_t brightness = 0;
 
-    // WLED clients commonly address the single exposed segment before
-    // updating master state. Segment brightness is accepted but intentionally
-    // not applied: the facade advertises one full-length brightness-only
-    // segment whose segment brightness remains 255.
-    bool hasSegmentOn = false;
-    bool segmentOn = false;
-
+    // The single segment is a structural Home Assistant shim. Segment
+    // fields are parsed and validated but intentionally do not own physical
+    // output state; master on/bri remain the sole output controls.
     bool verbose = false;
     bool liveRequested = false;
 };
