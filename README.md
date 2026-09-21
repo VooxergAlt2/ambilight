@@ -4,7 +4,10 @@ Custom ESP32-C6 Ambilight endpoint for HyperHDR.
 
 ## Current development line
 
-Stage 45 adds last-frame hold on top of the Stage 44.1 UI-hardening line. If no new complete DDP frame arrives, firmware no longer synthesizes an idle black frame: the physical LEDs keep the last successfully shown state until a newer complete frame or an explicit control action changes it.
+Stage 46 adds a bounded WLED-compatible control/discovery facade for Home
+Assistant and the HyperHDR Hyperk driver on top of the Stage 45 transport and
+render hardening. Realtime RGB remains native DDP/UDP 4048; the compatibility
+surface controls only power/brightness and exposes device state.
 
 The firmware stack now includes:
 
@@ -18,11 +21,13 @@ The firmware stack now includes:
 - cumulative plane deadband
 - exact per-LED wall-distance correction
 - persistent DISABLED / SHADOW / ACTIVE modes
-- persistent output brightness
+- atomic persistent output power + remembered brightness
 - persistent runtime ToF gain curve
 - persistent runtime spatial profile
 - lightweight HTTP/80 control UI with Home / LED / ToF / Diagnostics / System workflows
 - browser-local Russian / English UI localization
+- WLED-compatible HTTP state/info facade for Home Assistant
+- mDNS _wled._tcp and _hyperk._tcp discovery
 - persisted one-disabled-pixel-per-segment mask
 - runtime LED topology: COUNT/GPIO/REV per TV side
 - logical-side and raw-GPIO range commissioning tests
@@ -102,6 +107,29 @@ Startup:
     NVS -> secrets.h fallback -> disabled
 
 ## Web UI
+
+Stage 46 shares TCP/80 between the native Ambilight UI/API and a small
+WLED-compatible facade.
+
+Home Assistant discovery/control:
+
+    _wled._tcp.local.
+    GET /json
+    POST /json/state
+
+HyperHDR Hyperk discovery/control:
+
+    _hyperk._tcp.local.
+    GET /json
+    PUT /json/state
+    realtime RGB -> DDP UDP/4048
+
+The normal WLED realtime UDP transport is not implemented. Use the HyperHDR
+Hyperk device type (or direct DDP), not the ordinary WLED realtime driver.
+
+See:
+
+    docs/wled-ha-compat.md
 
 The header includes a Русский / English selector. The choice is stored only in
 that browser's `localStorage`, so different clients may use different
@@ -406,10 +434,13 @@ usable at reduced plane-fit weight.
 
 ## Factory recovery
 
-With LEDs disabled:
+With effective physical output disabled:
 
     b0
     freset<Enter>
+
+Stage 46 can also preserve remembered brightness while off through the separate
+power state; factory safety checks the effective driver brightness.
 
 The command clears the complete `ambilight` NVS namespace and restarts only after a successful durable clear.
 
@@ -509,7 +540,7 @@ reports:
 
 Current source identity:
 
-    ambilight-c6 0.45.3-dev Stage 45
+    ambilight-c6 0.46.0-dev Stage 46
     serial protocol 2
 
 Startup uses the same centralized FirmwareInfo constants instead of a handwritten stage banner.
