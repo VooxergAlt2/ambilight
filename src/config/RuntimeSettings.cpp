@@ -121,22 +121,45 @@ bool RuntimeSettings::begin() {
             kOutputBrightnessKey,
             config::kDefaultOutputBrightness);
 
+    const bool outputEnabledStored =
+        preferences_.isKey(
+            kOutputEnabledKey);
+
     const std::uint8_t storedOutputEnabled =
         preferences_.getUChar(
             kOutputEnabledKey,
-            1U);
+            outputBrightness_ != 0
+                ? 1U
+                : 0U);
 
-    if (storedOutputEnabled <= 1U) {
+    if (
+        outputEnabledStored &&
+        storedOutputEnabled <= 1U
+    ) {
+
         outputEnabled_ =
             storedOutputEnabled != 0U;
     } else {
-        ++stats_.invalidStoredValues;
-        outputEnabled_ = true;
+        if (
+            outputEnabledStored &&
+            storedOutputEnabled > 1U
+        ) {
+
+            ++stats_.invalidStoredValues;
+        }
+
+        // Stage <=45 encoded power solely as brightness=0. On first Stage 46
+        // boot migrate that durable meaning into the new independent power
+        // key, rather than silently turning an old "off" state into on=true.
+        outputEnabled_ =
+            outputBrightness_ != 0;
 
         const std::size_t written =
             preferences_.putUChar(
                 kOutputEnabledKey,
-                1U);
+                outputEnabled_
+                    ? 1U
+                    : 0U);
 
         if (written == sizeof(std::uint8_t)) {
             ++stats_.writes;
