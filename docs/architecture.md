@@ -24,8 +24,8 @@ The active firmware now combines:
 - typed pure-C++ runtime payload parsing
 - centralized firmware identity/version diagnostics
 - minimal lwIP HTTP/80 commissioning/control UI
-- WLED-compatible Home Assistant / Hyperk control facade
-- mDNS WLED / Hyperk discovery
+- WLED-compatible Home Assistant control facade
+- mDNS WLED discovery
 - persisted per-segment disabled-pixel mask
 - logical-side and raw-GPIO LED range probes
 - transient normalized 8x8 ToF live-debug mode
@@ -65,8 +65,8 @@ Native browser control:
 
 Compatibility control:
 
-    Home Assistant / HyperHDR Hyperk
-      -> mDNS discovery
+    Home Assistant
+      -> mDNS _wled._tcp discovery
       -> TCP/80
       -> WebUiProtocol
       -> WledCompat parser / serializer / state resolver
@@ -76,12 +76,14 @@ Compatibility control:
 WledCompat owns the compatibility schema. WebUiService only supplies HTTP
 transport/envelopes and snapshot adaptation.
 
-Realtime RGB remains:
+Realtime RGB remains independent:
 
-    HyperHDR Hyperk
+    HyperHDR
       -> DDP UDP/4048
 
-No WLED realtime UDP transport is implemented.
+No WLED realtime UDP or HyperHDR Hyperk control transport is implemented.
+This separation prevents an external WLED-style power-on request from
+overriding the controller's configured global brightness.
 
 The native web layer does not emulate serial bytes and does not duplicate
 domain validation.
