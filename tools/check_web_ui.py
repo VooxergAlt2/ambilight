@@ -42,6 +42,7 @@ REQUIRED_IDS = {
     "pixelMask",
     "wifiOpen",
     "probeStart",
+    "localeSelect",
 }
 
 REQUIRED_TOKENS = {
@@ -58,6 +59,11 @@ REQUIRED_TOKENS = {
     "function spatialNumber(",
     "wifiOpen",
     "frame_held",
+    "function setLocale(",
+    "localStorage.setItem('ambilight.locale'",
+    "function corrName(",
+    "p.push(String(value-1))",
+    "v<0?'':v+1",
 }
 
 FORBIDDEN_TOKENS = {
@@ -68,6 +74,8 @@ FORBIDDEN_TOKENS = {
     "function f1(",
     "post('/api/wifi',$('ssid').value+'|'+p",
     "idle_blanked",
+    "const corrNames=",
+    "Индекс считается от логического начала стороны.",
 }
 
 
