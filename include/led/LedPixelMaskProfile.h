@@ -11,7 +11,7 @@
 namespace ambilight {
 
 struct LedPixelMaskProfile {
-    static constexpr std::uint16_t kSchemaVersion = 1;
+    static constexpr std::uint16_t kSchemaVersion = 2;
     static constexpr std::uint16_t kNone = 0xFFFFU;
 
     std::array<
@@ -90,9 +90,12 @@ struct LedPixelMaskProfile {
         }
     }
 
-    constexpr bool disabled(
+    // Persisted offsets are PHYSICAL strip indices counted from the
+    // controller/data-input end of each lane. Offset 0 therefore always means
+    // the first physical LED on the wire, independent of logical REV/FWD.
+    constexpr bool disabledPhysical(
         SegmentId segment,
-        std::uint16_t segmentOffset) const {
+        std::uint16_t physicalOffset) const {
 
         const std::size_t index =
             static_cast<std::size_t>(
@@ -108,7 +111,47 @@ struct LedPixelMaskProfile {
             disabledOffset[index] !=
                 kNone &&
             disabledOffset[index] ==
-                segmentOffset;
+                physicalOffset;
+    }
+
+    constexpr bool disabledLogical(
+        SegmentId segment,
+        std::uint16_t logicalOffset,
+        const LedMappingProfile& topology) const {
+
+        const std::size_t index =
+            static_cast<std::size_t>(
+                segment);
+
+        if (index >=
+                disabledOffset.size() ||
+            index >=
+                topology.segment.size()) {
+
+            return false;
+        }
+
+        const auto& mapping =
+            topology.segment[index];
+
+        if (logicalOffset >=
+            mapping.logicalLength) {
+
+            return false;
+        }
+
+        const std::uint16_t physicalOffset =
+            mapping.reversed != 0
+                ? static_cast<std::uint16_t>(
+                      mapping.logicalLength -
+                      1U -
+                      logicalOffset)
+                : logicalOffset;
+
+        return
+            disabledPhysical(
+                segment,
+                physicalOffset);
     }
 
     constexpr std::uint16_t forSegment(
