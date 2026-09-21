@@ -399,6 +399,7 @@ void test_wled_info_json_matches_current_ha_contract() {
 
     const char* required[] = {
         "\"ver\":\"0.15.3\"",
+        "\"vid\":\"2609210\"",
         "\"mac\":\"a1b2c3d4e5f6\"",
         "\"ip\":\"192.168.1.55\"",
         "\"live\":true",
