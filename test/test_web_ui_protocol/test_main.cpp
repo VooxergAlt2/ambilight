@@ -38,7 +38,8 @@ void test_get_index_status_and_wled_routes() {
         {"/json/state", WebUiRoute::WledState},
         {"/json/info", WebUiRoute::WledInfo},
         {"/json/eff", WebUiRoute::WledEffects},
-        {"/json/pal", WebUiRoute::WledPalettes}
+        {"/json/pal", WebUiRoute::WledPalettes},
+        {"/presets.json", WebUiRoute::WledPresets}
     };
 
     for (const auto& testCase : cases) {
