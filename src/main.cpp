@@ -4630,7 +4630,7 @@ void handleWebUiAction(
 
         if (ledEngine.brightness() != 0) {
             message =
-                "Factory reset requires brightness 0.";
+                "Factory reset requires effective output brightness 0.";
             break;
         }
 
