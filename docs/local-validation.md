@@ -126,8 +126,9 @@ The Windows PowerShell wrapper was fixed so native stderr does not terminate
 the script before the firmware gate. Both gate exit codes are now collected
 and written to summary.txt.
 
-Stage 38 changes runtime DDP frame sizing, LED topology, ToF perimeter
-sampling, serial protocol, web commissioning and transient ToF debug cadence.
+The latest fully recorded local validation in this document remains historical.
+Stage 46 changes HTTP protocol parsing, WLED/Home Assistant compatibility,
+mDNS discovery, output-state persistence and native compatibility contracts.
 It is not considered validated until a fresh harness run passes both native
 and firmware gates.
 
