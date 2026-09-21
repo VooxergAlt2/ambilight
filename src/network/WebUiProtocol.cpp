@@ -313,8 +313,6 @@ bool wledWriteRoute(
 
     return
         route ==
-            WebUiRoute::WledCombined ||
-        route ==
             WebUiRoute::WledState;
 }
 
@@ -512,7 +510,6 @@ WebUiActionKind WebUiProtocol::actionForRoute(
     WebUiRoute route) {
 
     switch (route) {
-    case WebUiRoute::WledCombined:
     case WebUiRoute::WledState:
         return
             WebUiActionKind::
