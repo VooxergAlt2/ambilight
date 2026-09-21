@@ -149,44 +149,37 @@ void test_all_runtime_action_routes_map_to_expected_kind() {
     }
 }
 
-void test_wled_state_accepts_post_and_put_json_without_custom_header() {
-    const char* methods[] = {
-        "POST",
-        "PUT"
-    };
+void test_wled_state_accepts_ha_json_post_without_custom_header() {
+    WebUiHttpRequest request;
 
-    for (const char* method : methods) {
-        WebUiHttpRequest request;
-        const std::string body =
-            "{\"on\":true,\"bri\":255}";
+    const std::string body =
+        "{\"on\":true,\"bri\":255}";
 
-        const std::string wire =
-            std::string(method) +
-            " /json/state HTTP/1.1\r\n"
-            "Content-Type: application/json; charset=utf-8\r\n"
-            "Content-Length: " +
-            std::to_string(
-                body.size()) +
-            "\r\n\r\n" +
-            body;
+    const std::string wire =
+        "POST /json/state HTTP/1.1\r\n"
+        "Content-Type: application/json; charset=utf-8\r\n"
+        "Content-Length: " +
+        std::to_string(
+            body.size()) +
+        "\r\n\r\n" +
+        body;
 
-        TEST_ASSERT_EQUAL_INT(
-            static_cast<int>(
-                WebUiParseResult::Ok),
-            static_cast<int>(
-                parse(
-                    wire,
-                    request)));
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(
+            WebUiParseResult::Ok),
+        static_cast<int>(
+            parse(
+                wire,
+                request)));
 
-        TEST_ASSERT_EQUAL_INT(
-            static_cast<int>(
-                WebUiActionKind::WledState),
-            static_cast<int>(
-                request.action));
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(
+            WebUiActionKind::WledState),
+        static_cast<int>(
+            request.action));
 
-        TEST_ASSERT_TRUE(
-            request.jsonContentTypePresent);
-    }
+    TEST_ASSERT_TRUE(
+        request.jsonContentTypePresent);
 }
 
 void test_wled_combined_endpoint_is_read_only() {
@@ -214,7 +207,7 @@ void test_wled_combined_endpoint_is_read_only() {
                 request)));
 }
 
-void test_wled_write_content_type_rules_cover_ha_and_hyperhdr() {
+void test_wled_write_content_type_rules_cover_ha() {
     WebUiHttpRequest request;
 
     // Browser/HA-style POST must carry JSON content type.
@@ -237,28 +230,14 @@ void test_wled_write_content_type_rules_cover_ha_and_hyperhdr() {
                 "Content-Length: 2\r\n\r\n{}",
                 request)));
 
-    // HyperHDR's current Qt REST client performs PUT without explicitly
-    // supplying Content-Type. PUT itself is non-simple CORS, so this remains
-    // safe from an ordinary cross-origin HTML form.
     TEST_ASSERT_EQUAL_INT(
         static_cast<int>(
-            WebUiParseResult::Ok),
+            WebUiParseResult::
+                MethodNotAllowed),
         static_cast<int>(
             parse(
                 "PUT /json/state HTTP/1.1\r\n"
-                "Content-Length: 2\r\n\r\n{}",
-                request)));
-
-    // Qt is free to attach a generic MIME type to QByteArray PUT
-    // payloads. PUT is already a non-simple CORS request, so MIME is not part
-    // of the browser security boundary.
-    TEST_ASSERT_EQUAL_INT(
-        static_cast<int>(
-            WebUiParseResult::Ok),
-        static_cast<int>(
-            parse(
-                "PUT /json/state HTTP/1.1\r\n"
-                "Content-Type: text/plain\r\n"
+                "Content-Type: application/json\r\n"
                 "Content-Length: 2\r\n\r\n{}",
                 request)));
 }
@@ -533,11 +512,11 @@ int main(int, char**) {
     RUN_TEST(
         test_all_runtime_action_routes_map_to_expected_kind);
     RUN_TEST(
-        test_wled_state_accepts_post_and_put_json_without_custom_header);
+        test_wled_state_accepts_ha_json_post_without_custom_header);
     RUN_TEST(
         test_wled_combined_endpoint_is_read_only);
     RUN_TEST(
-        test_wled_write_content_type_rules_cover_ha_and_hyperhdr);
+        test_wled_write_content_type_rules_cover_ha);
     RUN_TEST(
         test_runtime_payload_limit_remains_127_bytes);
     RUN_TEST(
