@@ -48,6 +48,8 @@ bool RuntimeSettings::begin() {
     outputBrightness_ =
         config::kDefaultOutputBrightness;
 
+    outputEnabled_ = true;
+
     wifiSsid_.fill('\0');
     wifiPassword_.fill('\0');
 
@@ -118,6 +120,30 @@ bool RuntimeSettings::begin() {
         preferences_.getUChar(
             kOutputBrightnessKey,
             config::kDefaultOutputBrightness);
+
+    const std::uint8_t storedOutputEnabled =
+        preferences_.getUChar(
+            kOutputEnabledKey,
+            1U);
+
+    if (storedOutputEnabled <= 1U) {
+        outputEnabled_ =
+            storedOutputEnabled != 0U;
+    } else {
+        ++stats_.invalidStoredValues;
+        outputEnabled_ = true;
+
+        const std::size_t written =
+            preferences_.putUChar(
+                kOutputEnabledKey,
+                1U);
+
+        if (written == sizeof(std::uint8_t)) {
+            ++stats_.writes;
+        } else {
+            ++stats_.writeFailures;
+        }
+    }
 
     const String storedSsid =
         preferences_.getString(
@@ -444,6 +470,35 @@ bool RuntimeSettings::setOutputBrightness(
         preferences_.putUChar(
             kOutputBrightnessKey,
             brightness);
+
+    if (written != sizeof(std::uint8_t)) {
+        ++stats_.writeFailures;
+        return false;
+    }
+
+    ++stats_.writes;
+    return true;
+}
+
+
+bool RuntimeSettings::setOutputEnabled(
+    bool enabled) {
+
+    if (outputEnabled_ == enabled) {
+        return persistenceAvailable_;
+    }
+
+    outputEnabled_ = enabled;
+
+    if (!persistenceAvailable_) {
+        ++stats_.writeFailures;
+        return false;
+    }
+
+    const std::size_t written =
+        preferences_.putUChar(
+            kOutputEnabledKey,
+            enabled ? 1U : 0U);
 
     if (written != sizeof(std::uint8_t)) {
         ++stats_.writeFailures;
@@ -1050,6 +1105,8 @@ bool RuntimeSettings::factoryReset() {
 
     outputBrightness_ =
         config::kDefaultOutputBrightness;
+
+    outputEnabled_ = true;
 
     wifiSsid_.fill('\0');
     wifiPassword_.fill('\0');
