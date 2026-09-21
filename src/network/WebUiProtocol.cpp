@@ -303,7 +303,9 @@ bool wledReadRoute(
         route ==
             WebUiRoute::WledEffects ||
         route ==
-            WebUiRoute::WledPalettes;
+            WebUiRoute::WledPalettes ||
+        route ==
+            WebUiRoute::WledPresets;
 }
 
 bool wledWriteRoute(
@@ -387,6 +389,16 @@ WebUiRoute WebUiProtocol::routeForPath(
         return
             WebUiRoute::
                 WledPalettes;
+    }
+
+    if (spanEquals(
+            path,
+            length,
+            "/presets.json")) {
+
+        return
+            WebUiRoute::
+                WledPresets;
     }
 
     if (spanEquals(
