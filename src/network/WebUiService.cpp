@@ -1463,6 +1463,101 @@ bool WebUiService::buildQueuedResponse(
     return true;
 }
 
+bool WebUiService::buildWledResponse(
+    WebUiRoute route,
+    const WebUiSnapshot& snapshot,
+    const WledStateCommand* overlay) {
+
+    BufferWriter writer(
+        dynamicResponse_.data(),
+        dynamicResponse_.size());
+
+    writer.append(
+        "HTTP/1.1 200 OK\r\n"
+        "Content-Type: application/json\r\n"
+        "Cache-Control: no-store\r\n"
+        "X-Content-Type-Options: nosniff\r\n"
+        "Connection: close\r\n\r\n");
+
+    if (overlay != nullptr) {
+        if (!appendWledState(
+                writer,
+                snapshot,
+                overlay)) {
+
+            return false;
+        }
+    } else {
+        switch (route) {
+        case WebUiRoute::WledCombined:
+            writer.append(
+                "{\"state\":");
+
+            appendWledState(
+                writer,
+                snapshot,
+                nullptr);
+
+            writer.append(
+                ",\"info\":");
+
+            appendWledInfo(
+                writer,
+                snapshot);
+
+            writer.append(
+                ",\"effects\":");
+
+            appendWledEffects(
+                writer);
+
+            writer.append(
+                ",\"palettes\":");
+
+            appendWledPalettes(
+                writer);
+
+            writer.append("}");
+            break;
+
+        case WebUiRoute::WledState:
+            appendWledState(
+                writer,
+                snapshot,
+                nullptr);
+            break;
+
+        case WebUiRoute::WledInfo:
+            appendWledInfo(
+                writer,
+                snapshot);
+            break;
+
+        case WebUiRoute::WledEffects:
+            appendWledEffects(
+                writer);
+            break;
+
+        case WebUiRoute::WledPalettes:
+            appendWledPalettes(
+                writer);
+            break;
+
+        default:
+            return false;
+        }
+    }
+
+    if (!writer.ok()) {
+        return false;
+    }
+
+    selectDynamicResponse(
+        writer.length());
+
+    return true;
+}
+
 bool WebUiService::buildStatusResponse(
     const WebUiSnapshot& snapshot) {
 
