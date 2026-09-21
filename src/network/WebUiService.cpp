@@ -85,6 +85,11 @@ button{cursor:pointer}button.primary{background:var(--primary);color:#fff;border
 <div class="panel">
 <h2>Подсветка и коррекция</h2>
 <div class="section">
+<div class="muted">Питание подсветки</div>
+<div class="row segmented">
+<button id="power0" onclick="post('/api/power','0')">Выкл.</button>
+<button id="power1" onclick="post('/api/power','1')">Вкл.</button>
+</div>
 <div class="muted">Коррекция по расстоянию</div>
 <div class="row segmented">
 <button id="corr0" onclick="post('/api/correction','0')">Выкл.</button>
@@ -296,6 +301,8 @@ const STATIC_EN={
 'Диагностика':'Diagnostics',
 'Система':'System',
 'Подсветка и коррекция':'Lighting and correction',
+'Питание подсветки':'Lighting power',
+'Вкл.':'On',
 'Коррекция по расстоянию':'Distance correction',
 'Выкл.':'Off',
 'Наблюдение':'Shadow',
@@ -422,6 +429,10 @@ function setLocale(value){
 }
 function corrName(index){return [tr('ВЫКЛ.','OFF'),tr('НАБЛЮДЕНИЕ','SHADOW'),tr('ВКЛЮЧЕНА','ACTIVE')][index]||'?'}
 const ACTION_RU={
+'WLED state applied.':'WLED-состояние применено.',
+'Invalid WLED state payload.':'Некорректный WLED state payload.',
+'Output power applied.':'Питание подсветки применено.',
+'Invalid output power.':'Некорректное значение питания подсветки.',
 'Brightness applied.':'Яркость применена.',
 'Invalid brightness. Use 0..255.':'Некорректная яркость. Допустимо 0..255.',
 'Correction mode applied.':'Режим коррекции применён.',
