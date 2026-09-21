@@ -89,10 +89,10 @@ ToF spatial profile:
 
 LED mapping:
 
-    TOP    lane0 FWD
-    RIGHT  lane1 FWD
-    BOTTOM lane2 FWD
-    LEFT   lane3 FWD
+    TOP     230 -> GPIO20 REV
+    RIGHT   160 -> GPIO19 REV
+    BOTTOM  230 -> GPIO21 REV
+    LEFT    160 -> GPIO18 FWD
 
 ## What is not erased
 
