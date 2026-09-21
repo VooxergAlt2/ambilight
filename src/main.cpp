@@ -36,7 +36,7 @@
 #include "network/DdpUdpService.h"
 #include "network/WebUiService.h"
 #include "network/WifiService.h"
-#include "network/WledDiscoveryService.h"
+#include "network/CompatibilityDiscoveryService.h"
 #include "tof/TofCalibrationCapture.h"
 #include "tof/TofDebugGrid.h"
 #include "tof/TofService.h"
@@ -73,7 +73,7 @@ ambilight::RenderDiagnostics renderDiagnostics;
 ambilight::RenderScheduler renderScheduler;
 ambilight::RuntimeSettings runtimeSettings;
 ambilight::WebUiService webUi;
-ambilight::WledDiscoveryService wledDiscovery;
+ambilight::CompatibilityDiscoveryService compatibilityDiscovery;
 
 ambilight::CorrectionMode correctionMode =
     ambilight::CorrectionMode::Shadow;
@@ -317,7 +317,7 @@ bool applyWifiCredentials(
 
     // mDNS is interface-bound. Tear it down before a station reconfigure so
     // the old address is never advertised during reconnect.
-    wledDiscovery.stop();
+    compatibilityDiscovery.stop();
 
     bool persisted = false;
 
@@ -359,7 +359,7 @@ bool applyWifiCredentials(
 }
 
 bool clearRuntimeWifiCredentials() {
-    wledDiscovery.stop();
+    compatibilityDiscovery.stop();
 
     const bool cleared =
         runtimeSettings.clearWifiCredentials();
@@ -5609,7 +5609,7 @@ void loop() {
     wifi.tick(
         networkNowMs);
 
-    wledDiscovery.tick(
+    compatibilityDiscovery.tick(
         wifi.connected() &&
             webUi.running(),
         networkNowMs);
