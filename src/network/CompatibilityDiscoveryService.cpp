@@ -198,25 +198,11 @@ bool CompatibilityDiscoveryService::start() {
             mac);
     }
 
-    // Hyperk discovery is useful to HyperHDR tooling, but WLED/HA discovery
-    // is the compatibility contract. Do not tear down a working _wled service
-    // merely because this optional alias cannot be registered.
-    const bool hyperkAdded =
-        MDNS.addService(
-            "hyperk",
-            "tcp",
-            80);
-
-    if (!hyperkAdded) {
-        Serial.println(
-            "Compatibility discovery warning: optional _hyperk._tcp service could not be registered.");
-    }
-
     running_ = true;
     ++stats_.starts;
 
     Serial.printf(
-        "Compatibility discovery started: hostname=%s services=_http._tcp,_wled._tcp,_hyperk._tcp port=80.\n",
+        "Compatibility discovery started: hostname=%s services=_http._tcp,_wled._tcp port=80.\n",
         hostname_.data());
 
     return true;
