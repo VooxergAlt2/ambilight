@@ -27,7 +27,7 @@ The page remains one embedded HTML/CSS/JS document with no external assets. Stag
 
 No route or socket architecture changes are required for navigation.
 
-The header contains a Русский / English selector. The selected locale is stored only in browser localStorage under `ambilight.locale`; it is not written to controller NVS. On the first visit, Russian browser locales default to RU and other locales default to EN. Different clients may therefore use different languages at the same time.
+The header contains a Русский / English selector. The selected locale is stored only in browser localStorage under `ambilight.locale`; it is not written to controller NVS. Russian remains the first-visit default for backward compatibility; once the operator selects English, that browser remembers the choice. Different clients may therefore use different languages at the same time.
 
 This keeps the web layer small and prevents it from competing with realtime
 DDP processing.
