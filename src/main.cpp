@@ -1680,22 +1680,129 @@ void printOutputBrightness() {
             : "no");
 }
 
-void setOutputBrightness(
-    std::uint8_t brightness) {
+std::uint8_t effectiveOutputBrightness() {
+    return
+        runtimeSettings.outputEnabled()
+            ? runtimeSettings.outputBrightness()
+            : 0U;
+}
 
-    const bool persisted =
+void applyEffectiveOutputBrightness() {
+    ledEngine.setBrightness(
+        effectiveOutputBrightness());
+
+    brightnessDirty = true;
+}
+
+void applyOutputState(
+    bool enabled,
+    std::uint8_t brightness,
+    const char* source) {
+
+    const bool brightnessPersisted =
         runtimeSettings.setOutputBrightness(
             brightness);
 
-    ledEngine.setBrightness(
-        brightness);
+    const bool powerPersisted =
+        runtimeSettings.setOutputEnabled(
+            enabled);
 
-    brightnessDirty = true;
+    applyEffectiveOutputBrightness();
 
     Serial.printf(
-        "OUTPUT brightness changed to %u/255; persisted=%s.\n",
-        static_cast<unsigned>(brightness),
-        persisted ? "yes" : "no");
+        "OUTPUT source=%s enabled=%s configured=%u/255 effective=%u/255 persisted_bri=%s persisted_on=%s.\n",
+        source != nullptr
+            ? source
+            : "unknown",
+        runtimeSettings.outputEnabled()
+            ? "yes"
+            : "no",
+        static_cast<unsigned>(
+            runtimeSettings.outputBrightness()),
+        static_cast<unsigned>(
+            ledEngine.brightness()),
+        brightnessPersisted
+            ? "yes"
+            : "no",
+        powerPersisted
+            ? "yes"
+            : "no");
+}
+
+void setOutputEnabled(
+    bool enabled) {
+
+    std::uint8_t brightness =
+        runtimeSettings.outputBrightness();
+
+    if (enabled &&
+        brightness == 0) {
+
+        brightness =
+            ambilight::config::
+                kDefaultOutputBrightness;
+
+        if (brightness == 0) {
+            brightness = 1;
+        }
+    }
+
+    applyOutputState(
+        enabled,
+        brightness,
+        "power");
+}
+
+void setOutputBrightness(
+    std::uint8_t brightness) {
+
+    // Preserve the historical b0/b1..255 and web-slider behaviour:
+    // zero means off, any non-zero brightness also turns the output on.
+    applyOutputState(
+        brightness != 0,
+        brightness,
+        "brightness");
+}
+
+bool applyWledOutputCommand(
+    const char* payload) {
+
+    if (payload == nullptr) {
+        return false;
+    }
+
+    ambilight::WledStateCommand command;
+
+    const auto parsed =
+        ambilight::WledCompat::
+            parseStateCommand(
+                payload,
+                std::strlen(payload),
+                command);
+
+    if (parsed !=
+        ambilight::
+            WledStateParseResult::
+                Ok) {
+
+        return false;
+    }
+
+    const auto resolved =
+        ambilight::WledCompat::
+            resolveOutputState(
+                runtimeSettings.outputEnabled(),
+                runtimeSettings.outputBrightness(),
+                ambilight::config::
+                    kDefaultOutputBrightness,
+                command);
+
+    applyOutputState(
+        resolved.enabled,
+        resolved.brightness,
+        "wled");
+
+    return true;
 }
 
 void setCorrectionMode(
