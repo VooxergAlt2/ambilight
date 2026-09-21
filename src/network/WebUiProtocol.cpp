@@ -48,6 +48,22 @@ char asciiLower(char value) {
     return value;
 }
 
+std::size_t literalLength(
+    const char* literal) {
+
+    if (literal == nullptr) {
+        return 0;
+    }
+
+    std::size_t length = 0;
+
+    while (literal[length] != '\0') {
+        ++length;
+    }
+
+    return length;
+}
+
 bool spanEqualsIgnoreCase(
     const char* data,
     std::size_t length,
@@ -58,12 +74,11 @@ bool spanEqualsIgnoreCase(
         return false;
     }
 
-    std::size_t literalLength = 0;
-    while (literal[literalLength] != '\0') {
-        ++literalLength;
-    }
+    const std::size_t expected =
+        literalLength(
+            literal);
 
-    if (length != literalLength) {
+    if (length != expected) {
         return false;
     }
 
@@ -79,6 +94,77 @@ bool spanEqualsIgnoreCase(
     }
 
     return true;
+}
+
+bool spanStartsIgnoreCase(
+    const char* data,
+    std::size_t length,
+    const char* literal) {
+
+    if (data == nullptr ||
+        literal == nullptr) {
+        return false;
+    }
+
+    const std::size_t expected =
+        literalLength(
+            literal);
+
+    if (length < expected) {
+        return false;
+    }
+
+    for (std::size_t index = 0;
+         index < expected;
+         ++index) {
+
+        if (asciiLower(data[index]) !=
+            asciiLower(literal[index])) {
+
+            return false;
+        }
+    }
+
+    return true;
+}
+
+bool jsonContentType(
+    const char* data,
+    std::size_t length) {
+
+    static constexpr char kJson[] =
+        "application/json";
+
+    const std::size_t jsonLength =
+        sizeof(kJson) - 1;
+
+    if (!spanStartsIgnoreCase(
+            data,
+            length,
+            kJson)) {
+
+        return false;
+    }
+
+    if (length == jsonLength) {
+        return true;
+    }
+
+    std::size_t index = jsonLength;
+
+    while (
+        index < length &&
+        (
+            data[index] == ' ' ||
+            data[index] == '\t'
+        )) {
+
+        ++index;
+    }
+
+    return
+        index < length &&
+        data[index] == ';';
 }
 
 std::size_t findSequence(
@@ -127,17 +213,23 @@ void trimSpan(
     const char*& data,
     std::size_t& length) {
 
-    while (length > 0 &&
-           (*data == ' ' ||
-            *data == '\t')) {
+    while (
+        length > 0 &&
+        (
+            *data == ' ' ||
+            *data == '\t'
+        )) {
 
         ++data;
         --length;
     }
 
-    while (length > 0 &&
-           (data[length - 1] == ' ' ||
-            data[length - 1] == '\t')) {
+    while (
+        length > 0 &&
+        (
+            data[length - 1] == ' ' ||
+            data[length - 1] == '\t'
+        )) {
 
         --length;
     }
@@ -198,6 +290,32 @@ bool parseSize(
     return true;
 }
 
+bool wledReadRoute(
+    WebUiRoute route) {
+
+    return
+        route ==
+            WebUiRoute::WledCombined ||
+        route ==
+            WebUiRoute::WledState ||
+        route ==
+            WebUiRoute::WledInfo ||
+        route ==
+            WebUiRoute::WledEffects ||
+        route ==
+            WebUiRoute::WledPalettes;
+}
+
+bool wledWriteRoute(
+    WebUiRoute route) {
+
+    return
+        route ==
+            WebUiRoute::WledCombined ||
+        route ==
+            WebUiRoute::WledState;
+}
+
 } // namespace
 
 WebUiRoute WebUiProtocol::routeForPath(
@@ -219,6 +337,64 @@ WebUiRoute WebUiProtocol::routeForPath(
             "/api/status")) {
 
         return WebUiRoute::Status;
+    }
+
+    if (spanEquals(
+            path,
+            length,
+            "/json")) {
+
+        return
+            WebUiRoute::
+                WledCombined;
+    }
+
+    if (spanEquals(
+            path,
+            length,
+            "/json/state")) {
+
+        return
+            WebUiRoute::
+                WledState;
+    }
+
+    if (spanEquals(
+            path,
+            length,
+            "/json/info")) {
+
+        return
+            WebUiRoute::
+                WledInfo;
+    }
+
+    if (spanEquals(
+            path,
+            length,
+            "/json/eff")) {
+
+        return
+            WebUiRoute::
+                WledEffects;
+    }
+
+    if (spanEquals(
+            path,
+            length,
+            "/json/pal")) {
+
+        return
+            WebUiRoute::
+                WledPalettes;
+    }
+
+    if (spanEquals(
+            path,
+            length,
+            "/api/power")) {
+
+        return WebUiRoute::Power;
     }
 
     if (spanEquals(
@@ -324,6 +500,13 @@ WebUiActionKind WebUiProtocol::actionForRoute(
     WebUiRoute route) {
 
     switch (route) {
+    case WebUiRoute::WledCombined:
+    case WebUiRoute::WledState:
+        return
+            WebUiActionKind::
+                WledState;
+    case WebUiRoute::Power:
+        return WebUiActionKind::Power;
     case WebUiRoute::Brightness:
         return WebUiActionKind::Brightness;
     case WebUiRoute::Correction:
@@ -428,21 +611,30 @@ WebUiParseResult WebUiProtocol::parse(
         return WebUiParseResult::BadRequest;
     }
 
-    const bool isGet =
+    if (spanEquals(
+            data,
+            firstSpace,
+            "GET")) {
+
+        request.method =
+            WebUiHttpMethod::Get;
+    } else if (
         spanEquals(
             data,
             firstSpace,
-            "GET");
+            "POST")) {
 
-    const bool isPost =
+        request.method =
+            WebUiHttpMethod::Post;
+    } else if (
         spanEquals(
             data,
             firstSpace,
-            "POST");
+            "PUT")) {
 
-    if (!isGet &&
-        !isPost) {
-
+        request.method =
+            WebUiHttpMethod::Put;
+    } else {
         return
             WebUiParseResult::
                 MethodNotAllowed;
@@ -483,25 +675,56 @@ WebUiParseResult WebUiProtocol::parse(
                 UnknownRoute;
     }
 
-    request.post = isPost;
+    const bool isGet =
+        request.method ==
+            WebUiHttpMethod::Get;
 
-    const WebUiActionKind action =
-        actionForRoute(
-            request.route);
+    const bool isPost =
+        request.method ==
+            WebUiHttpMethod::Post;
+
+    const bool isPut =
+        request.method ==
+            WebUiHttpMethod::Put;
+
+    const bool isWledWrite =
+        wledWriteRoute(
+            request.route) &&
+        (isPost || isPut);
 
     if (isGet) {
-        if (request.route !=
+        if (
+            request.route !=
                 WebUiRoute::Index &&
             request.route !=
-                WebUiRoute::Status) {
+                WebUiRoute::Status &&
+            !wledReadRoute(
+                request.route)
+        ) {
 
             return
                 WebUiParseResult::
                     MethodNotAllowed;
         }
+    } else if (isWledWrite) {
+        request.action =
+            WebUiActionKind::
+                WledState;
     } else {
+        if (!isPost) {
+            return
+                WebUiParseResult::
+                    MethodNotAllowed;
+        }
+
+        const WebUiActionKind action =
+            actionForRoute(
+                request.route);
+
         if (action ==
-            WebUiActionKind::None) {
+            WebUiActionKind::None ||
+            wledReadRoute(
+                request.route)) {
 
             return
                 WebUiParseResult::
@@ -514,6 +737,8 @@ WebUiParseResult WebUiProtocol::parse(
     bool contentLengthSeen = false;
     std::size_t contentLength = 0;
     bool transferEncodingSeen = false;
+    bool contentTypeSeen = false;
+    bool contentTypeWasJson = false;
 
     std::size_t lineStart =
         requestLineEnd + 2;
@@ -603,6 +828,32 @@ WebUiParseResult WebUiProtocol::parse(
             spanEqualsIgnoreCase(
                 name,
                 nameLength,
+                "Content-Type")) {
+
+            const bool isJson =
+                jsonContentType(
+                    value,
+                    valueLength);
+
+            if (contentTypeSeen &&
+                contentTypeWasJson !=
+                    isJson) {
+
+                return
+                    WebUiParseResult::
+                        BadRequest;
+            }
+
+            contentTypeSeen = true;
+            contentTypeWasJson =
+                isJson;
+
+            request.jsonContentTypePresent =
+                isJson;
+        } else if (
+            spanEqualsIgnoreCase(
+                name,
+                nameLength,
                 "X-Ambilight-Control")) {
 
             request.controlHeaderPresent =
@@ -630,16 +881,39 @@ WebUiParseResult WebUiProtocol::parse(
                 BadRequest;
     }
 
+    const std::size_t bodyLimit =
+        isWledWrite
+            ? kMaxWledBodyBytes
+            : kMaxRuntimeBodyBytes;
+
     if (contentLength >
-        kMaxBodyBytes) {
+        bodyLimit) {
 
         return
             WebUiParseResult::
                 PayloadTooLarge;
     }
 
-    if (isPost) {
-        if (!request.controlHeaderPresent) {
+    if (isWledWrite) {
+        if (!contentLengthSeen ||
+            contentLength == 0) {
+
+            return
+                WebUiParseResult::
+                    BadRequest;
+        }
+
+        if (!request
+                .jsonContentTypePresent) {
+
+            return
+                WebUiParseResult::
+                    Forbidden;
+        }
+    } else if (!isGet) {
+        if (!request
+                .controlHeaderPresent) {
+
             return
                 WebUiParseResult::
                     Forbidden;
@@ -671,11 +945,13 @@ WebUiParseResult WebUiProtocol::parse(
             length -
                 request.bodyOffset) {
 
-        return WebUiParseResult::Incomplete;
+        return
+            WebUiParseResult::
+                Incomplete;
     }
 
-    // Keep web payload semantics aligned with the existing serial framing:
-    // runtime commands are printable ASCII text, never binary.
+    // Runtime payloads and the supported WLED compatibility subset are ASCII.
+    // JSON clients can still carry Unicode through standard \uXXXX escapes.
     for (std::size_t index = 0;
          index < contentLength;
          ++index) {
