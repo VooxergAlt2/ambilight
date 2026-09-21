@@ -3,8 +3,7 @@
 ## Purpose
 
 Stage 46 keeps the bounded LAN-only Stage 45 web surface and adds a small
-WLED-compatible control/discovery facade for Home Assistant and the HyperHDR
-Hyperk driver.
+WLED-compatible control/discovery facade for Home Assistant.
 
 It still intentionally does not add:
 
@@ -104,11 +103,11 @@ Native runtime actions:
 WLED-compatible state writes:
 
     POST /json/state
-    PUT  /json/state
 
-The WLED endpoints accept JSON and intentionally do not require the browser-only
-X-Ambilight-Control header. Their parser/serializer is isolated in WledCompat,
-while WebUiService remains the TCP/HTTP transport.
+The WLED endpoint accepts application/json and intentionally does not require
+the browser-only X-Ambilight-Control header. PUT is deliberately unsupported.
+The parser/serializer is isolated in WledCompat, while WebUiService remains
+the TCP/HTTP transport.
 
 Native POST bodies use the same compact text payloads as existing runtime
 commands.
@@ -173,7 +172,7 @@ LED topology:
 
 Factory reset:
 
-    brightness = 0
+    effective output brightness = 0
 
 Commissioning patterns:
 
@@ -415,8 +414,8 @@ Native /api state-changing requests require:
     X-Ambilight-Control: 1
 
 WLED-compatible /json/state writes are a separate LAN integration contract and
-accept application/json from Home Assistant and HyperHDR without that custom
-browser header.
+accept application/json from Home Assistant without that custom browser
+header.
 
 The firmware sends no CORS permission and does not implement OPTIONS.
 
@@ -457,7 +456,7 @@ Native contracts cover:
 
 - GET index/status
 - WLED GET routes including /presets.json
-- WLED POST/PUT state writes and JSON content-type rules
+- WLED POST state writes, PUT rejection and JSON content-type rules
 - every native POST action route
 - required control header
 - incomplete request/body
