@@ -1,80 +1,149 @@
-# Runtime output brightness
+# Runtime output state
 
 ## Purpose
 
-Global output brightness is a separate final multiplier from ToF correction.
+Stage 46 separates the remembered output brightness from the output power
+state.
 
-ToF answers:
+ToF correction answers:
 
-    how much should this LED be attenuated because of wall distance?
+    how much should each LED be attenuated because of wall distance?
 
 Output brightness answers:
 
-    what overall maximum brightness should the whole installation use?
+    what global brightness ceiling should be used when output is enabled?
 
-These controls are intentionally independent.
+Output power answers:
 
-## Storage
+    should the physical LED output currently be enabled at all?
+
+The three controls remain independent.
+
+## Persistent representation
 
 NVS namespace:
 
     ambilight
 
-Key:
+Stage 46 stores power and brightness together in one versioned binary record:
 
-    brightness
+    output_state
 
-Range:
+Record schema:
 
-    0..255
+    schemaVersion = 1
+    brightness    = 0..255
+    enabled       = 0 | 1
+
+The record is written in one Preferences::putBytes() operation. Power and
+brightness are therefore never persisted as two independently committed
+settings.
+
+Migration supports both older representations:
+
+    Stage <=45:
+        brightness
+
+    early Stage 46:
+        brightness
+        output_on
+
+Legacy keys are removed only after the new output_state record has been
+successfully written. A failed migration can therefore be retried on the next
+boot.
 
 Default on first boot:
 
-    32
+    enabled    true
+    brightness 32/255
 
-The conservative default remains intentionally low until the real LED strip, power supply and thermal behavior are validated.
+## Runtime semantics
 
-## Serial command
+The physical LiteLED brightness is:
 
-Set an exact value:
+    effectiveBrightness =
+        enabled ? configuredBrightness : 0
 
-    b128<Enter>
+Turning output off does not erase the remembered brightness.
 
-Range:
+Example:
 
-    b0
-    ...
-    b255
+    enabled=true,  brightness=120 -> physical 120
+    enabled=false, brightness=120 -> physical 0
+    enabled=true,  brightness=120 -> physical 120
 
-Print current value:
+This matches WLED/Home Assistant on/off semantics.
 
-    b<Enter>
+## Historical brightness command
 
-Bare numeric traffic does not alter brightness.
+The serial brightness command remains backward compatible:
 
-## Runtime behavior
+    b0      -> output off, configured brightness becomes 0
+    b1..255 -> output on and set configured brightness
+    b       -> print current output state
 
-Changing brightness:
+The Web UI brightness slider follows the same legacy behavior.
 
-1. stores the new value in NVS when available
-2. updates LiteLED group brightness
-3. marks output dirty
-4. rerenders the cached RGB frame once
+The separate Web UI power control can switch output off while preserving the
+configured brightness.
 
-No PARLIO reinitialization is required.
+## WLED / Home Assistant behavior
 
-## Relationship with correction mode
+The Stage 46 WLED compatibility facade exposes:
 
-Brightness applies in all correction modes:
+    state.on
+    state.bri
+
+Home Assistant may therefore switch the light off without destroying the last
+non-zero brightness.
+
+A WLED command:
+
+    {"on":false}
+
+turns output off and preserves brightness.
+
+A later:
+
+    {"on":true}
+
+restores that brightness. If the remembered value is zero, firmware restores
+the conservative firmware default instead of turning on at an invisible zero
+level.
+
+An explicit:
+
+    {"bri":0}
+
+is treated as an off request.
+
+## Render behavior
+
+Any effective output change marks render state dirty and re-renders the cached
+RGB frame. No PARLIO reinitialization is required.
+
+Brightness remains a final global multiplier in all correction modes:
 
     DISABLED
     SHADOW
     ACTIVE
 
-ACTIVE ToF gain and global brightness therefore compose as two independent attenuation layers.
+ACTIVE ToF gain and global brightness therefore remain independent attenuation
+layers.
+
+## Failure behavior
+
+If NVS is unavailable or the output_state write fails, the requested runtime
+state still takes effect and the operation reports persistence failure.
+
+Because the durable state is one record, a reboot can only recover the last
+complete persisted output state. It cannot recover a new brightness paired
+with an old power flag, or the reverse.
 
 ## Safety
 
-Brightness 0 is valid and produces a global blackout while retaining normal firmware/network state.
+The default 32/255 remains intentionally conservative until the actual strip,
+power supply and thermal behavior are validated.
 
-The default 32/255 is not a final recommended operating value. It is a safe first-boot ceiling until the installation power budget is known.
+Factory recovery checks the effective physical brightness, not merely the
+remembered configured brightness.
