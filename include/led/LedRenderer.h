@@ -40,13 +40,15 @@ public:
 
     // Uncorrected physical output. Used by DISABLED, SHADOW and commissioning.
     esp_err_t render(
-        const RgbFrame& frame);
+        const RgbFrame& frame,
+        bool observeForensics = true);
 
     // ACTIVE-only physical output. Gain is applied directly without running
     // shadow diagnostics or candidate-delta bookkeeping.
     esp_err_t renderActive(
         const RgbFrame& frame,
-        const RenderGainContext& gainContext);
+        const RenderGainContext& gainContext,
+        bool observeForensics = true);
 
     std::uint32_t renderedFrames() const {
         return renderedFrames_;
@@ -58,6 +60,10 @@ public:
 
     const BlackFrameForensics& blackFrameForensics() const {
         return blackFrameForensics_;
+    }
+
+    void breakBlackFrameForensicsSequence() {
+        blackFrameForensics_.breakSequence();
     }
 
     const PerformanceMetric& prepareMetric() const {

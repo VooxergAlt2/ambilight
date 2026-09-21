@@ -2,7 +2,21 @@
 
 ## Current stage
 
-Stage 39 is the pre-flash hardening line. Stage 38 remains the feature baseline; Stage 39 hardens topology transitions, physical PARLIO buffer cleanup, reset durability and the 16 MiB deployment layout before hardware commissioning.
+Stage 46.1 is the Home Assistant RGB/effects and physical pixel-mask hardening
+line on top of the flashed Stage 46 baseline.
+
+The two changes are intentionally orthogonal:
+
+- disabled-pixel masking is enforced as a physical lane invariant immediately
+  before every PARLIO encode;
+- Home Assistant may temporarily own visible RGB/effects, while HyperHDR DDP
+  continues receiving in the background and regains output through the
+  `Ambilight` effect.
+
+The flashed Stage 46 P0 ToF/topology fix may exist only in the deployment
+worktree until it is pushed. Stage 46.1 is therefore maintained as a
+cherry-pickable patch branch and must not be treated as a replacement for that
+unpublished hardware fix.
 
 The active firmware now combines:
 
@@ -340,18 +354,24 @@ It is a final multiplier independent from ToF gain.
 
 ## Disabled pixel mask
 
-LedPixelMaskProfile stores one optional segment-relative offset for each
-logical segment.
+LedPixelMaskProfile stores one optional **physical strip offset** for each TV
+side. The value is counted from that strip's DATA input and is independent of
+FWD/REV logical screen direction.
 
-The sentinel value means no disabled pixel.
+LedRenderer projects those side values through the current LedMappingProfile
+into a LedPhysicalPixelMask keyed by PARLIO lane.
 
-The mask is evaluated by LedRenderer after correction output is selected and
-after SegmentMapper has resolved the physical lane/index. The decision uses
-the logical segmentOffset, so runtime lane changes or FWD/REV mapping do not
-change which screen-space LED is disabled.
+Enforcement happens in LedEngine::show(), after any producer has written lane
+buffers but immediately before physical encoding. The masked address is
+therefore black for every output producer:
 
-A masked pixel is written as black in every correction mode and in
-commissioning patterns.
+- normal DDP rendering
+- ACTIVE ToF rendering
+- logical commissioning
+- raw physical/GPIO commissioning
+- Home Assistant manual colors/effects
+
+This also removes the mask branch from the per-pixel renderer hot loop.
 
 The mask does not alter:
 
@@ -387,6 +407,22 @@ Status 5 is full plane-fit weight. Statuses 6 and 9 are usable at 0.5 weight.
 Other statuses remain visible for diagnosis but are rejected from normal
 processor/plane input.
 
+## Output ownership
+
+Physical LED output has one explicit priority order:
+
+    commissioning diagnostic
+        > Home Assistant manual effect
+        > Ambilight / DDP
+
+DDP reception continues while a manual effect owns the LEDs, but does not
+mutate physical output. Selecting the WLED-compatible `Ambilight` effect
+releases manual ownership and immediately renders the newest complete DDP
+frame.
+
+The disabled-pixel mask is enforced below all three owners in
+`LedEngine::show()`, immediately before physical encoding.
+
 ## Commissioning patterns
 
 Temporary LED commissioning can verify:
@@ -400,7 +436,9 @@ They run only at brightness 1..64 and bypass ToF correction for the test frame.
 
 DDP continues receiving in the background.
 
-After the test, the newest DDP frame is restored or output is blacked if no RGB source exists.
+After the test, the previous output owner is restored: a Home Assistant manual
+effect is rerendered immediately, otherwise the newest complete DDP frame is
+restored, or output is blacked if Ambilight mode has no RGB source.
 
 ## Persistent configuration
 

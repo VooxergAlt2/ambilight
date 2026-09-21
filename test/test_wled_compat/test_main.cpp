@@ -60,7 +60,7 @@ bool buildJson(
 
 } // namespace
 
-void test_master_on_brightness_and_hyperhdr_live_parse() {
+void test_master_on_brightness_and_live_field_parse() {
     WledStateCommand command;
 
     TEST_ASSERT_EQUAL_INT(
@@ -114,6 +114,146 @@ void test_segment_fields_are_validated_without_claiming_master_state() {
 
     TEST_ASSERT_FALSE(
         command.hasBrightness);
+}
+
+void test_segment_rgb_effect_speed_and_intensity_parse() {
+    WledStateCommand command;
+
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(
+            WledStateParseResult::Ok),
+        static_cast<int>(
+            parse(
+                "{\"seg\":[{\"id\":0,"
+                "\"col\":[[12,34,56]],"
+                "\"fx\":3,"
+                "\"sx\":201,"
+                "\"ix\":77}]}",
+                command)));
+
+    TEST_ASSERT_TRUE(
+        command.hasColor);
+
+    TEST_ASSERT_EQUAL_UINT8(
+        12,
+        command.color.r);
+
+    TEST_ASSERT_EQUAL_UINT8(
+        34,
+        command.color.g);
+
+    TEST_ASSERT_EQUAL_UINT8(
+        56,
+        command.color.b);
+
+    TEST_ASSERT_TRUE(
+        command.hasEffect);
+
+    TEST_ASSERT_EQUAL_UINT8(
+        3,
+        static_cast<std::uint8_t>(
+            command.effect));
+
+    TEST_ASSERT_TRUE(
+        command.hasSpeed);
+
+    TEST_ASSERT_EQUAL_UINT8(
+        201,
+        command.speed);
+
+    TEST_ASSERT_TRUE(
+        command.hasIntensity);
+
+    TEST_ASSERT_EQUAL_UINT8(
+        77,
+        command.intensity);
+}
+
+void test_segment_rgbw_primary_is_accepted_and_fifth_channel_rejected() {
+    WledStateCommand command;
+
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(
+            WledStateParseResult::Ok),
+        static_cast<int>(
+            parse(
+                "{\"seg\":[{\"id\":0,\"col\":[[1,2,3,4],[5,6,7],[8,9,10]]}]}",
+                command)));
+
+    TEST_ASSERT_TRUE(
+        command.hasColor);
+
+    TEST_ASSERT_EQUAL_UINT8(
+        1,
+        command.color.r);
+
+    TEST_ASSERT_EQUAL_UINT8(
+        2,
+        command.color.g);
+
+    TEST_ASSERT_EQUAL_UINT8(
+        3,
+        command.color.b);
+
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(
+            WledStateParseResult::OutOfRange),
+        static_cast<int>(
+            parse(
+                "{\"seg\":[{\"id\":0,\"col\":[[1,2,3,4,5]]}]}",
+                command)));
+}
+
+void test_nonzero_segment_visuals_are_ignored_after_validation() {
+    WledStateCommand command;
+
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(
+            WledStateParseResult::Ok),
+        static_cast<int>(
+            parse(
+                "{\"seg\":[{\"id\":1,\"col\":[[9,8,7]],\"fx\":2,\"sx\":200,\"ix\":100}]}",
+                command)));
+
+    TEST_ASSERT_FALSE(
+        command.hasColor);
+
+    TEST_ASSERT_FALSE(
+        command.hasEffect);
+
+    TEST_ASSERT_FALSE(
+        command.hasSpeed);
+
+    TEST_ASSERT_FALSE(
+        command.hasIntensity);
+}
+
+void test_segment_visual_ranges_are_bounded() {
+    WledStateCommand command;
+
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(
+            WledStateParseResult::OutOfRange),
+        static_cast<int>(
+            parse(
+                "{\"seg\":[{\"id\":0,\"fx\":4}]}",
+                command)));
+
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(
+            WledStateParseResult::OutOfRange),
+        static_cast<int>(
+            parse(
+                "{\"seg\":[{\"id\":0,\"col\":[[256,0,0]]}]}",
+                command)));
+
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(
+            WledStateParseResult::OutOfRange),
+        static_cast<int>(
+            parse(
+                "{\"seg\":[{\"id\":0,\"sx\":256}]}",
+                command)));
 }
 
 void test_unknown_nested_fields_are_safely_skipped() {
@@ -419,6 +559,113 @@ void test_wled_state_json_uses_master_brightness_and_fixed_segment_brightness() 
             "\"on\":true,\"bri\":255"));
 }
 
+void test_wled_state_json_reports_rgb_and_manual_effect() {
+    ambilight::WledCompatSnapshot snapshot;
+    snapshot.outputEnabled = true;
+    snapshot.brightness = 80;
+    snapshot.defaultBrightness = 32;
+    snapshot.ledCount = 632;
+    snapshot.manualLighting.effect =
+        ambilight::
+            ManualLightingEffect::
+                Rainbow;
+    snapshot.manualLighting.color =
+        ambilight::Rgb8{
+            11,
+            22,
+            33
+        };
+    snapshot.manualLighting.speed = 144;
+    snapshot.manualLighting.intensity = 99;
+
+    std::string json;
+
+    TEST_ASSERT_TRUE(
+        buildJson(
+            ambilight::
+                WledJsonDocument::
+                    State,
+            snapshot,
+            json));
+
+    const char* required[] = {
+        "\"stop\":632",
+        "\"col\":[[11,22,33]]",
+        "\"fx\":2",
+        "\"sx\":144",
+        "\"ix\":99"
+    };
+
+    for (const char* token : required) {
+        TEST_ASSERT_NOT_NULL(
+            std::strstr(
+                json.c_str(),
+                token));
+    }
+}
+
+void test_wled_state_overlay_projects_color_to_solid_unless_effect_is_explicit() {
+    ambilight::WledCompatSnapshot snapshot;
+    snapshot.outputEnabled = true;
+    snapshot.brightness = 80;
+    snapshot.defaultBrightness = 32;
+    snapshot.ledCount = 632;
+    snapshot.manualLighting.effect =
+        ambilight::
+            ManualLightingEffect::
+                Ambilight;
+
+    WledStateCommand color;
+    color.hasColor = true;
+    color.color =
+        ambilight::Rgb8{
+            90,
+            40,
+            10
+        };
+
+    std::string json;
+
+    TEST_ASSERT_TRUE(
+        buildJson(
+            ambilight::
+                WledJsonDocument::
+                    State,
+            snapshot,
+            json,
+            &color));
+
+    TEST_ASSERT_NOT_NULL(
+        std::strstr(
+            json.c_str(),
+            "\"col\":[[90,40,10]]"));
+
+    TEST_ASSERT_NOT_NULL(
+        std::strstr(
+            json.c_str(),
+            "\"fx\":1"));
+
+    color.hasEffect = true;
+    color.effect =
+        ambilight::
+            ManualLightingEffect::
+                Ambilight;
+
+    TEST_ASSERT_TRUE(
+        buildJson(
+            ambilight::
+                WledJsonDocument::
+                    State,
+            snapshot,
+            json,
+            &color));
+
+    TEST_ASSERT_NOT_NULL(
+        std::strstr(
+            json.c_str(),
+            "\"fx\":0"));
+}
+
 void test_wled_state_json_overlay_matches_resolver_prediction() {
     ambilight::WledCompatSnapshot snapshot;
     snapshot.outputEnabled = true;
@@ -487,6 +734,8 @@ void test_wled_info_json_matches_current_ha_contract() {
         "\"ver\":\"0.15.3\"",
         "\"vid\":\"2609210\"",
         "\"arch\":\"ESP32-C6\"",
+        "\"fxcount\":4",
+        "\"palcount\":1",
         "\"mac\":\"a1b2c3d4e5f6\"",
         "\"ip\":\"192.168.1.55\"",
         "\"live\":true",
@@ -495,8 +744,8 @@ void test_wled_info_json_matches_current_ha_contract() {
         "\"ws\":-1",
         "\"count\":780",
         "\"maxseg\":1",
-        "\"lc\":2",
-        "\"seglc\":[2]",
+        "\"lc\":1",
+        "\"seglc\":[1]",
         "\"signal\":76",
         "\"channel\":6",
         "\"pmt\":1"
@@ -540,7 +789,7 @@ void test_wled_combined_and_auxiliary_documents_are_self_contained() {
     TEST_ASSERT_NOT_NULL(
         std::strstr(
             combined.c_str(),
-            "\"effects\":[\"Solid\"]"));
+            "\"effects\":[\"Ambilight\",\"Solid\",\"Rainbow\",\"Breathing\"]"));
 
     TEST_ASSERT_NOT_NULL(
         std::strstr(
@@ -606,11 +855,19 @@ int main(int, char**) {
     UNITY_BEGIN();
 
     RUN_TEST(
-        test_master_on_brightness_and_hyperhdr_live_parse);
+        test_master_on_brightness_and_live_field_parse);
     RUN_TEST(
         test_pywled_verbose_and_transition_fields_are_accepted);
     RUN_TEST(
         test_segment_fields_are_validated_without_claiming_master_state);
+    RUN_TEST(
+        test_segment_rgb_effect_speed_and_intensity_parse);
+    RUN_TEST(
+        test_segment_rgbw_primary_is_accepted_and_fifth_channel_rejected);
+    RUN_TEST(
+        test_nonzero_segment_visuals_are_ignored_after_validation);
+    RUN_TEST(
+        test_segment_visual_ranges_are_bounded);
     RUN_TEST(
         test_unknown_nested_fields_are_safely_skipped);
     RUN_TEST(
@@ -632,6 +889,10 @@ int main(int, char**) {
 
     RUN_TEST(
         test_wled_state_json_uses_master_brightness_and_fixed_segment_brightness);
+    RUN_TEST(
+        test_wled_state_json_reports_rgb_and_manual_effect);
+    RUN_TEST(
+        test_wled_state_overlay_projects_color_to_solid_unless_effect_is_explicit);
     RUN_TEST(
         test_wled_state_json_overlay_matches_resolver_prediction);
     RUN_TEST(

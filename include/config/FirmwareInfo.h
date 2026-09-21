@@ -8,7 +8,7 @@ inline constexpr const char kFirmwareName[] =
     "ambilight-c6";
 
 inline constexpr const char kFirmwareVersion[] =
-    "0.46.0-dev";
+    "0.46.1-dev";
 
 inline constexpr const char kFirmwareTarget[] =
     "ESP32-C6";

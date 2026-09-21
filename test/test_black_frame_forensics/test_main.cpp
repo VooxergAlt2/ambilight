@@ -365,6 +365,65 @@ void test_normal_active_frame_reports_gain_range_without_black() {
         latest.outputMaxChannel > 0);
 }
 
+void test_owner_boundary_preserves_history_but_breaks_black_sequence() {
+    const LedMappingProfile topology;
+    const LedPixelMaskProfile mask;
+
+    BlackFrameForensics tracker;
+
+    const auto black =
+        makeFrame(
+            topology,
+            Rgb8{});
+
+    TEST_ASSERT_TRUE(
+        tracker.observe(
+            black,
+            topology,
+            mask,
+            255,
+            nullptr,
+            1000));
+
+    TEST_ASSERT_EQUAL_UINT32(
+        1,
+        tracker.stats().blackEvents);
+
+    TEST_ASSERT_EQUAL_UINT32(
+        1,
+        tracker.stats().consecutiveBlackFrames);
+
+    tracker.breakSequence();
+
+    TEST_ASSERT_EQUAL_UINT32(
+        1,
+        tracker.stats().blackEvents);
+
+    TEST_ASSERT_EQUAL_UINT32(
+        0,
+        tracker.stats().consecutiveBlackFrames);
+
+    TEST_ASSERT_FALSE(
+        tracker.stats().latest.outputBlack);
+
+    TEST_ASSERT_TRUE(
+        tracker.observe(
+            black,
+            topology,
+            mask,
+            255,
+            nullptr,
+            2000));
+
+    TEST_ASSERT_EQUAL_UINT32(
+        2,
+        tracker.stats().blackEvents);
+
+    TEST_ASSERT_EQUAL_UINT32(
+        2,
+        tracker.stats().blackFrames);
+}
+
 void test_invalid_frame_is_rejected_without_false_black_event() {
     const LedMappingProfile topology;
     const LedPixelMaskProfile mask;
@@ -415,6 +474,8 @@ int main(int, char**) {
 
     RUN_TEST(
         test_normal_active_frame_reports_gain_range_without_black);
+    RUN_TEST(
+        test_owner_boundary_preserves_history_but_breaks_black_sequence);
 
     RUN_TEST(
         test_invalid_frame_is_rejected_without_false_black_event);

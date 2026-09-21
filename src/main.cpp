@@ -29,6 +29,7 @@
 #include "render/CorrectionMode.h"
 #include "render/RenderDiagnostics.h"
 #include "render/RenderGainController.h"
+#include "render/ManualLighting.h"
 #include "render/ShadowGainProbe.h"
 #include "render/RenderScheduler.h"
 #include "runtime/RuntimePayloadParser.h"
@@ -55,6 +56,7 @@ constexpr std::uint64_t kGainTargetPollIntervalUs = 1000000;
 constexpr std::uint64_t kRenderDiagnosticsIntervalUs = 100000;
 constexpr std::uint64_t kCommissioningDurationUs = 120000000ULL;
 constexpr std::uint64_t kTofDebugDurationUs = 60000000ULL;
+constexpr std::uint64_t kManualLightingFrameIntervalUs = 33333ULL;
 
 ambilight::LedEngine ledEngine;
 ambilight::LedRenderer renderer(ledEngine);
@@ -80,6 +82,11 @@ ambilight::CorrectionMode correctionMode =
 
 ambilight::RgbFrame renderSnapshot;
 ambilight::PerimeterGainSnapshot cachedPerimeterGainSnapshot{};
+
+ambilight::ManualLightingState manualLightingState{};
+ambilight::RgbFrame manualLightingFrame;
+bool manualLightingDirty = false;
+std::uint64_t nextManualLightingFrameUs = 0;
 
 bool rgbFrameValid = false;
 bool rgbDirty = false;
@@ -1775,6 +1782,79 @@ void setOutputBrightness(
         "brightness");
 }
 
+bool sameManualLightingState(
+    const ambilight::ManualLightingState& left,
+    const ambilight::ManualLightingState& right) {
+
+    return
+        left.effect == right.effect &&
+        left.color.r == right.color.r &&
+        left.color.g == right.color.g &&
+        left.color.b == right.color.b &&
+        left.speed == right.speed &&
+        left.intensity == right.intensity;
+}
+
+bool applyWledManualLightingCommand(
+    const ambilight::WledStateCommand& command) {
+
+    const ambilight::ManualLightingState next =
+        ambilight::WledCompat::
+            resolveManualLighting(
+                manualLightingState,
+                command);
+
+    if (sameManualLightingState(
+            next,
+            manualLightingState)) {
+
+        return false;
+    }
+
+    const bool ownerChanged =
+        (
+            next.effect ==
+                ambilight::
+                    ManualLightingEffect::
+                        Ambilight
+        ) !=
+        (
+            manualLightingState.effect ==
+                ambilight::
+                    ManualLightingEffect::
+                        Ambilight
+        );
+
+    manualLightingState =
+        next;
+
+    if (ownerChanged) {
+        renderer.
+            breakBlackFrameForensicsSequence();
+    }
+
+    manualLightingDirty = true;
+    nextManualLightingFrameUs = 0;
+
+    Serial.printf(
+        "HA LIGHT effect=%s color=%u,%u,%u speed=%u intensity=%u.\n",
+        ambilight::ManualLighting::
+            effectName(
+                manualLightingState.effect),
+        static_cast<unsigned>(
+            manualLightingState.color.r),
+        static_cast<unsigned>(
+            manualLightingState.color.g),
+        static_cast<unsigned>(
+            manualLightingState.color.b),
+        static_cast<unsigned>(
+            manualLightingState.speed),
+        static_cast<unsigned>(
+            manualLightingState.intensity));
+
+    return true;
+}
+
 bool applyWledOutputCommand(
     const char* payload) {
 
@@ -1808,10 +1888,17 @@ bool applyWledOutputCommand(
                     kDefaultOutputBrightness,
                 command);
 
-    applyOutputState(
-        resolved.enabled,
-        resolved.brightness,
-        "wled");
+    applyWledManualLightingCommand(
+        command);
+
+    if (command.hasOn ||
+        command.hasBrightness) {
+
+        applyOutputState(
+            resolved.enabled,
+            resolved.brightness,
+            "wled");
+    }
 
     return true;
 }
@@ -1990,7 +2077,19 @@ void finishCommissioning(
     // physical output. If none exists, restore any older cached frame.
     refreshRgbCache();
 
-    if (rgbFrameValid) {
+    if (manualLightingState.effect !=
+        ambilight::
+            ManualLightingEffect::
+                Ambilight) {
+
+        // Commissioning temporarily owns the physical lanes. Restore the
+        // manual owner explicitly even for static effects, which otherwise
+        // have no animation tick that would overwrite the test pattern.
+        // Do not insert a black/DDP frame between the diagnostic pattern and
+        // the restored manual owner.
+        manualLightingDirty = true;
+        nextManualLightingFrameUs = 0;
+    } else if (rgbFrameValid) {
         rgbDirty = true;
     } else {
         ambilight::RgbFrame black;
@@ -2003,7 +2102,8 @@ void finishCommissioning(
 
         const esp_err_t result =
             renderer.render(
-                black);
+                black,
+                false);
 
         if (result != ESP_OK) {
             fatal(
@@ -2479,7 +2579,8 @@ bool serviceCommissioning(
 
         result =
             renderer.render(
-                commissioningFrame);
+                commissioningFrame,
+                false);
 
         if (firstDiagnosticRender) {
             Serial.printf(
@@ -2568,6 +2669,162 @@ bool refreshTargetGainContext(
         renderGainController.setTarget(
             target,
             nowUs);
+}
+
+bool serviceManualLighting(
+    std::uint64_t nowUs) {
+
+    if (manualLightingState.effect ==
+        ambilight::
+            ManualLightingEffect::
+                Ambilight) {
+
+        if (manualLightingDirty) {
+            // Pull the newest frame only when manual mode releases output.
+            // DDP continues assembling in the background while effects own
+            // the LEDs, but it must not mutate physical output until now.
+            refreshRgbCache();
+
+            if (rgbFrameValid) {
+                rgbDirty = true;
+            } else {
+                ambilight::RgbFrame black;
+                black.clear();
+
+                black.pixelCount =
+                    runtimeSettings.
+                        ledMappingProfile().
+                        totalLedCount();
+
+                black.receivedUs =
+                    nowUs;
+
+                const esp_err_t result =
+                    renderer.render(
+                        black,
+                        false);
+
+                if (result != ESP_OK) {
+                    fatal(
+                        "manual->Ambilight blackout failed",
+                        result);
+                }
+            }
+
+            manualLightingDirty = false;
+            nextManualLightingFrameUs = 0;
+        }
+
+        return false;
+    }
+
+    const bool outputOff =
+        ledEngine.brightness() == 0;
+
+    // While off, stop animation cadence but still allow a dirty state to pass
+    // through one render. LiteLED brightness is applied during encode/show,
+    // so an off transition must submit a frame before we can become idle.
+    if (outputOff) {
+        nextManualLightingFrameUs = 0;
+    }
+
+    const bool activeCorrection =
+        correctionMode ==
+            ambilight::
+                CorrectionMode::
+                    Active;
+
+    const bool gainTargetChanged =
+        activeCorrection
+            ? refreshTargetGainContext(
+                  nowUs)
+            : false;
+
+    const bool animationDue =
+        !outputOff &&
+        ambilight::ManualLighting::
+                animated(
+                    manualLightingState.effect) &&
+        (
+            nextManualLightingFrameUs == 0 ||
+            nowUs >=
+                nextManualLightingFrameUs
+        );
+
+    const bool stateDirty =
+        manualLightingDirty ||
+        correctionModeDirty ||
+        brightnessDirty ||
+        ledMappingDirty ||
+        ledPixelMaskDirty ||
+        animationDue ||
+        (
+            activeCorrection &&
+            (
+                gainTargetChanged ||
+                !renderGainController.
+                    settled()
+            )
+        );
+
+    if (!stateDirty) {
+        return true;
+    }
+
+    if (activeCorrection &&
+        !renderGainController.settled()) {
+
+        renderGainController.advance(
+            nowUs);
+    }
+
+    if (!ambilight::ManualLighting::render(
+            manualLightingState,
+            runtimeSettings.
+                ledMappingProfile(),
+            nowUs,
+            manualLightingFrame)) {
+
+        fatal(
+            "ManualLighting::render failed",
+            ESP_ERR_INVALID_STATE);
+    }
+
+    const esp_err_t result =
+        activeCorrection
+            ? renderer.renderActive(
+                  manualLightingFrame,
+                  renderGainController.
+                      current(),
+                  false)
+            : renderer.render(
+                  manualLightingFrame,
+                  false);
+
+    if (result != ESP_OK) {
+        fatal(
+            activeCorrection
+                ? "manual renderActive failed"
+                : "manual render failed",
+            result);
+    }
+
+    manualLightingDirty = false;
+    correctionModeDirty = false;
+    brightnessDirty = false;
+    ledMappingDirty = false;
+    ledPixelMaskDirty = false;
+
+    nextManualLightingFrameUs =
+        !outputOff &&
+        ambilight::ManualLighting::
+                animated(
+                    manualLightingState.effect)
+            ? nowUs +
+                kManualLightingFrameIntervalUs
+            : 0;
+
+    return true;
 }
 
 bool serviceRender(
@@ -2737,6 +2994,14 @@ void serviceRenderDiagnostics(
 
 bool frameHoldActive(
     std::uint64_t nowUs) {
+
+    if (manualLightingState.effect !=
+        ambilight::
+            ManualLightingEffect::
+                Ambilight) {
+
+        return false;
+    }
 
     const std::uint64_t lastCompleteUs =
         ddp.lastCompleteFrameUs();
@@ -3680,6 +3945,9 @@ bool fillWebUiSnapshot(
     snapshot.effectiveBrightness =
         ledEngine.brightness();
 
+    snapshot.manualLighting =
+        manualLightingState;
+
     snapshot.uptimeSeconds =
         millis() / 1000U;
 
@@ -3740,6 +4008,10 @@ bool fillWebUiSnapshot(
                 : 0ULL;
 
         snapshot.outputFrameHeld =
+            manualLightingState.effect ==
+                    ambilight::
+                        ManualLightingEffect::
+                            Ambilight &&
             frameHoldActive(
                 ddpNowUs);
     }
@@ -5677,11 +5949,15 @@ void loop() {
     if (!serviceCommissioning(
             nowUs)) {
 
-        serviceRender(
-            nowUs);
+        if (!serviceManualLighting(
+                nowUs)) {
 
-        serviceRenderDiagnostics(
-            nowUs);
+            serviceRender(
+                nowUs);
+
+            serviceRenderDiagnostics(
+                nowUs);
+        }
     }
 
     const std::uint32_t nowMs = millis();

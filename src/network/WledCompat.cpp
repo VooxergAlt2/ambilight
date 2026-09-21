@@ -548,8 +548,90 @@ bool keyEquals(
             expected) == 0;
 }
 
+WledStateParseResult parsePrimaryColor(
+    JsonCursor& cursor,
+    Rgb8& color) {
+
+    if (!cursor.consume('[') ||
+        cursor.consume(']') ||
+        !cursor.consume('[')) {
+
+        return
+            WledStateParseResult::
+                InvalidJson;
+    }
+
+    std::uint32_t channel[4] = {};
+    std::size_t count = 0;
+
+    while (true) {
+        if (count >= 4U) {
+            return
+                WledStateParseResult::
+                    OutOfRange;
+        }
+
+        std::uint32_t value = 0;
+
+        if (!cursor.parseUnsigned(
+                value)) {
+
+            return
+                WledStateParseResult::
+                    InvalidJson;
+        }
+
+        if (value > 255U) {
+            return
+                WledStateParseResult::
+                    OutOfRange;
+        }
+
+        channel[count++] =
+            value;
+
+        if (cursor.consume(']')) {
+            break;
+        }
+
+        if (!cursor.consume(',')) {
+            return
+                WledStateParseResult::
+                    InvalidJson;
+        }
+    }
+
+    if (count < 3U) {
+        return
+            WledStateParseResult::
+                InvalidJson;
+    }
+
+    color = Rgb8{
+        static_cast<std::uint8_t>(
+            channel[0]),
+        static_cast<std::uint8_t>(
+            channel[1]),
+        static_cast<std::uint8_t>(
+            channel[2])
+    };
+
+    while (!cursor.consume(']')) {
+        if (!cursor.consume(',') ||
+            !cursor.skipValue()) {
+
+            return
+                WledStateParseResult::
+                    InvalidJson;
+        }
+    }
+
+    return WledStateParseResult::Ok;
+}
+
 WledStateParseResult parseSegmentObject(
-    JsonCursor& cursor) {
+    JsonCursor& cursor,
+    WledStateCommand& command) {
 
     if (!cursor.consume('{')) {
         return
@@ -557,8 +639,11 @@ WledStateParseResult parseSegmentObject(
                 InvalidJson;
     }
 
+    bool hasId = false;
     std::uint32_t id = 0;
     bool on = false;
+
+    WledStateCommand visual;
 
     if (cursor.consume('}')) {
         return
@@ -590,8 +675,7 @@ WledStateParseResult parseSegmentObject(
                         InvalidJson;
             }
 
-            // Segment id is syntax-validated only. The facade exposes one
-            // structural segment, while master state owns physical output.
+            hasId = true;
         } else if (
             keyEquals(
                 key,
@@ -605,8 +689,8 @@ WledStateParseResult parseSegmentObject(
                         InvalidJson;
             }
 
-            // Accepted for python-wled segment preflight, intentionally not
-            // promoted into master output state.
+            // Segment on is python-wled preflight only. Master on remains the
+            // sole physical power authority.
         } else if (
             keyEquals(
                 key,
@@ -628,7 +712,110 @@ WledStateParseResult parseSegmentObject(
                         OutOfRange;
             }
 
-            // Deliberately accepted and ignored. See WledStateCommand.
+            // Segment brightness remains fixed at 255. Master bri owns global
+            // output brightness and is applied in a separate HA request.
+        } else if (
+            keyEquals(
+                key,
+                "col")) {
+
+            Rgb8 color;
+
+            const auto result =
+                parsePrimaryColor(
+                    cursor,
+                    color);
+
+            if (result !=
+                WledStateParseResult::Ok) {
+
+                return result;
+            }
+
+            visual.hasColor = true;
+            visual.color = color;
+        } else if (
+            keyEquals(
+                key,
+                "fx")) {
+
+            std::uint32_t effect = 0;
+
+            if (!cursor.parseUnsigned(
+                    effect)) {
+
+                return
+                    WledStateParseResult::
+                        InvalidJson;
+            }
+
+            if (effect > 0xFFU ||
+                !ManualLighting::
+                    validEffect(
+                        static_cast<
+                            std::uint8_t>(
+                                effect))) {
+
+                return
+                    WledStateParseResult::
+                        OutOfRange;
+            }
+
+            visual.hasEffect = true;
+            visual.effect =
+                static_cast<
+                    ManualLightingEffect>(
+                        effect);
+        } else if (
+            keyEquals(
+                key,
+                "sx")) {
+
+            std::uint32_t speed = 0;
+
+            if (!cursor.parseUnsigned(
+                    speed)) {
+
+                return
+                    WledStateParseResult::
+                        InvalidJson;
+            }
+
+            if (speed > 255U) {
+                return
+                    WledStateParseResult::
+                        OutOfRange;
+            }
+
+            visual.hasSpeed = true;
+            visual.speed =
+                static_cast<std::uint8_t>(
+                    speed);
+        } else if (
+            keyEquals(
+                key,
+                "ix")) {
+
+            std::uint32_t intensity = 0;
+
+            if (!cursor.parseUnsigned(
+                    intensity)) {
+
+                return
+                    WledStateParseResult::
+                        InvalidJson;
+            }
+
+            if (intensity > 255U) {
+                return
+                    WledStateParseResult::
+                        OutOfRange;
+            }
+
+            visual.hasIntensity = true;
+            visual.intensity =
+                static_cast<std::uint8_t>(
+                    intensity);
         } else if (
             !cursor.skipValue()) {
 
@@ -648,18 +835,48 @@ WledStateParseResult parseSegmentObject(
         }
     }
 
-    (void)id;
     (void)on;
+
+    // The facade owns exactly one segment. Parse other segment objects fully
+    // so malformed WLED JSON is still rejected, but never let their visual
+    // fields mutate segment 0.
+    if (!hasId || id == 0U) {
+        if (visual.hasColor) {
+            command.hasColor = true;
+            command.color =
+                visual.color;
+        }
+
+        if (visual.hasEffect) {
+            command.hasEffect = true;
+            command.effect =
+                visual.effect;
+        }
+
+        if (visual.hasSpeed) {
+            command.hasSpeed = true;
+            command.speed =
+                visual.speed;
+        }
+
+        if (visual.hasIntensity) {
+            command.hasIntensity = true;
+            command.intensity =
+                visual.intensity;
+        }
+    }
 
     return WledStateParseResult::Ok;
 }
 
 WledStateParseResult parseSegments(
-    JsonCursor& cursor) {
+    JsonCursor& cursor,
+    WledStateCommand& command) {
 
     if (cursor.peek('{')) {
         return parseSegmentObject(
-            cursor);
+            cursor,
+            command);
     }
 
     if (!cursor.consume('[')) {
@@ -676,7 +893,8 @@ WledStateParseResult parseSegments(
         if (cursor.peek('{')) {
             const auto result =
                 parseSegmentObject(
-                    cursor);
+                    cursor,
+                    command);
 
             if (result !=
                 WledStateParseResult::Ok) {
@@ -922,6 +1140,19 @@ WledResolvedOutputState projectedOutputState(
             *overlay);
 }
 
+ManualLightingState projectedManualLighting(
+    const WledCompatSnapshot& snapshot,
+    const WledStateCommand* overlay) {
+
+    return
+        overlay == nullptr
+            ? snapshot.manualLighting
+            : WledCompat::
+                  resolveManualLighting(
+                      snapshot.manualLighting,
+                      *overlay);
+}
+
 bool appendStateJson(
     WledJsonWriter& writer,
     const WledCompatSnapshot& snapshot,
@@ -940,6 +1171,11 @@ bool appendStateJson(
         WledCompat::reportedBrightness(
             output.brightness);
 
+    const ManualLightingState manual =
+        projectedManualLighting(
+            snapshot,
+            overlay);
+
     writer.appendf(
         "{\"on\":%s,"
         "\"bri\":%u,"
@@ -951,7 +1187,10 @@ bool appendStateJson(
         "\"stop\":%u,"
         "\"on\":%s,"
         "\"bri\":255,"
-        "\"fx\":0,"
+        "\"col\":[[%u,%u,%u]],"
+        "\"fx\":%u,"
+        "\"sx\":%u,"
+        "\"ix\":%u,"
         "\"pal\":0,"
         "\"sel\":true,"
         "\"cct\":0"
@@ -971,7 +1210,19 @@ bool appendStateJson(
             brightness),
         static_cast<unsigned>(
             snapshot.ledCount),
-        boolJson(on));
+        boolJson(on),
+        static_cast<unsigned>(
+            manual.color.r),
+        static_cast<unsigned>(
+            manual.color.g),
+        static_cast<unsigned>(
+            manual.color.b),
+        static_cast<unsigned>(
+            manual.effect),
+        static_cast<unsigned>(
+            manual.speed),
+        static_cast<unsigned>(
+            manual.intensity));
 
     return writer.ok();
 }
@@ -1005,6 +1256,8 @@ bool appendInfoJson(
         ",\"brand\":\"Ambilight\""
         ",\"product\":\"ESP32-C6 DDP Ambilight\""
         ",\"arch\":\"ESP32-C6\""
+        ",\"fxcount\":4"
+        ",\"palcount\":1"
         ",\"mac\":");
 
     writer.appendJsonString(
@@ -1066,10 +1319,10 @@ bool appendInfoJson(
             snapshot.ledCount),
         static_cast<unsigned>(
             WledCompat::
-                kBrightnessCapability),
+                kRgbCapability),
         static_cast<unsigned>(
             WledCompat::
-                kBrightnessCapability),
+                kRgbCapability),
         static_cast<long>(
             snapshot.wifiConnected
                 ? snapshot.wifiRssi
@@ -1198,7 +1451,8 @@ WledStateParseResult WledCompat::parseStateCommand(
 
             const auto result =
                 parseSegments(
-                    cursor);
+                    cursor,
+                    command);
 
             if (result !=
                 WledStateParseResult::Ok) {
@@ -1276,6 +1530,42 @@ WledResolvedOutputState WledCompat::resolveOutputState(
     return resolved;
 }
 
+ManualLightingState WledCompat::resolveManualLighting(
+    const ManualLightingState& current,
+    const WledStateCommand& command) {
+
+    ManualLightingState state =
+        current;
+
+    if (command.hasColor) {
+        state.color =
+            command.color;
+
+        if (!command.hasEffect) {
+            state.effect =
+                ManualLightingEffect::
+                    Solid;
+        }
+    }
+
+    if (command.hasEffect) {
+        state.effect =
+            command.effect;
+    }
+
+    if (command.hasSpeed) {
+        state.speed =
+            command.speed;
+    }
+
+    if (command.hasIntensity) {
+        state.intensity =
+            command.intensity;
+    }
+
+    return state;
+}
+
 std::uint8_t WledCompat::reportedBrightness(
     std::uint8_t configuredBrightness) {
 
@@ -1344,7 +1634,7 @@ bool WledCompat::buildJson(
             snapshot);
 
         writer.append(
-            ",\"effects\":[\"Solid\"]"
+            ",\"effects\":[\"Ambilight\",\"Solid\",\"Rainbow\",\"Breathing\"]"
             ",\"palettes\":[\"Default\"]"
             "}");
         break;
@@ -1364,7 +1654,7 @@ bool WledCompat::buildJson(
 
     case WledJsonDocument::Effects:
         writer.append(
-            "[\"Solid\"]");
+            "[\"Ambilight\",\"Solid\",\"Rainbow\",\"Breathing\"]");
         break;
 
     case WledJsonDocument::Palettes:

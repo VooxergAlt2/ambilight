@@ -27,6 +27,12 @@ jobs:
           set -o pipefail
           python tools/check_partition.py 2>&1 | tee partition-check.log
 
+      - name: Validate embedded Web UI
+        shell: bash
+        run: |
+          set -o pipefail
+          python tools/check_web_ui.py 2>&1 | tee web-ui-check.log
+
       - name: Run native unit tests
         shell: bash
         run: |
@@ -46,6 +52,7 @@ jobs:
           name: ci-logs
           path: |
             partition-check.log
+            web-ui-check.log
             native-test.log
             firmware-build.log
           if-no-files-found: ignore

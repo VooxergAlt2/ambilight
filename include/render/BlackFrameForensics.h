@@ -270,6 +270,13 @@ public:
         stats_ = {};
     }
 
+    // Separate source-owner epochs without erasing historical counters.
+    // The next observed DDP frame starts a fresh black/non-black sequence.
+    void breakSequence() {
+        stats_.latest = {};
+        stats_.consecutiveBlackFrames = 0;
+    }
+
 private:
     static std::uint8_t maxChannel(
         const Rgb8& value) {

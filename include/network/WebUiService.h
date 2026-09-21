@@ -55,6 +55,7 @@ struct WebUiSnapshot {
     std::uint8_t brightness = 0;
     std::uint8_t effectiveBrightness = 0;
     bool outputFrameHeld = false;
+    ManualLightingState manualLighting{};
 
     bool wifiEnabled = false;
     bool wifiConnected = false;

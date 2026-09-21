@@ -6,8 +6,8 @@ Custom ESP32-C6 Ambilight endpoint for HyperHDR.
 
 Stage 46 adds a bounded WLED-compatible control/discovery facade for Home
 Assistant on top of the Stage 45 transport and render hardening. HyperHDR
-continues to use native DDP/UDP 4048; the WLED compatibility surface controls
-only power/brightness and exposes device state.
+continues to use native DDP/UDP 4048. The WLED compatibility surface now
+supports power, brightness, RGB color and a small native manual-effect set.
 
 The firmware stack now includes:
 
@@ -26,7 +26,7 @@ The firmware stack now includes:
 - persistent runtime spatial profile
 - lightweight HTTP/80 control UI with Home / LED / ToF / Diagnostics / System workflows
 - browser-local Russian / English UI localization
-- WLED-compatible HTTP state/info facade for Home Assistant
+- WLED-compatible RGB/effect state/info facade for Home Assistant
 - mDNS _wled._tcp discovery for Home Assistant
 - persisted one-disabled-pixel-per-segment mask
 - runtime LED topology: COUNT/GPIO/REV per TV side
@@ -116,6 +116,21 @@ Home Assistant discovery/control:
     _wled._tcp.local.
     GET /json
     POST /json/state
+
+The Home Assistant light exposes:
+
+    brightness
+    RGB color
+    Ambilight
+    Solid
+    Rainbow
+    Breathing
+
+"Ambilight" returns physical output ownership to the newest complete DDP frame.
+Solid/Rainbow/Breathing are local manual modes; DDP continues to be received in
+the background while they are active. Reload the WLED integration (or restart
+Home Assistant) after upgrading from the older brightness-only facade so the
+entity is recreated with RGB capability.
 
 HyperHDR remains independent of this compatibility facade:
 
@@ -370,14 +385,16 @@ Default active web ranges are therefore:
     BOTTOM  1..230
     LEFT    1..160
 
-Internally LedRenderer compares the stored physical offset against the
-post-reversal `physicalIndex()`. Stage 45.3 bumps the pixel-mask NVS schema
-from 1 to 2; old logical-offset masks are discarded at boot rather than being
-reinterpreted.
+Stage 45.3 bumps the pixel-mask NVS schema from 1 to 2; old logical-offset
+masks are discarded at boot rather than being reinterpreted.
+
+Stage 46.1 enforces the projected mask inside LedEngine::show(), immediately
+before physical PARLIO encoding. The disabled LED is therefore forced black for
+DDP, ACTIVE correction, logical commissioning, raw-GPIO commissioning and HA
+manual effects alike.
 
 The mask does not remove a logical LED, shift neighbours or alter DDP/ToF gain
-indexing. Logical render/commissioning paths honor it; raw-GPIO tests bypass
-logical mapping and are intended for physical lane identification.
+indexing. It is a physical lane-level black invariant.
 
 ## LED commissioning
 
@@ -401,7 +418,8 @@ SIDE is 0=TOP, 1=RIGHT, 2=BOTTOM, 3=LEFT.
 
 Logical probes use the active topology, REV and disabled-pixel mask. Raw GPIO
 probes bypass logical mapping and directly identify which physical strip is
-connected to GPIO18/19/20/21.
+connected to GPIO18/19/20/21, but the final physical disabled-pixel mask is
+still enforced before transmission.
 
 Tests run for 120 seconds and then restore the newest HyperHDR frame or black.
 
@@ -542,7 +560,7 @@ reports:
 
 Current source identity:
 
-    ambilight-c6 0.46.0-dev Stage 46
+    ambilight-c6 0.46.1-dev Stage 46
     serial protocol 2
 
 Startup uses the same centralized FirmwareInfo constants instead of a handwritten stage banner.

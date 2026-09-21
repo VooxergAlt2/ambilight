@@ -8,11 +8,33 @@ namespace ambilight {
 bool LedRenderer::setMappingProfile(
     const LedMappingProfile& profile) {
 
-    LedRenderPlan candidate;
+    LedRenderPlan candidatePlan;
 
     if (!LedRenderPlan::build(
             profile,
-            candidate)) {
+            candidatePlan)) {
+
+        return false;
+    }
+
+    LedPixelMaskProfile candidateMask =
+        pixelMaskProfile_;
+
+    if (!candidateMask.validFor(
+            profile)) {
+
+        candidateMask.sanitizeFor(
+            profile);
+    }
+
+    LedPhysicalPixelMask physicalMask;
+
+    if (!LedPhysicalPixelMask::project(
+            profile,
+            candidateMask,
+            physicalMask) ||
+        !engine_.setPhysicalPixelMask(
+            physicalMask)) {
 
         return false;
     }
@@ -27,15 +49,10 @@ bool LedRenderer::setMappingProfile(
         profile;
 
     renderPlan_ =
-        candidate;
+        candidatePlan;
 
-    if (!pixelMaskProfile_.validFor(
-            mappingProfile_)) {
-
-        pixelMaskProfile_.
-            sanitizeFor(
-                mappingProfile_);
-    }
+    pixelMaskProfile_ =
+        candidateMask;
 
     return true;
 }
@@ -45,6 +62,18 @@ bool LedRenderer::setPixelMaskProfile(
 
     if (!profile.validFor(
             mappingProfile_)) {
+
+        return false;
+    }
+
+    LedPhysicalPixelMask physicalMask;
+
+    if (!LedPhysicalPixelMask::project(
+            mappingProfile_,
+            profile,
+            physicalMask) ||
+        !engine_.setPhysicalPixelMask(
+            physicalMask)) {
 
         return false;
     }
@@ -212,7 +241,8 @@ void LedRenderer::observeBlackFrameForensics(
 }
 
 esp_err_t LedRenderer::render(
-    const RgbFrame& frame) {
+    const RgbFrame& frame,
+    bool observeForensics) {
 
     const std::uint64_t renderStartedUs =
         static_cast<std::uint64_t>(
@@ -258,11 +288,6 @@ esp_err_t LedRenderer::render(
             return ESP_FAIL;
         }
 
-        const std::uint16_t disabledOffset =
-            pixelMaskProfile_.
-                disabledOffset[
-                    segmentIndex];
-
         for (std::uint16_t offset = 0;
              offset <
                 segment.logicalLength;
@@ -281,14 +306,6 @@ esp_err_t LedRenderer::render(
                 frame.pixels[
                     logical];
 
-            if (disabledOffset !=
-                    LedPixelMaskProfile::kNone &&
-                disabledOffset ==
-                    physical) {
-
-                physicalOutput = {};
-            }
-
             lane.writeUnchecked(
                 physical,
                 physicalOutput);
@@ -300,7 +317,9 @@ esp_err_t LedRenderer::render(
             renderStartedUs,
             prepareStartedUs);
 
-    if (result == ESP_OK) {
+    if (result == ESP_OK &&
+        observeForensics) {
+
         observeBlackFrameForensics(
             frame,
             nullptr,
@@ -313,7 +332,8 @@ esp_err_t LedRenderer::render(
 
 esp_err_t LedRenderer::renderActive(
     const RgbFrame& frame,
-    const RenderGainContext& gainContext) {
+    const RenderGainContext& gainContext,
+    bool observeForensics) {
 
     const std::uint64_t renderStartedUs =
         static_cast<std::uint64_t>(
@@ -362,11 +382,6 @@ esp_err_t LedRenderer::renderActive(
             return ESP_FAIL;
         }
 
-        const std::uint16_t disabledOffset =
-            pixelMaskProfile_.
-                disabledOffset[
-                    segmentIndex];
-
         for (std::uint16_t offset = 0;
              offset <
                 segment.logicalLength;
@@ -389,14 +404,6 @@ esp_err_t LedRenderer::renderActive(
                         gainForLogicalIndex(
                             logical));
 
-            if (disabledOffset !=
-                    LedPixelMaskProfile::kNone &&
-                disabledOffset ==
-                    physical) {
-
-                physicalOutput = {};
-            }
-
             lane.writeUnchecked(
                 physical,
                 physicalOutput);
@@ -408,7 +415,9 @@ esp_err_t LedRenderer::renderActive(
             renderStartedUs,
             prepareStartedUs);
 
-    if (result == ESP_OK) {
+    if (result == ESP_OK &&
+        observeForensics) {
+
         observeBlackFrameForensics(
             frame,
             &gainContext,

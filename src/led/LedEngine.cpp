@@ -91,6 +91,19 @@ void LedEngine::setBrightness(
     }
 }
 
+bool LedEngine::setPhysicalPixelMask(
+    const LedPhysicalPixelMask& mask) {
+
+    if (!mask.valid()) {
+        return false;
+    }
+
+    physicalPixelMask_ =
+        mask;
+
+    return true;
+}
+
 void LedEngine::clear() {
     if (frameWriteView_.valid()) {
         for (const auto& lane :
@@ -140,6 +153,15 @@ bool LedEngine::fillPhysicalRange(
 }
 
 esp_err_t LedEngine::show() {
+    // Disabled pixels are a physical output invariant. Enforce them at the
+    // lowest common path so DDP, ACTIVE correction and raw commissioning can
+    // never re-light a masked LED.
+    if (!physicalPixelMask_.apply(
+            frameWriteView_)) {
+
+        return ESP_ERR_INVALID_STATE;
+    }
+
     const std::uint64_t showStartedUs =
         static_cast<std::uint64_t>(
             esp_timer_get_time());

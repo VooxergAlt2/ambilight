@@ -306,11 +306,14 @@ Stage 45.3 changes the persisted meaning from logical offset to physical strip
 offset and therefore bumps `LedPixelMaskProfile::kSchemaVersion` to 2.
 Schema-1 masks are invalidated on boot instead of being silently reinterpreted.
 
-The mask is applied by LedRenderer after logical-to-physical mapping and after
-correction selection. It therefore remains black in DISABLED, SHADOW and
-ACTIVE render paths without removing a logical LED or changing DDP/ToF
-indexing. Raw-GPIO commissioning intentionally bypasses logical rendering and
-is not a mask verification path; logical-side tests do exercise the mask.
+LedRenderer projects the segment mask onto the current physical lanes, and
+LedEngine enforces that physical mask immediately before every PARLIO encode.
+The selected LED therefore remains black in DISABLED, SHADOW and ACTIVE DDP
+renders, logical commissioning, raw-GPIO commissioning and HA manual effects.
+
+The mask does not remove a logical LED or change DDP/ToF indexing. Raw-GPIO
+commissioning still bypasses logical mapping, but it no longer bypasses the
+final disabled-pixel safety invariant.
 
 ## Calibration
 

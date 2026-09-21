@@ -11,6 +11,7 @@
 #include "core/PerformanceMetric.h"
 #include "core/RgbFrame.h"
 #include "led/LedFrameWriteView.h"
+#include "led/LedPhysicalPixelMask.h"
 
 namespace ambilight {
 
@@ -35,6 +36,13 @@ public:
 
     void setBrightness(
         std::uint8_t brightness);
+
+    bool setPhysicalPixelMask(
+        const LedPhysicalPixelMask& mask);
+
+    const LedPhysicalPixelMask& physicalPixelMask() const {
+        return physicalPixelMask_;
+    }
 
     std::uint8_t brightness() const {
         return brightness_;
@@ -117,6 +125,7 @@ private:
 
     bool begun_ = false;
     LedFrameWriteView frameWriteView_{};
+    LedPhysicalPixelMask physicalPixelMask_{};
 
     PerformanceMetric encodeMetric_{};
     PerformanceMetric submitMetric_{};

@@ -428,6 +428,7 @@ function setLocale(value){
   if(lastStatus)render(lastStatus);
 }
 function corrName(index){return [tr('ВЫКЛ.','OFF'),tr('НАБЛЮДЕНИЕ','SHADOW'),tr('ВКЛЮЧЕНА','ACTIVE')][index]||'?'}
+function manualEffectName(index){return ['Ambilight','Solid','Rainbow','Breathing'][index]||'?'}
 const ACTION_RU={
 'WLED state applied.':'WLED-состояние применено.',
 'Invalid WLED state payload.':'Некорректный WLED state payload.',
@@ -717,8 +718,9 @@ function render(s){
   txt('fw',s.fw.version+' · Stage '+s.fw.stage+' · '+s.fw.target);
   txt('stCorr',corrName(s.output.correction));
   txt('stBright',(s.output.enabled?'':tr('ВЫКЛ. · ','OFF · '))+Math.round(s.output.brightness*100/255)+'%');
-  const signalFresh=s.ddp.has_frame&&s.ddp.frame_age_ms<=1000;
-  txt('stDdp',!s.ddp.running?tr('ВЫКЛ.','OFF'):(signalFresh?tr('ПОЛУЧАЕМ','RECEIVING'):(s.output.frame_held?tr('УДЕРЖАНИЕ','HOLDING'):tr('ОЖИДАНИЕ','WAITING'))));
+  const manualOwner=s.output.owner==='HA';
+  const signalFresh=!manualOwner&&s.ddp.has_frame&&s.ddp.frame_age_ms<=1000;
+  txt('stDdp',manualOwner?tr('HA РУЧНОЙ','HA MANUAL'):(!s.ddp.running?tr('ВЫКЛ.','OFF'):(signalFresh?tr('ПОЛУЧАЕМ','RECEIVING'):(s.output.frame_held?tr('УДЕРЖАНИЕ','HOLDING'):tr('ОЖИДАНИЕ','WAITING')))));
   txt('stTof',tofOperationalStatus(s.tof));
   $('power0').classList.toggle('primary',!s.output.enabled);
   $('power1').classList.toggle('primary',!!s.output.enabled);
@@ -726,6 +728,7 @@ function render(s){
   setv('brightness',s.output.brightness);txt('brightnessValue',brightnessLabel(s.output.brightness));
   let home=tr('Подсветка ','Lighting ')+(!s.output.enabled||s.output.effective_brightness===0?tr('выключена','off'):tr('готова','ready'))+'. ';
   if(s.commissioning.pattern)home+=tr('Пусконаладочный тест: ','Commissioning test: ')+commissioningText(s.commissioning)+'. ';
+  else if(manualOwner)home+=tr('Выводом управляет Home Assistant: ','Home Assistant owns output: ')+manualEffectName(s.output.effect)+' · RGB '+s.output.rgb.join(',')+'. ';
   else if(signalFresh)home+=tr('Сигнал ПК поступает, последний кадр ','PC signal is active; last frame ')+s.ddp.frame_age_ms+tr(' мс назад. ',' ms ago. ');
   else if(s.output.frame_held)home+=tr('Новых кадров нет, удерживается последний успешно показанный кадр (','No new frames; holding the last successfully shown frame (')+s.ddp.frame_age_ms+' ms). ';
   else home+=tr('Ожидаем первый кадр от ПК. ','Waiting for the first PC frame. ');
@@ -761,7 +764,7 @@ function render(s){
   const wifiRssi=s.wifi.connected?(' · RSSI '+s.wifi.rssi+' dBm'):'';
   txt('wifiState',wifiMode+' · '+(s.wifi.ip||tr('без IP','no IP'))+wifiRssi+' · '+(s.wifi.ssid||tr('SSID не задан','SSID not set')));
   setv('ssid',s.wifi.ssid||'');
-  txt('diag',`output: enabled=${s.output.enabled} configured=${s.output.brightness} effective=${s.output.effective_brightness}\nDDP: running=${s.ddp.running} frames=${s.ddp.frames} publications=${s.ddp.publications}\nlast frame: ${s.ddp.has_frame?s.ddp.frame_age_ms+' ms':'none'} · frame hold=${s.output.frame_held}\nsender: ${s.ddp.sender_locked?(s.ddp.sender_ip+':'+s.ddp.sender_port):'none'}\nToF: state=${s.tof.state} age=${s.tof.age_ms} ms valid=${s.tof.valid_zones}/64 plane=${s.tof.plane_valid}\npersistence: ${s.persistence?'available':'unavailable'}\nheap free/min: ${s.heap.free}/${s.heap.min} B\nweb requests/actions/dropped/bad: ${s.web.requests}/${s.web.actions}/${s.web.dropped}/${s.web.bad}`);
+  txt('diag',`output: enabled=${s.output.enabled} configured=${s.output.brightness} effective=${s.output.effective_brightness} owner=${s.output.owner} effect=${manualEffectName(s.output.effect)} rgb=${s.output.rgb.join(',')}\nDDP: running=${s.ddp.running} frames=${s.ddp.frames} publications=${s.ddp.publications}\nlast frame: ${s.ddp.has_frame?s.ddp.frame_age_ms+' ms':'none'} · frame hold=${s.output.frame_held}\nsender: ${s.ddp.sender_locked?(s.ddp.sender_ip+':'+s.ddp.sender_port):'none'}\nToF: state=${s.tof.state} age=${s.tof.age_ms} ms valid=${s.tof.valid_zones}/64 plane=${s.tof.plane_valid}\npersistence: ${s.persistence?'available':'unavailable'}\nheap free/min: ${s.heap.free}/${s.heap.min} B\nweb requests/actions/dropped/bad: ${s.web.requests}/${s.web.actions}/${s.web.dropped}/${s.web.bad}`);
   $('factory').disabled=s.output.effective_brightness!==0;
   translateStatic();
 }
@@ -1075,6 +1078,8 @@ WledCompatSnapshot wledCompatSnapshot(
         snapshot.freeHeapBytes;
 
     result.ddpLive =
+        snapshot.manualLighting.effect ==
+            ManualLightingEffect::Ambilight &&
         snapshot.ddpRunning &&
         snapshot.ddpHasFrame &&
         snapshot.ddpFrameAgeMs <=
@@ -1085,6 +1090,9 @@ WledCompatSnapshot wledCompatSnapshot(
 
     result.senderIp =
         snapshot.senderIp;
+
+    result.manualLighting =
+        snapshot.manualLighting;
 
     return result;
 }
@@ -1471,7 +1479,12 @@ bool WebUiService::buildStatusResponse(
         "\"brightness\":%u,"
         "\"effective_brightness\":%u,"
         "\"correction\":%u,"
-        "\"frame_held\":%s",
+        "\"frame_held\":%s,"
+        "\"owner\":\"%s\","
+        "\"effect\":%u,"
+        "\"rgb\":[%u,%u,%u],"
+        "\"speed\":%u,"
+        "\"intensity\":%u",
         boolJson(
             snapshot.outputEnabled),
         static_cast<unsigned>(
@@ -1481,7 +1494,23 @@ bool WebUiService::buildStatusResponse(
         static_cast<unsigned>(
             snapshot.correctionMode),
         boolJson(
-            snapshot.outputFrameHeld));
+            snapshot.outputFrameHeld),
+        snapshot.manualLighting.effect ==
+                ManualLightingEffect::Ambilight
+            ? "DDP"
+            : "HA",
+        static_cast<unsigned>(
+            snapshot.manualLighting.effect),
+        static_cast<unsigned>(
+            snapshot.manualLighting.color.r),
+        static_cast<unsigned>(
+            snapshot.manualLighting.color.g),
+        static_cast<unsigned>(
+            snapshot.manualLighting.color.b),
+        static_cast<unsigned>(
+            snapshot.manualLighting.speed),
+        static_cast<unsigned>(
+            snapshot.manualLighting.intensity));
 
     writer.append(
         "},\"wifi\":{");

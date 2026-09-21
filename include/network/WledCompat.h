@@ -4,6 +4,8 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "render/ManualLighting.h"
+
 namespace ambilight {
 
 enum class WledStateParseResult : std::uint8_t {
@@ -20,9 +22,22 @@ struct WledStateCommand {
     bool hasBrightness = false;
     std::uint8_t brightness = 0;
 
-    // The single segment is a structural Home Assistant shim. Segment
-    // fields are parsed and validated but intentionally do not own physical
-    // output state; master on/bri remain the sole output controls.
+    // The single segment is a structural Home Assistant shim for power /
+    // brightness, but it owns manual visual controls (RGB/effect/speed/
+    // intensity). Master on/bri remain the sole output power controls.
+    bool hasColor = false;
+    Rgb8 color{255, 255, 255};
+
+    bool hasEffect = false;
+    ManualLightingEffect effect =
+        ManualLightingEffect::Ambilight;
+
+    bool hasSpeed = false;
+    std::uint8_t speed = 128;
+
+    bool hasIntensity = false;
+    std::uint8_t intensity = 128;
+
     bool verbose = false;
     bool liveRequested = false;
 };
@@ -60,6 +75,8 @@ struct WledCompatSnapshot {
     bool ddpLive = false;
     bool senderLocked = false;
     std::array<char, 16> senderIp{};
+
+    ManualLightingState manualLighting{};
 };
 
 class WledCompat {
@@ -68,7 +85,7 @@ public:
         "0.15.3";
 
     static constexpr std::uint8_t
-        kBrightnessCapability = 2;
+        kRgbCapability = 1;
 
     static WledStateParseResult parseStateCommand(
         const char* data,
@@ -79,6 +96,10 @@ public:
         bool enabled,
         std::uint8_t brightness,
         std::uint8_t defaultBrightness,
+        const WledStateCommand& command);
+
+    static ManualLightingState resolveManualLighting(
+        const ManualLightingState& current,
         const WledStateCommand& command);
 
     static std::uint8_t reportedBrightness(
