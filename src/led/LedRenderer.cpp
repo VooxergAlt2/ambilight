@@ -284,7 +284,7 @@ esp_err_t LedRenderer::render(
             if (disabledOffset !=
                     LedPixelMaskProfile::kNone &&
                 disabledOffset ==
-                    offset) {
+                    physical) {
 
                 physicalOutput = {};
             }
@@ -392,7 +392,7 @@ esp_err_t LedRenderer::renderActive(
             if (disabledOffset !=
                     LedPixelMaskProfile::kNone &&
                 disabledOffset ==
-                    offset) {
+                    physical) {
 
                 physicalOutput = {};
             }
