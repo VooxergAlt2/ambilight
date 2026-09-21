@@ -994,7 +994,7 @@ bool appendInfoJson(
         WledCompat::kApiVersion);
 
     writer.append(
-        ",\"vid\":2609210"
+        ",\"vid\":\"2609210\""
         ",\"cn\":");
 
     writer.appendJsonString(
