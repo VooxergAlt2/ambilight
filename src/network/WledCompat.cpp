@@ -76,6 +76,7 @@ public:
         ++position_;
 
         std::size_t written = 0;
+        bool overflow = false;
 
         while (position_ < length_) {
             const unsigned char value =
@@ -83,12 +84,13 @@ public:
                     data_[position_++]);
 
             if (value == '"') {
-                output[
-                    written < capacity
-                        ? written
-                        : capacity - 1] = '\0';
+                if (overflow) {
+                    output[0] = '\0';
+                } else {
+                    output[written] = '\0';
+                }
 
-                return written < capacity;
+                return true;
             }
 
             if (value < 0x20U) {
@@ -154,13 +156,16 @@ public:
 
             if (written + 1 >= capacity) {
                 // Continue validating the JSON string but mark the key as
-                // non-comparable. The caller can safely treat it as unknown.
-                written = capacity;
+                // non-comparable. It must never match a supported key after
+                // truncation.
+                overflow = true;
                 continue;
             }
 
-            output[written++] =
-                decoded;
+            if (!overflow) {
+                output[written++] =
+                    decoded;
+            }
         }
 
         return false;
@@ -479,11 +484,7 @@ private:
         }
 
         while (true) {
-            char key[2]{};
-
-            if (!parseString(
-                    key,
-                    sizeof(key)) ||
+            if (!skipString() ||
                 !consume(':') ||
                 !skipValue(depth)) {
 
