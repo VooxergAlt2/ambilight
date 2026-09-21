@@ -1078,7 +1078,7 @@ void printLedPixelMaskProfile() {
     };
 
     Serial.printf(
-        "LED PIXEL MASK source=%s",
+        "LED PIXEL MASK source=%s physical_offsets_zero_based",
         ledPixelMaskSourceName());
 
     for (std::size_t index = 0;
@@ -5199,7 +5199,7 @@ void printConfiguration() {
     Serial.println(
         "LED topology: l + Enter=status, lreset, or lCOUNT:GPIO:REV,... Example l230:20:1,160:19:1,230:21:1,160:18:0; safety blackout/brightness restore is automatic.");
     Serial.println(
-        "LED pixel mask: d + Enter=status, dreset, or dTOP,RIGHT,BOTTOM,LEFT; '-' means none. Example: d-,12,-,0.");
+        "LED pixel mask: d + Enter=status, dreset, or dTOP,RIGHT,BOTTOM,LEFT; offsets are physical/zero-based from DATA input, '-' means none. Example: d-,12,-,0.");
     Serial.println(
         "LED test: i1=segments, i2=direction, i0=stop; jside:SIDE:START:COUNT or jgpio:GPIO:START:COUNT; brightness 1..255.");
     Serial.println(
