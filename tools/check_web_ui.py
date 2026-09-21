@@ -43,6 +43,8 @@ REQUIRED_IDS = {
     "wifiOpen",
     "probeStart",
     "localeSelect",
+    "power0",
+    "power1",
 }
 
 REQUIRED_TOKENS = {
@@ -59,6 +61,10 @@ REQUIRED_TOKENS = {
     "function spatialNumber(",
     "wifiOpen",
     "frame_held",
+    "s.output.enabled",
+    "s.output.effective_brightness",
+    "post('/api/power','0')",
+    "post('/api/power','1')",
     "function setLocale(",
     "localStorage.setItem('ambilight.locale'",
     "function corrName(",
