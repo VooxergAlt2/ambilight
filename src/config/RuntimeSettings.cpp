@@ -9,6 +9,22 @@
 namespace ambilight {
 namespace {
 
+struct OutputStateRecord {
+    static constexpr std::uint16_t kSchemaVersion = 1;
+
+    std::uint16_t schemaVersion =
+        kSchemaVersion;
+
+    std::uint8_t brightness =
+        config::kDefaultOutputBrightness;
+
+    std::uint8_t enabled = 1;
+};
+
+static_assert(
+    sizeof(OutputStateRecord) == 4,
+    "OutputStateRecord persistence layout must stay stable");
+
 template <std::size_t N>
 void copyText(
     std::array<char, N>& destination,
@@ -116,53 +132,104 @@ bool RuntimeSettings::begin() {
                 raw);
     }
 
-    outputBrightness_ =
-        preferences_.getUChar(
-            kOutputBrightnessKey,
-            config::kDefaultOutputBrightness);
+    const std::size_t outputStateBytes =
+        preferences_.getBytesLength(
+            kOutputStateKey);
 
-    const bool outputEnabledStored =
-        preferences_.isKey(
-            kOutputEnabledKey);
+    bool outputStateLoaded = false;
 
-    const std::uint8_t storedOutputEnabled =
-        preferences_.getUChar(
-            kOutputEnabledKey,
-            outputBrightness_ != 0
-                ? 1U
-                : 0U);
+    if (outputStateBytes != 0) {
+        OutputStateRecord stored{};
 
-    if (
-        outputEnabledStored &&
-        storedOutputEnabled <= 1U
-    ) {
+        const bool shapeValid =
+            outputStateBytes ==
+                sizeof(stored) &&
+            preferences_.getBytes(
+                kOutputStateKey,
+                &stored,
+                sizeof(stored)) ==
+                    sizeof(stored);
 
-        outputEnabled_ =
-            storedOutputEnabled != 0U;
-    } else {
-        if (
-            outputEnabledStored &&
-            storedOutputEnabled > 1U
-        ) {
+        const bool valueValid =
+            shapeValid &&
+            stored.schemaVersion ==
+                OutputStateRecord::
+                    kSchemaVersion &&
+            stored.enabled <= 1U;
+
+        if (valueValid) {
+            outputBrightness_ =
+                stored.brightness;
+
+            outputEnabled_ =
+                stored.enabled != 0U;
+
+            outputStateLoaded = true;
+        } else {
+            ++stats_.invalidStoredValues;
+
+            preferences_.remove(
+                kOutputStateKey);
+        }
+    }
+
+    if (!outputStateLoaded) {
+        // Migrate the pre-Stage-46 representation. Stage <=45 encoded power
+        // only through brightness=0; early Stage 46 builds added output_on as
+        // a second key. The new record stores both values atomically.
+        outputBrightness_ =
+            preferences_.getUChar(
+                kLegacyOutputBrightnessKey,
+                config::kDefaultOutputBrightness);
+
+        const bool legacyEnabledStored =
+            preferences_.isKey(
+                kLegacyOutputEnabledKey);
+
+        const std::uint8_t legacyEnabled =
+            preferences_.getUChar(
+                kLegacyOutputEnabledKey,
+                outputBrightness_ != 0
+                    ? 1U
+                    : 0U);
+
+        if (legacyEnabledStored &&
+            legacyEnabled > 1U) {
 
             ++stats_.invalidStoredValues;
         }
 
-        // Stage <=45 encoded power solely as brightness=0. On first Stage 46
-        // boot migrate that durable meaning into the new independent power
-        // key, rather than silently turning an old "off" state into on=true.
         outputEnabled_ =
-            outputBrightness_ != 0;
+            legacyEnabledStored &&
+            legacyEnabled <= 1U
+                ? legacyEnabled != 0U
+                : outputBrightness_ != 0;
+
+        OutputStateRecord migrated{};
+        migrated.brightness =
+            outputBrightness_;
+        migrated.enabled =
+            outputEnabled_
+                ? 1U
+                : 0U;
 
         const std::size_t written =
-            preferences_.putUChar(
-                kOutputEnabledKey,
-                outputEnabled_
-                    ? 1U
-                    : 0U);
+            preferences_.putBytes(
+                kOutputStateKey,
+                &migrated,
+                sizeof(migrated));
 
-        if (written == sizeof(std::uint8_t)) {
+        if (written == sizeof(migrated)) {
             ++stats_.writes;
+
+            // Legacy values are now inert. Remove them only after the new
+            // single-record commit succeeded so a failed migration remains
+            // recoverable on the next boot.
+            preferences_.remove(
+                kLegacyOutputBrightnessKey);
+
+            preferences_.remove(
+                kLegacyOutputEnabledKey);
         } else {
             ++stats_.writeFailures;
         }
@@ -473,28 +540,43 @@ bool RuntimeSettings::setCorrectionMode(
     return true;
 }
 
-bool RuntimeSettings::setOutputBrightness(
+bool RuntimeSettings::setOutputState(
+    bool enabled,
     std::uint8_t brightness) {
 
-    if (outputBrightness_ ==
-        brightness) {
+    if (outputEnabled_ == enabled &&
+        outputBrightness_ == brightness) {
+
         return persistenceAvailable_;
     }
 
-    outputBrightness_ =
-        brightness;
+    // Runtime control remains available even when NVS is unavailable or a
+    // write fails. The persisted form itself is a single record, so a reboot
+    // can never observe half of an output-state update.
+    outputEnabled_ = enabled;
+    outputBrightness_ = brightness;
 
     if (!persistenceAvailable_) {
         ++stats_.writeFailures;
         return false;
     }
 
-    const std::size_t written =
-        preferences_.putUChar(
-            kOutputBrightnessKey,
-            brightness);
+    OutputStateRecord record{};
+    record.brightness =
+        outputBrightness_;
 
-    if (written != sizeof(std::uint8_t)) {
+    record.enabled =
+        outputEnabled_
+            ? 1U
+            : 0U;
+
+    const std::size_t written =
+        preferences_.putBytes(
+            kOutputStateKey,
+            &record,
+            sizeof(record));
+
+    if (written != sizeof(record)) {
         ++stats_.writeFailures;
         return false;
     }
@@ -503,33 +585,22 @@ bool RuntimeSettings::setOutputBrightness(
     return true;
 }
 
+bool RuntimeSettings::setOutputBrightness(
+    std::uint8_t brightness) {
+
+    return
+        setOutputState(
+            outputEnabled_,
+            brightness);
+}
 
 bool RuntimeSettings::setOutputEnabled(
     bool enabled) {
 
-    if (outputEnabled_ == enabled) {
-        return persistenceAvailable_;
-    }
-
-    outputEnabled_ = enabled;
-
-    if (!persistenceAvailable_) {
-        ++stats_.writeFailures;
-        return false;
-    }
-
-    const std::size_t written =
-        preferences_.putUChar(
-            kOutputEnabledKey,
-            enabled ? 1U : 0U);
-
-    if (written != sizeof(std::uint8_t)) {
-        ++stats_.writeFailures;
-        return false;
-    }
-
-    ++stats_.writes;
-    return true;
+    return
+        setOutputState(
+            enabled,
+            outputBrightness_);
 }
 
 
