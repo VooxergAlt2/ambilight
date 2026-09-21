@@ -509,6 +509,52 @@ void test_spatial_reset_version_failure_keeps_live_profile() {
             widthMmX10);
 }
 
+void test_stage45_brightness_zero_migrates_to_output_off() {
+    Preferences legacy;
+
+    TEST_ASSERT_TRUE(
+        legacy.begin(
+            "ambilight"));
+
+    TEST_ASSERT_EQUAL_UINT16(
+        sizeof(std::uint8_t),
+        legacy.putUChar(
+            "brightness",
+            0));
+
+    TEST_ASSERT_FALSE(
+        legacy.isKey(
+            "output_on"));
+
+    legacy.end();
+
+    RuntimeSettings settings;
+
+    TEST_ASSERT_TRUE(
+        settings.begin());
+
+    TEST_ASSERT_FALSE(
+        settings.outputEnabled());
+
+    TEST_ASSERT_EQUAL_UINT8(
+        0,
+        settings.outputBrightness());
+
+    Preferences verify;
+
+    TEST_ASSERT_TRUE(
+        verify.begin(
+            "ambilight"));
+
+    TEST_ASSERT_EQUAL_UINT8(
+        0,
+        verify.getUChar(
+            "output_on",
+            1));
+
+    verify.end();
+}
+
 void test_output_power_state_is_independent_and_persists() {
     RuntimeSettings settings;
 
@@ -678,6 +724,9 @@ int main(int, char**) {
 
     RUN_TEST(
         test_spatial_reset_version_failure_keeps_live_profile);
+
+    RUN_TEST(
+        test_stage45_brightness_zero_migrates_to_output_off);
 
     RUN_TEST(
         test_output_power_state_is_independent_and_persists);
