@@ -1,9 +1,13 @@
 #include "network/WledCompat.h"
 
 #include <array>
+#include <cstdarg>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
+
+#include "config/FirmwareInfo.h"
 
 namespace ambilight {
 namespace {
@@ -709,6 +713,385 @@ WledStateParseResult parseSegments(
     }
 }
 
+class WledJsonWriter {
+public:
+    WledJsonWriter(
+        char* data,
+        std::size_t capacity)
+        : data_(data),
+          capacity_(capacity) {
+
+        if (data_ != nullptr &&
+            capacity_ > 0) {
+
+            data_[0] = '\0';
+        } else {
+            ok_ = false;
+        }
+    }
+
+    bool append(
+        const char* text) {
+
+        if (text == nullptr) {
+            ok_ = false;
+            return false;
+        }
+
+        const std::size_t count =
+            std::strlen(text);
+
+        if (!reserve(count)) {
+            return false;
+        }
+
+        std::memcpy(
+            data_ + length_,
+            text,
+            count);
+
+        length_ += count;
+        data_[length_] = '\0';
+        return true;
+    }
+
+    bool appendf(
+        const char* format,
+        ...) {
+
+        if (!ok_ ||
+            format == nullptr ||
+            length_ >= capacity_) {
+
+            ok_ = false;
+            return false;
+        }
+
+        va_list args;
+        va_start(args, format);
+
+        const int written =
+            std::vsnprintf(
+                data_ + length_,
+                capacity_ - length_,
+                format,
+                args);
+
+        va_end(args);
+
+        if (written < 0 ||
+            static_cast<std::size_t>(
+                written) >=
+                capacity_ - length_) {
+
+            ok_ = false;
+            return false;
+        }
+
+        length_ +=
+            static_cast<std::size_t>(
+                written);
+
+        return true;
+    }
+
+    bool appendJsonString(
+        const char* text) {
+
+        if (!append("\"")) {
+            return false;
+        }
+
+        if (text != nullptr) {
+            static constexpr char kHex[] =
+                "0123456789ABCDEF";
+
+            for (std::size_t index = 0;
+                 text[index] != '\0';
+                 ++index) {
+
+                const unsigned char value =
+                    static_cast<unsigned char>(
+                        text[index]);
+
+                if (value == '\"' ||
+                    value == '\\') {
+
+                    char escaped[3] = {
+                        '\\',
+                        static_cast<char>(
+                            value),
+                        '\0'
+                    };
+
+                    if (!append(escaped)) {
+                        return false;
+                    }
+
+                    continue;
+                }
+
+                if (value < 0x20U) {
+                    char escaped[7] = {
+                        '\\',
+                        'u',
+                        '0',
+                        '0',
+                        kHex[
+                            (value >> 4) &
+                            0x0FU],
+                        kHex[
+                            value &
+                            0x0FU],
+                        '\0'
+                    };
+
+                    if (!append(escaped)) {
+                        return false;
+                    }
+
+                    continue;
+                }
+
+                if (!reserve(1)) {
+                    return false;
+                }
+
+                data_[length_++] =
+                    static_cast<char>(
+                        value);
+
+                data_[length_] = '\0';
+            }
+        }
+
+        return append("\"");
+    }
+
+    bool ok() const {
+        return ok_;
+    }
+
+    std::size_t length() const {
+        return length_;
+    }
+
+private:
+    bool reserve(
+        std::size_t extra) {
+
+        if (!ok_ ||
+            capacity_ == 0 ||
+            length_ >= capacity_ ||
+            extra >
+                capacity_ -
+                    length_ -
+                    1U) {
+
+            ok_ = false;
+            return false;
+        }
+
+        return true;
+    }
+
+    char* data_ = nullptr;
+    std::size_t capacity_ = 0;
+    std::size_t length_ = 0;
+    bool ok_ = true;
+};
+
+const char* boolJson(
+    bool value) {
+
+    return value
+        ? "true"
+        : "false";
+}
+
+WledResolvedOutputState projectedOutputState(
+    const WledCompatSnapshot& snapshot,
+    const WledStateCommand* overlay) {
+
+    if (overlay == nullptr) {
+        WledResolvedOutputState output;
+        output.enabled =
+            snapshot.outputEnabled;
+
+        output.brightness =
+            snapshot.brightness;
+
+        return output;
+    }
+
+    return
+        WledCompat::resolveOutputState(
+            snapshot.outputEnabled,
+            snapshot.brightness,
+            snapshot.defaultBrightness,
+            *overlay);
+}
+
+bool appendStateJson(
+    WledJsonWriter& writer,
+    const WledCompatSnapshot& snapshot,
+    const WledStateCommand* overlay) {
+
+    const auto output =
+        projectedOutputState(
+            snapshot,
+            overlay);
+
+    const bool on =
+        output.enabled &&
+        output.brightness != 0;
+
+    const std::uint8_t brightness =
+        WledCompat::reportedBrightness(
+            output.brightness);
+
+    writer.appendf(
+        "{\"on\":%s,"
+        "\"bri\":%u,"
+        "\"mainseg\":0,"
+        "\"lor\":0,"
+        "\"seg\":[{"
+        "\"id\":0,"
+        "\"start\":0,"
+        "\"stop\":%u,"
+        "\"on\":%s,"
+        "\"bri\":255,"
+        "\"fx\":0,"
+        "\"pal\":0,"
+        "\"sel\":true,"
+        "\"cct\":0"
+        "}],"
+        "\"nl\":{"
+        "\"on\":false,"
+        "\"dur\":60,"
+        "\"mode\":1,"
+        "\"tbri\":0"
+        "},"
+        "\"udpn\":{"
+        "\"send\":false,"
+        "\"recv\":false"
+        "}}",
+        boolJson(on),
+        static_cast<unsigned>(
+            brightness),
+        static_cast<unsigned>(
+            snapshot.ledCount),
+        boolJson(on));
+
+    return writer.ok();
+}
+
+bool appendInfoJson(
+    WledJsonWriter& writer,
+    const WledCompatSnapshot& snapshot) {
+
+    const std::uint8_t signal =
+        snapshot.wifiConnected
+            ? WledCompat::
+                  rssiToSignalPercent(
+                      snapshot.wifiRssi)
+            : 0U;
+
+    writer.append(
+        "{\"ver\":");
+
+    writer.appendJsonString(
+        WledCompat::kApiVersion);
+
+    writer.append(
+        ",\"vid\":2609210"
+        ",\"cn\":");
+
+    writer.appendJsonString(
+        config::kFirmwareVersion);
+
+    writer.append(
+        ",\"name\":\"Ambilight C6\""
+        ",\"brand\":\"Ambilight\""
+        ",\"product\":\"ESP32-C6 DDP Ambilight\""
+        ",\"arch\":\"ESP32-C6\""
+        ",\"mac\":");
+
+    writer.appendJsonString(
+        snapshot.wifiMac.data());
+
+    writer.append(
+        ",\"ip\":");
+
+    writer.appendJsonString(
+        snapshot.wifiIp.data());
+
+    writer.appendf(
+        ",\"uptime\":%lu"
+        ",\"freeheap\":%lu"
+        ",\"live\":%s"
+        ",\"lm\":%s"
+        ",\"lip\":",
+        static_cast<unsigned long>(
+            snapshot.uptimeSeconds),
+        static_cast<unsigned long>(
+            snapshot.freeHeapBytes),
+        boolJson(
+            snapshot.ddpLive),
+        snapshot.ddpLive
+            ? "\"DDP\""
+            : "\"\"");
+
+    writer.appendJsonString(
+        snapshot.ddpLive &&
+        snapshot.senderLocked
+            ? snapshot.senderIp.data()
+            : "");
+
+    writer.appendf(
+        ",\"ws\":-1"
+        ",\"leds\":{"
+        "\"count\":%u,"
+        "\"maxseg\":1,"
+        "\"lc\":%u,"
+        "\"seglc\":[%u],"
+        "\"cct\":false,"
+        "\"wv\":false,"
+        "\"maxpwr\":0,"
+        "\"pwr\":0,"
+        "\"rgbw\":false"
+        "},"
+        "\"wifi\":{"
+        "\"rssi\":%ld,"
+        "\"signal\":%u,"
+        "\"channel\":%u"
+        "},"
+        "\"fs\":{"
+        "\"u\":1,"
+        "\"t\":2,"
+        "\"pmt\":1"
+        "}"
+        "}",
+        static_cast<unsigned>(
+            snapshot.ledCount),
+        static_cast<unsigned>(
+            WledCompat::
+                kBrightnessCapability),
+        static_cast<unsigned>(
+            WledCompat::
+                kBrightnessCapability),
+        static_cast<long>(
+            snapshot.wifiConnected
+                ? snapshot.wifiRssi
+                : 0),
+        static_cast<unsigned>(
+            signal),
+        static_cast<unsigned>(
+            snapshot.wifiChannel));
+
+    return writer.ok();
+}
+
 } // namespace
 
 WledStateParseResult WledCompat::parseStateCommand(
@@ -936,6 +1319,90 @@ std::uint8_t WledCompat::rssiToSignalPercent(
     return
         static_cast<std::uint8_t>(
             2 * (rssiDbm + 100));
+}
+
+bool WledCompat::buildJson(
+    WledJsonDocument document,
+    const WledCompatSnapshot& snapshot,
+    const WledStateCommand* overlay,
+    char* output,
+    std::size_t capacity,
+    std::size_t& length) {
+
+    length = 0;
+
+    if (output == nullptr ||
+        capacity == 0 ||
+        (
+            overlay != nullptr &&
+            document !=
+                WledJsonDocument::State
+        )) {
+
+        return false;
+    }
+
+    WledJsonWriter writer(
+        output,
+        capacity);
+
+    switch (document) {
+    case WledJsonDocument::Combined:
+        writer.append(
+            "{\"state\":");
+
+        appendStateJson(
+            writer,
+            snapshot,
+            nullptr);
+
+        writer.append(
+            ",\"info\":");
+
+        appendInfoJson(
+            writer,
+            snapshot);
+
+        writer.append(
+            ",\"effects\":[\"Solid\"]"
+            ",\"palettes\":[\"Default\"]"
+            "}");
+        break;
+
+    case WledJsonDocument::State:
+        appendStateJson(
+            writer,
+            snapshot,
+            overlay);
+        break;
+
+    case WledJsonDocument::Info:
+        appendInfoJson(
+            writer,
+            snapshot);
+        break;
+
+    case WledJsonDocument::Effects:
+        writer.append(
+            "[\"Solid\"]");
+        break;
+
+    case WledJsonDocument::Palettes:
+        writer.append(
+            "[\"Default\"]");
+        break;
+
+    case WledJsonDocument::Presets:
+        writer.append("{}");
+        break;
+    }
+
+    if (!writer.ok()) {
+        return false;
+    }
+
+    length = writer.length();
+    return true;
 }
 
 } // namespace ambilight
