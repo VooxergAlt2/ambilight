@@ -189,6 +189,31 @@ void test_wled_state_accepts_post_and_put_json_without_custom_header() {
     }
 }
 
+void test_wled_combined_endpoint_is_read_only() {
+    WebUiHttpRequest request;
+
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(
+            WebUiParseResult::
+                MethodNotAllowed),
+        static_cast<int>(
+            parse(
+                "POST /json HTTP/1.1\r\n"
+                "Content-Type: application/json\r\n"
+                "Content-Length: 2\r\n\r\n{}",
+                request)));
+
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(
+            WebUiParseResult::
+                MethodNotAllowed),
+        static_cast<int>(
+            parse(
+                "PUT /json HTTP/1.1\r\n"
+                "Content-Length: 2\r\n\r\n{}",
+                request)));
+}
+
 void test_wled_write_content_type_rules_cover_ha_and_hyperhdr() {
     WebUiHttpRequest request;
 
@@ -509,6 +534,8 @@ int main(int, char**) {
         test_all_runtime_action_routes_map_to_expected_kind);
     RUN_TEST(
         test_wled_state_accepts_post_and_put_json_without_custom_header);
+    RUN_TEST(
+        test_wled_combined_endpoint_is_read_only);
     RUN_TEST(
         test_wled_write_content_type_rules_cover_ha_and_hyperhdr);
     RUN_TEST(
