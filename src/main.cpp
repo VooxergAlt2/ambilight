@@ -36,6 +36,7 @@
 #include "network/DdpUdpService.h"
 #include "network/WebUiService.h"
 #include "network/WifiService.h"
+#include "network/WledDiscoveryService.h"
 #include "tof/TofCalibrationCapture.h"
 #include "tof/TofDebugGrid.h"
 #include "tof/TofService.h"
@@ -72,6 +73,7 @@ ambilight::RenderDiagnostics renderDiagnostics;
 ambilight::RenderScheduler renderScheduler;
 ambilight::RuntimeSettings runtimeSettings;
 ambilight::WebUiService webUi;
+ambilight::WledDiscoveryService wledDiscovery;
 
 ambilight::CorrectionMode correctionMode =
     ambilight::CorrectionMode::Shadow;
@@ -313,6 +315,10 @@ bool applyWifiCredentials(
     const char* password,
     bool persist) {
 
+    // mDNS is interface-bound. Tear it down before a station reconfigure so
+    // the old address is never advertised during reconnect.
+    wledDiscovery.stop();
+
     bool persisted = false;
 
     if (persist) {
@@ -353,6 +359,8 @@ bool applyWifiCredentials(
 }
 
 bool clearRuntimeWifiCredentials() {
+    wledDiscovery.stop();
+
     const bool cleared =
         runtimeSettings.clearWifiCredentials();
 
@@ -5595,7 +5603,17 @@ void loop() {
     const std::uint64_t showSamplesBefore =
         ledEngine.showMetric().samples();
 
-    wifi.tick(millis());
+    const std::uint32_t networkNowMs =
+        millis();
+
+    wifi.tick(
+        networkNowMs);
+
+    wledDiscovery.tick(
+        wifi.connected() &&
+            webUi.running(),
+        networkNowMs);
+
     serviceDebugCommands();
     serviceCalibrationCapture();
 
