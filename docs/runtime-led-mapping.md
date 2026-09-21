@@ -57,9 +57,15 @@ For every side:
 
 Every GPIO must be used exactly once.
 
-Topology edits require:
+Topology edits use a controller-owned safety transaction:
 
-    brightness = 0
+    cancel active commissioning
+    controlled physical blackout
+    apply/persist topology
+    rollback on failure
+    restore output brightness
+
+The operator does not need to set brightness to 0.
 
 ## Coordinated runtime behavior
 
@@ -113,7 +119,7 @@ Keys:
 
 Schema:
 
-    2
+    3
 
 The blob is written first and the version commit marker last.
 
