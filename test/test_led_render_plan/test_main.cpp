@@ -253,7 +253,7 @@ void test_invalid_profile_does_not_build_plan() {
     TEST_ASSERT_FALSE(plan.valid);
 }
 
-void test_disabled_pixel_remains_logical_under_reversal() {
+void test_disabled_pixel_uses_physical_offset_under_reversal() {
     LedMappingProfile profile;
 
     profile.segment[
@@ -287,19 +287,26 @@ void test_disabled_pixel_remains_logical_under_reversal() {
         222,
         top.physicalIndex(7));
 
-    TEST_ASSERT_TRUE(
-        mask.disabled(
+    TEST_ASSERT_FALSE(
+        mask.disabledLogical(
             SegmentId::Top,
-            7));
+            7,
+            profile));
 
     TEST_ASSERT_EQUAL_UINT16(
         7,
         top.physicalIndex(222));
 
-    TEST_ASSERT_FALSE(
-        mask.disabled(
+    TEST_ASSERT_TRUE(
+        mask.disabledLogical(
             SegmentId::Top,
-            222));
+            222,
+            profile));
+
+    TEST_ASSERT_TRUE(
+        mask.disabledPhysical(
+            SegmentId::Top,
+            7));
 }
 
 int main(int, char**) {
@@ -324,7 +331,7 @@ int main(int, char**) {
         test_invalid_profile_does_not_build_plan);
 
     RUN_TEST(
-        test_disabled_pixel_remains_logical_under_reversal);
+        test_disabled_pixel_uses_physical_offset_under_reversal);
 
     return UNITY_END();
 }
