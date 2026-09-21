@@ -40,6 +40,10 @@ public:
         return outputBrightness_;
     }
 
+    bool outputEnabled() const {
+        return outputEnabled_;
+    }
+
     bool wifiCredentialsPresent() const {
         return wifiSsid_[0] != '\0';
     }
@@ -121,6 +125,9 @@ public:
     bool setOutputBrightness(
         std::uint8_t brightness);
 
+    bool setOutputEnabled(
+        bool enabled);
+
     bool setWifiCredentials(
         const char* ssid,
         const char* password);
@@ -169,6 +176,8 @@ private:
         "corr_mode";
     static constexpr const char* kOutputBrightnessKey =
         "brightness";
+    static constexpr const char* kOutputEnabledKey =
+        "output_on";
     static constexpr const char* kWifiSsidKey =
         "wifi_ssid";
     static constexpr const char* kWifiPasswordKey =
@@ -196,6 +205,7 @@ private:
         CorrectionMode::Shadow;
 
     std::uint8_t outputBrightness_ = 32;
+    bool outputEnabled_ = true;
 
     std::array<
         char,
