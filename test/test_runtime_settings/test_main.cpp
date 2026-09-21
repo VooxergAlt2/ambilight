@@ -541,19 +541,63 @@ void test_stage45_brightness_zero_migrates_to_output_off() {
         0,
         settings.outputBrightness());
 
-    Preferences verify;
+    TEST_ASSERT_TRUE(
+        Preferences::testHasKey(
+            "output_state"));
+
+    TEST_ASSERT_FALSE(
+        Preferences::testHasKey(
+            "brightness"));
+
+    TEST_ASSERT_FALSE(
+        Preferences::testHasKey(
+            "output_on"));
+}
+
+void test_early_stage46_split_output_keys_migrate_atomically() {
+    Preferences legacy;
 
     TEST_ASSERT_TRUE(
-        verify.begin(
+        legacy.begin(
             "ambilight"));
 
-    TEST_ASSERT_EQUAL_UINT8(
-        0,
-        verify.getUChar(
-            "output_on",
-            1));
+    TEST_ASSERT_EQUAL_UINT16(
+        sizeof(std::uint8_t),
+        legacy.putUChar(
+            "brightness",
+            77));
 
-    verify.end();
+    TEST_ASSERT_EQUAL_UINT16(
+        sizeof(std::uint8_t),
+        legacy.putUChar(
+            "output_on",
+            0));
+
+    legacy.end();
+
+    RuntimeSettings settings;
+
+    TEST_ASSERT_TRUE(
+        settings.begin());
+
+    TEST_ASSERT_FALSE(
+        settings.outputEnabled());
+
+    TEST_ASSERT_EQUAL_UINT8(
+        77,
+        settings.outputBrightness());
+
+    TEST_ASSERT_TRUE(
+        Preferences::testHasKey(
+            "output_state"));
+
+    TEST_ASSERT_FALSE(
+        Preferences::testHasKey(
+            "brightness"));
+
+    TEST_ASSERT_FALSE(
+        Preferences::testHasKey(
+            "output_on"));
 }
 
 void test_output_power_state_is_independent_and_persists() {
@@ -621,19 +665,56 @@ void test_invalid_output_power_value_self_heals_to_on() {
     TEST_ASSERT_TRUE(
         settings.outputEnabled());
 
-    Preferences verify;
+    TEST_ASSERT_TRUE(
+        Preferences::testHasKey(
+            "output_state"));
+
+    TEST_ASSERT_FALSE(
+        Preferences::testHasKey(
+            "output_on"));
+}
+
+void test_output_state_write_failure_cannot_persist_half_an_update() {
+    {
+        RuntimeSettings settings;
+
+        TEST_ASSERT_TRUE(
+            settings.begin());
+
+        Preferences::testFailPut(
+            "output_state");
+
+        TEST_ASSERT_FALSE(
+            settings.setOutputState(
+                false,
+                77));
+
+        // Runtime control stays available even though persistence failed.
+        TEST_ASSERT_FALSE(
+            settings.outputEnabled());
+
+        TEST_ASSERT_EQUAL_UINT8(
+            77,
+            settings.outputBrightness());
+    }
+
+    Preferences::testFailPut(
+        nullptr);
+
+    RuntimeSettings restored;
 
     TEST_ASSERT_TRUE(
-        verify.begin(
-            "ambilight"));
+        restored.begin());
+
+    // The previous complete record wins. We never persist only brightness or
+    // only power.
+    TEST_ASSERT_TRUE(
+        restored.outputEnabled());
 
     TEST_ASSERT_EQUAL_UINT8(
-        1,
-        verify.getUChar(
-            "output_on",
-            0));
-
-    verify.end();
+        ambilight::config::
+            kDefaultOutputBrightness,
+        restored.outputBrightness());
 }
 
 void test_wifi_clear_ssid_failure_keeps_live_credentials() {
@@ -730,10 +811,16 @@ int main(int, char**) {
         test_stage45_brightness_zero_migrates_to_output_off);
 
     RUN_TEST(
+        test_early_stage46_split_output_keys_migrate_atomically);
+
+    RUN_TEST(
         test_output_power_state_is_independent_and_persists);
 
     RUN_TEST(
         test_invalid_output_power_value_self_heals_to_on);
+
+    RUN_TEST(
+        test_output_state_write_failure_cannot_persist_half_an_update);
 
     RUN_TEST(
         test_wifi_clear_ssid_failure_keeps_live_credentials);
