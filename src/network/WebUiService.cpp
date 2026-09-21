@@ -368,13 +368,23 @@ const STATIC_EN={
 'Разделы':'Sections'
 };
 function tr(ru,en){return locale==='en'?en:ru}
+const DYNAMIC_TEXT_IDS=new Set([
+'fw','action','stCorr','stBright','stDdp','stTof','brightnessValue',
+'homeStatus','testState','tvTop','tvRight','tvBottom','tvLeft',
+'tvSummary','topologyInfo','maskSource','tofZoneDetail','tofDebugState',
+'spSource','curveSource','tofDetail','calDetail','wifiState','diag','probeStart',
+'maskLimit0','maskLimit1','maskLimit2','maskLimit3'
+]);
+function dynamicUiElement(el){
+  return !!(el&&(DYNAMIC_TEXT_IDS.has(el.id)||(el.classList&&el.classList.contains('tofcell'))));
+}
 function translateStatic(root=document.body){
   if(!root)return;
   const walker=document.createTreeWalker(root,NodeFilter.SHOW_TEXT);
   let node;
   while((node=walker.nextNode())){
     const parent=node.parentElement;
-    if(!parent||parent.tagName==='SCRIPT'||parent.tagName==='STYLE')continue;
+    if(!parent||parent.tagName==='SCRIPT'||parent.tagName==='STYLE'||dynamicUiElement(parent))continue;
     if(!staticOriginalText.has(node))staticOriginalText.set(node,node.nodeValue);
     const original=staticOriginalText.get(node),trimmed=original.trim();
     if(!trimmed)continue;
@@ -383,6 +393,7 @@ function translateStatic(root=document.body){
     node.nodeValue=lead+translated+tail;
   }
   root.querySelectorAll('[title],[placeholder],[aria-label]').forEach(el=>{
+    if(dynamicUiElement(el))return;
     if(!staticOriginalAttrs.has(el)){
       staticOriginalAttrs.set(el,{
         title:el.getAttribute('title'),
