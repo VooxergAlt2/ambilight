@@ -85,12 +85,14 @@ Palettes:
 
     ["Default"]
 
-Presets:
+Presets wire response:
 
-    {}
+    {"0":{}}
 
-The empty presets endpoint is intentional. Current python-wled may request
-/presets.json during the first device update based on info.fs metadata.
+This is an intentional compatibility sentinel. Current python-wled treats an
+empty object as a failed presets fetch, but explicitly discards preset id 0
+from its model. Home Assistant therefore sees no user preset while the initial
+device update remains successful.
 
 ## Write endpoint
 
@@ -174,6 +176,16 @@ The existing WebUiService safety rule remains intact:
 If the response cannot be delivered, the pending action is discarded.
 
 This keeps WLED writes aligned with the existing web-control transaction model.
+
+## Home Assistant option boundary
+
+The intended Home Assistant shape is the default one-segment WLED entity with
+"Keep master light" left disabled. In that mode HA always follows the segment
+preflight with the authoritative master request.
+
+Enabling Home Assistant's optional "Keep master light" exposes separate master
+and segment controls. The segment control is intentionally non-authoritative
+in this facade and should not be used as a second independent Ambilight dimmer.
 
 ## Home Assistant entity shape
 
@@ -261,12 +273,12 @@ Native contracts cover:
 - WLED JSON state parsing
 - nested/unknown JSON skipping
 - brightness and on/off resolution
-- segment on/off behavior
+- segment preflight validation without output mutation
 - current HA brightness capability shape
 - state JSON projection
 - info JSON fields used by Home Assistant
 - combined /json response body
-- empty presets response
+- python-wled-safe invisible preset-0 sentinel
 - response-buffer overflow failure
 - HTTP GET/POST route and content-type rules
 - explicit rejection of PUT and writes to combined /json
