@@ -4,6 +4,7 @@
 #include <ESPmDNS.h>
 #include <WiFi.h>
 
+#include <cstddef>
 #include <cstdio>
 
 namespace ambilight {
