@@ -1393,7 +1393,10 @@ bool WledCompat::buildJson(
         break;
 
     case WledJsonDocument::Presets:
-        writer.append("{}");
+        // python-wled treats an empty JSON object as a failed presets fetch.
+        // Preset id 0 is explicitly discarded by its model layer, so this
+        // truthy sentinel means "no user presets" without creating an entity.
+        writer.append("{\"0\":{}}");
         break;
     }
 
