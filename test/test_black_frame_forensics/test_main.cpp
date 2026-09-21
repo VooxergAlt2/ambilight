@@ -205,8 +205,12 @@ void test_pixel_mask_reason_is_detected_when_it_removes_only_lit_pixel() {
         topology.segmentConfig(
             SegmentId::Top);
 
+    // TOP is reversed in the measured default topology. Physical LED 0
+    // therefore corresponds to the last logical offset of the segment.
     frame.pixels[
-        top.logicalStart] =
+        top.logicalStart +
+        top.logicalLength -
+        1U] =
         Rgb8{10, 20, 30};
 
     mask.disabledOffset[
