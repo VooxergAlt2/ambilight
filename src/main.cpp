@@ -4654,6 +4654,24 @@ void handleWebUiAction(
         break;
     }
 
+    // WLED/HA writes are acknowledged directly with a WLED state JSON
+    // before the queued action is released to main. Do not let those control
+    // plane requests overwrite the browser-specific /api action correlation
+    // slot, otherwise a polling HA client can create a false "superseded"
+    // result in an open Web UI.
+    if (event.kind ==
+        ambilight::
+            WebUiActionKind::
+                WledState) {
+
+        if (!ok) {
+            Serial.println(
+                "WLED state action failed after pre-validation.");
+        }
+
+        return;
+    }
+
     recordWebAction(
         event.sequence,
         ok,
