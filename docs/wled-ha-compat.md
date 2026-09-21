@@ -240,6 +240,32 @@ Schema 1 stores:
 Legacy Stage <=45 brightness and early Stage 46 output_on keys are migration
 inputs only. They are removed after a successful output_state commit.
 
+## Home Assistant auxiliary entities
+
+The official Home Assistant WLED integration always forwards several WLED
+platforms in addition to the light entity. Stage 46 cannot suppress those
+platforms through device metadata.
+
+Expected extra entities include diagnostics/config controls such as LED count,
+IP address, restart, nightlight/sync, segment speed/intensity, reverse/freeze,
+live override and firmware update.
+
+They are outside the Stage 46 control contract. Unsupported state fields are
+accepted as valid JSON but do not mutate Ambilight output. The restart endpoint
+is not exposed.
+
+The firmware-update entity is intentionally unable to install WLED firmware:
+the facade reports:
+
+    info.arch = ESP32-C6
+
+Current python-wled's upgrade whitelist does not include ESP32-C6, so upgrade
+is rejected client-side before any /update upload. A native regression test
+locks this reported architecture to avoid accidentally widening that boundary.
+
+For a clean HA dashboard, disable the unused WLED configuration/update
+entities and keep the single brightness light entity.
+
 ## Deliberately unsupported WLED features
 
 The facade does not implement:
