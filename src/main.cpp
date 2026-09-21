@@ -3583,6 +3583,52 @@ void copyWebText(
         source);
 }
 
+void copyNormalizedWifiMac(
+    std::array<char, 13>& destination) {
+
+    destination.fill('\0');
+
+    const String mac =
+        WiFi.macAddress();
+
+    std::size_t written = 0;
+
+    for (std::size_t index = 0;
+         index <
+            static_cast<std::size_t>(
+                mac.length()) &&
+         written < 12;
+         ++index) {
+
+        char value =
+            mac[
+                static_cast<unsigned>(
+                    index)];
+
+        if (value == ':' ||
+            value == '-' ||
+            value == '.') {
+
+            continue;
+        }
+
+        if (value >= 'A' &&
+            value <= 'F') {
+
+            value =
+                static_cast<char>(
+                    value - 'A' + 'a');
+        }
+
+        destination[written++] =
+            value;
+    }
+
+    if (written != 12) {
+        destination.fill('\0');
+    }
+}
+
 void recordWebAction(
     std::uint32_t sequence,
     bool ok,
@@ -3612,8 +3658,17 @@ bool fillWebUiSnapshot(
     snapshot.correctionMode =
         correctionMode;
 
+    snapshot.outputEnabled =
+        runtimeSettings.outputEnabled();
+
     snapshot.brightness =
+        runtimeSettings.outputBrightness();
+
+    snapshot.effectiveBrightness =
         ledEngine.brightness();
+
+    snapshot.uptimeSeconds =
+        millis() / 1000U;
 
     snapshot.wifiEnabled =
         wifi.enabled();
@@ -3625,6 +3680,9 @@ bool fillWebUiSnapshot(
         snapshot.wifiSsid,
         wifi.ssid());
 
+    copyNormalizedWifiMac(
+        snapshot.wifiMac);
+
     if (snapshot.wifiConnected) {
         const String ip =
             WiFi.localIP().toString();
@@ -3635,6 +3693,17 @@ bool fillWebUiSnapshot(
 
         snapshot.wifiRssi =
             WiFi.RSSI();
+
+        const int channel =
+            WiFi.channel();
+
+        snapshot.wifiChannel =
+            channel > 0 &&
+            channel <= 255
+                ? static_cast<
+                      std::uint8_t>(
+                        channel)
+                : 0U;
     }
 
     snapshot.ddpRunning =
@@ -5347,7 +5416,7 @@ void setup() {
         runtimeSettings.correctionMode();
 
     ledEngine.setBrightness(
-        runtimeSettings.outputBrightness());
+        effectiveOutputBrightness());
 
     const auto& startupTopology =
         runtimeSettings.ledMappingProfile();
