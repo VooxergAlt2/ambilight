@@ -3,7 +3,7 @@
 ## Purpose
 
 Stage 46 exposes a deliberately small WLED-compatible control and discovery
-surface without replacing the Ambilight firmware with WLED.
+surface for Home Assistant without replacing the Ambilight firmware with WLED.
 
 The architecture is:
 
@@ -12,10 +12,9 @@ The architecture is:
         -> HTTP/80 WLED-compatible JSON
         -> output power / brightness
 
-    HyperHDR Hyperk driver
-        -> mDNS _hyperk._tcp
-        -> HTTP/80 WLED-compatible JSON for control
-        -> DDP UDP/4048 for realtime RGB
+    HyperHDR
+        -> DDP UDP/4048
+        -> realtime RGB
 
     Ambilight Web UI
         -> HTTP/80 /api/*
@@ -27,10 +26,8 @@ pipeline remain native Ambilight components.
 
 The facade is designed against:
 
-- Home Assistant WLED integration using python-wled 0.23.x
+- Home Assistant WLED integration using current python-wled 0.23.x semantics
 - WLED API compatibility level 0.15.3
-- HyperHDR DriverNetHyperk, which inherits the DDP driver and uses the WLED
-  shaped HTTP API only for state/control
 
 The facade reports:
 
@@ -44,9 +41,8 @@ uses its normal polling coordinator.
 
 When Wi-Fi is connected and the HTTP server is running, firmware advertises:
 
-    _http._tcp.local.   port 80
-    _wled._tcp.local.   port 80
-    _hyperk._tcp.local. port 80
+    _http._tcp.local. port 80
+    _wled._tcp.local. port 80
 
 The WLED service includes:
 
@@ -56,10 +52,8 @@ The hostname is unique per controller:
 
     ambilight-c6-<last6mac>
 
-The _wled service is the Home Assistant discovery contract.
-
-The _hyperk service is retained for HyperHDR Hyperk discovery. Failure to
-register the optional _hyperk alias does not tear down a valid _wled service.
+Home Assistant can use the TXT MAC to deduplicate the device before its first
+/json request.
 
 Discovery stops on Wi-Fi loss or HTTP shutdown and retries after reconnect.
 
@@ -103,7 +97,10 @@ The empty presets endpoint is intentional. Current python-wled may request
 Supported:
 
     POST /json/state
-    PUT  /json/state
+
+The write must use:
+
+    Content-Type: application/json
 
 Accepted top-level WLED state fields include:
 
@@ -116,14 +113,23 @@ Accepted top-level WLED state fields include:
 Unknown valid JSON values are ignored rather than interpreted as Ambilight
 configuration.
 
-Only the single exposed segment is relevant. Segment on/off is accepted.
-Segment brightness is validated but the exposed segment brightness remains
-255, because the actual dimmer is the WLED master brightness.
+PUT is deliberately unsupported. Stage 46 is a Home Assistant compatibility
+surface, not a generic WLED/Hyperk emulation layer.
 
-This avoids double scaling in Home Assistant:
+## One-segment brightness model
 
-    HA effective brightness =
-        segment bri 255 * master bri / 255
+The facade exposes one segment with segment brightness fixed to 255. The real
+dimmer is master state.bri.
+
+This matches current Home Assistant behavior for a single-segment WLED device:
+HA sends the segment brightness as 255 and then sends the requested brightness
+through the master state.
+
+Reported entity brightness is therefore:
+
+    segment bri 255 * master bri / 255
+
+There is no double scaling.
 
 ## Output semantics
 
@@ -143,8 +149,8 @@ Examples:
     {"bri":0}
         -> off without creating a visible on-at-zero state
 
-If on=true is requested while remembered brightness is zero, the firmware
-restores the conservative default brightness.
+If on=true is requested while remembered brightness is zero, firmware restores
+the conservative default brightness.
 
 The same WledCompat resolver is used for:
 
@@ -167,8 +173,7 @@ The existing WebUiService safety rule remains intact:
 
 If the response cannot be delivered, the pending action is discarded.
 
-This prevents a state-changing request from tearing down its own TCP response
-and keeps WLED writes aligned with the existing web-control transaction model.
+This keeps WLED writes aligned with the existing web-control transaction model.
 
 ## Home Assistant entity shape
 
@@ -179,33 +184,34 @@ The facade advertises one segment with:
     info.leds.seglc  = [2]
     segment bri      = 255
 
-In the current Home Assistant WLED integration, capability 2 maps to
-ColorMode.BRIGHTNESS. The controller therefore appears as a dimmable light
-without exposing an RGB picker that would conflict with realtime DDP colors.
+In the current Home Assistant WLED integration, capability 2
+(WHITE_CHANNEL) maps to ColorMode.BRIGHTNESS. The controller therefore
+appears as a dimmable light without exposing an RGB picker that would conflict
+with realtime DDP colors.
 
-WLED effects remain limited to Solid.
+## HyperHDR boundary
 
-## HyperHDR
-
-Use the HyperHDR Hyperk device type when this compatibility facade is used for
-device discovery/control.
-
-DriverNetHyperk:
-
-    inherits DriverNetDDP
-    GETs /json
-    PUTs /json/state
-    sends realtime RGB by DDP
-
-This is the transport model implemented by this firmware.
-
-Do not configure the controller as a normal HyperHDR WLED realtime device and
-do not infer support for WLED realtime UDP port 21324. The firmware's active
-realtime transport remains:
+HyperHDR remains on:
 
     DDP UDP/4048
 
-No WLED realtime UDP protocol is implemented or advertised.
+Stage 46 does not advertise _hyperk._tcp and does not implement the HyperHDR
+Hyperk PUT control path.
+
+This is deliberate. Current HyperHDR Hyperk configuration defaults include:
+
+    brightnessMax      true
+    brightnessMaxLevel 255
+
+Its power-on request can therefore include bri=255. Stage 46 treats WLED bri
+as the real global Ambilight brightness, so advertising Hyperk compatibility
+could unexpectedly raise a controller configured at the conservative 32/255
+level to full brightness.
+
+Do not configure this firmware as a HyperHDR Hyperk device.
+
+The normal WLED realtime UDP transport is also not implemented. For HyperHDR,
+use the existing DDP device path on UDP/4048.
 
 ## Persistence
 
@@ -235,6 +241,7 @@ The facade does not implement:
 - WLED OTA endpoints
 - WLED configuration pages
 - WLED color ownership
+- HyperHDR Hyperk control semantics
 
 Ambilight-specific configuration remains under the native /api/* surface.
 
@@ -249,7 +256,7 @@ DDP polling remains ahead of the HTTP service in the main loop.
 
 ## Validation
 
-Native tests cover:
+Native contracts cover:
 
 - WLED JSON state parsing
 - nested/unknown JSON skipping
@@ -257,14 +264,14 @@ Native tests cover:
 - segment on/off behavior
 - current HA brightness capability shape
 - state JSON projection
-- info JSON fields used by HA and HyperHDR
+- info JSON fields used by Home Assistant
 - combined /json response body
 - empty presets response
 - response-buffer overflow failure
-- HTTP GET/POST/PUT route and content-type rules
+- HTTP GET/POST route and content-type rules
+- explicit rejection of PUT and writes to combined /json
 - legacy output-state migration
 - atomic output-state write failure behavior
 
-Full ESP32-C6 compilation and live Home Assistant/HyperHDR discovery remain
-hardware/local validation gates and must not be inferred from native/static
-source review.
+Full ESP32-C6 compilation and live Home Assistant discovery remain local/
+hardware validation gates and must not be inferred from static source review.
