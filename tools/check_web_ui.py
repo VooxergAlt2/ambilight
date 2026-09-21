@@ -62,6 +62,8 @@ REQUIRED_TOKENS = {
     "function setLocale(",
     "localStorage.setItem('ambilight.locale'",
     "function corrName(",
+    "function actionMessage(",
+    "const ACTION_RU={",
     "p.push(String(value-1))",
     "v<0?'':v+1",
 }
@@ -152,6 +154,68 @@ def check_tag_balance(html: str) -> None:
             "unclosed static HTML tag(s): "
             + ", ".join(stack)
         )
+
+def check_static_localization(html: str) -> None:
+    """Require every static Russian UI label to have an English entry."""
+
+    script_start = html.find("<script>")
+    script_close = html.find("</script>")
+
+    if script_start < 0 or script_close < 0:
+        fail("cannot isolate script for localization check")
+
+    script = html[
+        script_start + len("<script>"):
+        script_close
+    ]
+
+    dictionary_start = script.find("const STATIC_EN={")
+    dictionary_end = script.find("};", dictionary_start)
+
+    if dictionary_start < 0 or dictionary_end < 0:
+        fail("STATIC_EN localization dictionary not found")
+
+    dictionary = script[
+        dictionary_start:
+        dictionary_end + 2
+    ]
+
+    markup = (
+        html[:script_start]
+        + html[script_close + len("</script>"):]
+    )
+
+    values: set[str] = set()
+
+    for match in re.finditer(r">([^<>]+)<", markup):
+        value = " ".join(match.group(1).split())
+
+        if value and re.search(r"[А-Яа-яЁё]", value):
+            values.add(value)
+
+    for match in re.finditer(
+        r'\b(?:placeholder|title|aria-label)="([^"]+)"',
+        markup,
+    ):
+        value = match.group(1)
+
+        if re.search(r"[А-Яа-яЁё]", value):
+            values.add(value)
+
+    # The locale option intentionally keeps its native language name.
+    values.discard("Русский")
+
+    missing = sorted(
+        value for value in values
+        if f"'{value}':" not in dictionary
+    )
+
+    if missing:
+        fail(
+            "static RU label(s) missing EN localization: "
+            + " | ".join(missing)
+        )
+
 
 def check_q12_gain_roundtrip() -> None:
     """Prove that the 3-decimal percent editor preserves all Q12 values.
@@ -299,13 +363,15 @@ def main() -> None:
         fail("expected exactly one inline style block")
 
     check_tag_balance(html)
+    check_static_localization(html)
     check_q12_gain_roundtrip()
 
     print(
         "Web UI check OK: "
         f"{len(ids)} static IDs, "
         f"{len(html)} embedded HTML characters, "
-        "tag nesting OK, Q12 round-trip OK (4097/4097)"
+        "tag nesting OK, RU/EN static localization OK, "
+        "Q12 round-trip OK (4097/4097)"
     )
 
 
