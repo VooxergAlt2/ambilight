@@ -223,10 +223,12 @@ void test_wled_write_content_type_rules_cover_ha_and_hyperhdr() {
                 "Content-Length: 2\r\n\r\n{}",
                 request)));
 
-    // If a PUT does declare a type, it must still be JSON.
+    // Qt is free to attach a generic MIME type to QByteArray PUT
+    // payloads. PUT is already a non-simple CORS request, so MIME is not part
+    // of the browser security boundary.
     TEST_ASSERT_EQUAL_INT(
         static_cast<int>(
-            WebUiParseResult::Forbidden),
+            WebUiParseResult::Ok),
         static_cast<int>(
             parse(
                 "PUT /json/state HTTP/1.1\r\n"
