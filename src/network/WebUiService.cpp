@@ -1603,11 +1603,17 @@ bool WebUiService::buildStatusResponse(
         ",\"output\":{");
 
     writer.appendf(
+        "\"enabled\":%s,"
         "\"brightness\":%u,"
+        "\"effective_brightness\":%u,"
         "\"correction\":%u,"
         "\"frame_held\":%s",
+        boolJson(
+            snapshot.outputEnabled),
         static_cast<unsigned>(
             snapshot.brightness),
+        static_cast<unsigned>(
+            snapshot.effectiveBrightness),
         static_cast<unsigned>(
             snapshot.correctionMode),
         boolJson(
