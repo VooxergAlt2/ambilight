@@ -717,6 +717,43 @@ void test_output_state_write_failure_cannot_persist_half_an_update() {
         restored.outputBrightness());
 }
 
+void test_identical_output_state_retries_failed_persistence() {
+    RuntimeSettings settings;
+
+    TEST_ASSERT_TRUE(
+        settings.begin());
+
+    Preferences::testFailPut(
+        "output_state");
+
+    TEST_ASSERT_FALSE(
+        settings.setOutputState(
+            false,
+            77));
+
+    Preferences::testFailPut(
+        nullptr);
+
+    // The live values are unchanged, but the failed durable write must be
+    // retried rather than short-circuited as an already persisted state.
+    TEST_ASSERT_TRUE(
+        settings.setOutputState(
+            false,
+            77));
+
+    RuntimeSettings restored;
+
+    TEST_ASSERT_TRUE(
+        restored.begin());
+
+    TEST_ASSERT_FALSE(
+        restored.outputEnabled());
+
+    TEST_ASSERT_EQUAL_UINT8(
+        77,
+        restored.outputBrightness());
+}
+
 void test_wifi_clear_ssid_failure_keeps_live_credentials() {
     RuntimeSettings settings;
     TEST_ASSERT_TRUE(settings.begin());
@@ -821,6 +858,9 @@ int main(int, char**) {
 
     RUN_TEST(
         test_output_state_write_failure_cannot_persist_half_an_update);
+
+    RUN_TEST(
+        test_identical_output_state_retries_failed_persistence);
 
     RUN_TEST(
         test_wifi_clear_ssid_failure_keeps_live_credentials);
