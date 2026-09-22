@@ -489,6 +489,80 @@ void test_home_assistant_one_segment_sequence_has_no_preflight_flash() {
         state.brightness);
 }
 
+void test_home_assistant_rgb_then_master_sequence_keeps_manual_owner() {
+    ambilight::ManualLightingState manual;
+
+    WledStateCommand segment;
+
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(
+            WledStateParseResult::Ok),
+        static_cast<int>(
+            parse(
+                "{\"seg\":[{\"id\":0,\"on\":true,\"col\":[[20,40,60]]}],\"v\":true}",
+                segment)));
+
+    manual =
+        WledCompat::resolveManualLighting(
+            manual,
+            segment);
+
+    TEST_ASSERT_EQUAL_UINT8(
+        static_cast<std::uint8_t>(
+            ambilight::
+                ManualLightingEffect::
+                    Solid),
+        static_cast<std::uint8_t>(
+            manual.effect));
+
+    TEST_ASSERT_EQUAL_UINT8(
+        20,
+        manual.color.r);
+
+    TEST_ASSERT_EQUAL_UINT8(
+        40,
+        manual.color.g);
+
+    TEST_ASSERT_EQUAL_UINT8(
+        60,
+        manual.color.b);
+
+    WledStateCommand master;
+
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(
+            WledStateParseResult::Ok),
+        static_cast<int>(
+            parse(
+                "{\"on\":true,\"bri\":120,\"v\":true}",
+                master)));
+
+    manual =
+        WledCompat::resolveManualLighting(
+            manual,
+            master);
+
+    TEST_ASSERT_EQUAL_UINT8(
+        static_cast<std::uint8_t>(
+            ambilight::
+                ManualLightingEffect::
+                    Solid),
+        static_cast<std::uint8_t>(
+            manual.effect));
+
+    TEST_ASSERT_EQUAL_UINT8(
+        20,
+        manual.color.r);
+
+    TEST_ASSERT_EQUAL_UINT8(
+        40,
+        manual.color.g);
+
+    TEST_ASSERT_EQUAL_UINT8(
+        60,
+        manual.color.b);
+}
+
 void test_reported_brightness_and_signal_are_wled_safe() {
     TEST_ASSERT_EQUAL_UINT8(
         1,
@@ -884,6 +958,8 @@ int main(int, char**) {
         test_segment_preflight_does_not_change_master_output);
     RUN_TEST(
         test_home_assistant_one_segment_sequence_has_no_preflight_flash);
+    RUN_TEST(
+        test_home_assistant_rgb_then_master_sequence_keeps_manual_owner);
     RUN_TEST(
         test_reported_brightness_and_signal_are_wled_safe);
 
