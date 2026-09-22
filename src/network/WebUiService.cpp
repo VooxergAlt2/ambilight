@@ -259,6 +259,15 @@ button{cursor:pointer}button.primary{background:var(--primary);color:#fff;border
 </div>
 </details>
 <div class="panel" style="margin-top:10px">
+<h2>Резервная копия</h2>
+<div class="row">
+<button class="primary" onclick="downloadConfigBackup()">Скачать backup</button>
+<input id="backupFile" type="file" accept="application/json,.json">
+<button onclick="restoreConfigBackup()">Восстановить из файла</button>
+</div>
+<div id="backupState" class="muted">Backup сохраняет runtime-настройки, но не содержит пароль Wi-Fi. При восстановлении сеть не переключается автоматически.</div>
+</div>
+<div class="panel" style="margin-top:10px">
 <h2>Сброс конфигурации</h2>
 <div class="row">
 <button id="factory" class="danger" onclick="factoryReset()">Заводской сброс</button>
@@ -367,6 +376,10 @@ const STATIC_EN={
 'Сохранить и подключиться':'Save and connect',
 'Забыть сохранённую сеть':'Forget saved network',
 'Пароль никогда не возвращается браузеру. Пустое поле не означает «оставить прежний пароль»: для защищённой сети введите пароль заново; для сети без пароля явно отметьте «Открытая сеть». После смены сети эта страница может потерять соединение.':'The password is never returned to the browser. A blank field does not mean “keep the old password”: re-enter the password for a protected network, or explicitly select “Open network”. This page may disconnect after changing networks.',
+'Резервная копия':'Configuration backup',
+'Скачать backup':'Download backup',
+'Восстановить из файла':'Restore from file',
+'Backup сохраняет runtime-настройки, но не содержит пароль Wi-Fi. При восстановлении сеть не переключается автоматически.':'The backup stores runtime settings but does not contain the Wi-Fi password. Restore does not switch networks automatically.',
 'Сброс конфигурации':'Configuration reset',
 'Заводской сброс':'Factory reset',
 'Сброс доступен только при яркости 0. Будут удалены Wi-Fi и все runtime-настройки Ambilight.':'Reset is available only at brightness 0. Wi-Fi and all Ambilight runtime settings will be deleted.',
@@ -383,7 +396,7 @@ const DYNAMIC_TEXT_IDS=new Set([
 'fw','action','stCorr','stBright','stDdp','stTof','brightnessValue',
 'homeStatus','testState','tvTop','tvRight','tvBottom','tvLeft',
 'tvSummary','topologyInfo','maskSource','tofZoneDetail','tofDebugState',
-'spSource','curveSource','tofDetail','calDetail','wifiState','diag','probeStart',
+'spSource','curveSource','tofDetail','calDetail','wifiState','backupState','diag','probeStart',
 'maskLimit0','maskLimit1','maskLimit2','maskLimit3'
 ]);
 function dynamicUiElement(el){
@@ -607,6 +620,83 @@ function applyCurve(){
   post('/api/curve',out.join(','),['curve'])
 }
 function resetCurve(){post('/api/curve','reset',['curve'])}
+function makeConfigBackup(){
+  const s=lastStatus;
+  if(!s)return null;
+  return {
+    format:'ambilight-settings',version:1,firmware:s.fw.version,saved_at:new Date().toISOString(),
+    output:{enabled:!!s.output.enabled,brightness:Number(s.output.brightness),correction:Number(s.output.correction)},
+    wifi:{ssid:String(s.wifi.ssid||''),password_included:false},
+    map:{source:String(s.map.source||'DEFAULT'),segments:s.map.segments.map(x=>[Number(x[0]),Number(x[1]),Number(x[2])])},
+    pixel_mask:{source:String(s.pixel_mask.source||'DEFAULT'),offsets:s.pixel_mask.offsets.map(Number)},
+    spatial:{source:String(s.spatial.source||'DEFAULT'),w10:Number(s.spatial.w10),h10:Number(s.spatial.h10),x10:Number(s.spatial.x10),y10:Number(s.spatial.y10),z10:Number(s.spatial.z10),rot:Number(s.spatial.rot),mirror:Number(s.spatial.mirror),deadband10:Number(s.spatial.deadband10)},
+    curve:{source:String(s.curve.source||'DEFAULT'),points:s.curve.points.map(x=>[Number(x[0]),Number(x[1])])}
+  };
+}
+function downloadConfigBackup(){
+  const backup=makeConfigBackup();
+  if(!backup)return actionError(tr('Состояние контроллера ещё не загружено.','Controller state has not loaded yet.'));
+  const blob=new Blob([JSON.stringify(backup,null,2)+'\n'],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');
+  a.href=url;a.download='ambilight-settings-'+new Date().toISOString().replace(/[:.]/g,'-')+'.json';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);
+  txt('backupState',tr('Backup скачан. Пароль Wi-Fi в файл не включён.','Backup downloaded. The Wi-Fi password is not included.'));
+  return true;
+}
+function backupSourceValid(v){return v==='DEFAULT'||v==='CUSTOM_NVS'||v==='CUSTOM_RUNTIME'}
+function validateConfigBackup(b){
+  if(!b||b.format!=='ambilight-settings'||b.version!==1)return false;
+  if(!b.output||![0,1,2].includes(Number(b.output.correction))||!Number.isInteger(Number(b.output.brightness))||Number(b.output.brightness)<0||Number(b.output.brightness)>255||typeof b.output.enabled!=='boolean')return false;
+  if(!b.map||!backupSourceValid(b.map.source)||!Array.isArray(b.map.segments)||b.map.segments.length!==4)return false;
+  const gpios=[];for(const x of b.map.segments){if(!Array.isArray(x)||x.length!==3)return false;const c=Number(x[0]),g=Number(x[1]),r=Number(x[2]);if(!Number.isInteger(c)||c<1||c>230||![18,19,20,21].includes(g)||![0,1].includes(r)||gpios.includes(g))return false;gpios.push(g)}
+  if(!b.pixel_mask||!backupSourceValid(b.pixel_mask.source)||!Array.isArray(b.pixel_mask.offsets)||b.pixel_mask.offsets.length!==4)return false;
+  for(let i=0;i<4;i++){const v=Number(b.pixel_mask.offsets[i]),limit=Number(b.map.segments[i][0]);if(!Number.isInteger(v)||v < -1||v>=limit)return false}
+  const sp=b.spatial;if(!sp||!backupSourceValid(sp.source))return false;
+  for(const k of ['w10','h10','x10','y10','z10','rot','mirror','deadband10'])if(!Number.isInteger(Number(sp[k])))return false;
+  if(sp.w10<1000||sp.w10>50000||sp.h10<1000||sp.h10>50000||sp.x10<-20000||sp.x10>20000||sp.y10<-20000||sp.y10>20000||sp.z10<-10000||sp.z10>10000||sp.deadband10<10||sp.deadband10>5000||sp.rot<0||sp.rot>3||![0,1].includes(Number(sp.mirror)))return false;
+  if(!b.curve||!backupSourceValid(b.curve.source)||!Array.isArray(b.curve.points)||b.curve.points.length<2||b.curve.points.length>8)return false;
+  let pd=-1,pg=-1;for(const x of b.curve.points){if(!Array.isArray(x)||x.length!==2)return false;const d=Number(x[0]),g=Number(x[1]);if(!Number.isInteger(d)||d<0||d>65535||!Number.isInteger(g)||g<0||g>4096||d<=pd||g<pg)return false;pd=d;pg=g}
+  if(!b.wifi||typeof b.wifi.ssid!=='string'||b.wifi.ssid.length>32)return false;
+  return true;
+}
+const backupSleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+async function postAndWait(path,body){
+  if(!await post(path,body))return false;
+  const id=pendingActionId,deadline=Date.now()+8000;
+  while(Date.now()<deadline){
+    await backupSleep(160);
+    try{
+      const r=await fetch('/api/status',{cache:'no-store'});if(!r.ok)continue;const s=await r.json();
+      const done=s.action&&Number(s.action.id)===id,ok=done&&!!s.action.ok,superseded=s.action&&actionSequenceAfter(s.action.id,id);render(s);
+      if(done)return ok;if(superseded)return false;
+    }catch(e){}
+  }
+  clearPendingAction();return actionError(tr('Контроллер не подтвердил шаг восстановления.','Controller did not confirm a restore step.'));
+}
+async function restoreConfigBackup(){
+  const input=$('backupFile'),file=input.files&&input.files[0];
+  if(!file)return actionError(tr('Выберите JSON-файл резервной копии.','Select a backup JSON file.'));
+  let b;try{b=JSON.parse(await file.text())}catch(e){return actionError(tr('Файл не является корректным JSON.','The file is not valid JSON.'))}
+  if(!validateConfigBackup(b))return actionError(tr('Формат backup не поддерживается или данные повреждены.','The backup format is unsupported or the data is invalid.'));
+  if(!confirm(tr('Восстановить runtime-настройки из выбранного backup? Wi-Fi сеть автоматически изменена не будет.','Restore runtime settings from this backup? The Wi-Fi network will not be changed automatically.')))return false;
+  const step=async(label,path,body)=>{txt('backupState',label);if(!await postAndWait(path,body))throw new Error(label);};
+  try{
+    await step(tr('Восстановление: отключаем физический вывод…','Restore: disabling physical output…'),'/api/power','0');
+    await step(tr('Восстановление: безопасный режим коррекции…','Restore: entering safe correction mode…'),'/api/correction','1');
+    const customMap=b.map.source!=='DEFAULT',mapBody=customMap?b.map.segments.map(x=>x[0]+':'+x[1]+':'+x[2]).join(','):'reset';
+    await step(tr('Восстановление: топология LED…','Restore: LED topology…'),'/api/led-map',mapBody);
+    const customMask=b.pixel_mask.source!=='DEFAULT',maskBody=customMask?b.pixel_mask.offsets.map(v=>Number(v)<0?'-':String(v)).join(','):'reset';
+    await step(tr('Восстановление: маска пикселей…','Restore: pixel mask…'),'/api/pixel-mask',maskBody);
+    const sp=b.spatial,customSpatial=sp.source!=='DEFAULT',spBody=customSpatial?[sp.w10/10,sp.h10/10,sp.x10/10,sp.y10/10,sp.z10/10,sp.rot,sp.mirror,sp.deadband10/10].map((v,i)=>i<5||i===7?Number(v).toFixed(1):String(v)).join(','):'reset';
+    await step(tr('Восстановление: геометрия ToF…','Restore: ToF geometry…'),'/api/spatial',spBody);
+    const customCurve=b.curve.source!=='DEFAULT',curveBody=customCurve?b.curve.points.map(x=>x[0]+':'+x[1]).join(','):'reset';
+    await step(tr('Восстановление: кривая коррекции…','Restore: correction curve…'),'/api/curve',curveBody);
+    await step(tr('Восстановление: яркость…','Restore: brightness…'),'/api/brightness',String(b.output.brightness));
+    await step(tr('Восстановление: режим коррекции…','Restore: correction mode…'),'/api/correction',String(b.output.correction));
+    await step(tr('Восстановление: питание…','Restore: output power…'),'/api/power',b.output.enabled?'1':'0');
+    if(b.wifi.ssid){setv('ssid',b.wifi.ssid);$('ssid').dataset.dirty='1'}
+    txt('backupState',tr('Настройки восстановлены. Wi-Fi не изменён; пароль не хранится в backup. При необходимости введите пароль и сохраните сеть отдельно.','Settings restored. Wi-Fi was not changed; its password is not stored in the backup. Re-enter the password and save the network separately if needed.'));
+    input.value='';refresh();return true;
+  }catch(e){txt('backupState',tr('Восстановление остановлено: один из шагов был отклонён. Уже подтверждённые шаги сохранены.','Restore stopped because one step was rejected. Steps already confirmed remain saved.'));return false}
+}
 async function applyWifi(){
   const ssid=$('ssid').value.trim(),open=$('wifiOpen').checked,p=$('wifiPass').value;
   if(!ssid)return actionError(tr('Введите SSID.','Enter SSID.'));

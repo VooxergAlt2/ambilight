@@ -116,10 +116,10 @@ The public-preparation baseline completed successfully with:
 ```text
 partition: PASS, 16 MiB flash, 7 MiB application slots
 web UI:    PASS
-native:    267 passed, 0 failed
+native:    270 passed, 0 failed
 firmware:  ESP32-C6 build passed
 RAM:       95460 / 327680 bytes (29.1%)
-Flash:     1338858 / 7340032 bytes (18.2%)
+Flash:     1348180 / 7340032 bytes (18.4%)
 ```
 
 These values are a snapshot, not a compatibility contract. A fresh CI or local

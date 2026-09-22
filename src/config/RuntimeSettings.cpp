@@ -113,18 +113,9 @@ bool RuntimeSettings::begin() {
 
     if (!correctionModeValid(raw)) {
         ++stats_.invalidStoredValues;
-
-        const std::size_t written =
-            preferences_.putUChar(
-                kCorrectionModeKey,
-                fallback);
-
-        if (written == sizeof(std::uint8_t)) {
-            ++stats_.writes;
-        } else {
-            ++stats_.writeFailures;
-        }
-
+        // Never destructively self-heal persisted settings during boot. The
+        // value may belong to another firmware version, so keep it intact for
+        // downgrade/recovery and use a safe runtime fallback only.
         correctionMode_ =
             CorrectionMode::Shadow;
     } else {
@@ -169,13 +160,11 @@ bool RuntimeSettings::begin() {
             outputStatePersisted_ = true;
         } else {
             ++stats_.invalidStoredValues;
-
-            preferences_.remove(
-                kOutputStateKey);
         }
     }
 
-    if (!outputStateLoaded) {
+    if (!outputStateLoaded &&
+        outputStateBytes == 0) {
         // Migrate the pre-Stage-46 representation. Stage <=45 encoded power
         // only through brightness=0; early Stage 46 builds added output_on as
         // a second key. The new record stores both values atomically.
@@ -256,12 +245,6 @@ bool RuntimeSettings::begin() {
 
     if (!wifiStoredValueValid) {
         ++stats_.invalidStoredValues;
-
-        preferences_.remove(
-            kWifiSsidKey);
-
-        preferences_.remove(
-            kWifiPasswordKey);
     } else if (storedSsid.length() > 0) {
         copyText(
             wifiSsid_,
@@ -308,8 +291,6 @@ bool RuntimeSettings::begin() {
             ledMappingProfilePersisted_ = true;
         } else {
             ++stats_.invalidStoredValues;
-            preferences_.remove(kLedMappingProfileKey);
-            preferences_.remove(kLedMappingVersionKey);
         }
     }
 
@@ -331,6 +312,8 @@ bool RuntimeSettings::begin() {
             storedBytes ==
                 sizeof(LedPixelMaskProfile);
 
+        bool maskAdjustedForTopology = false;
+
         if (maskValid) {
             const std::size_t loaded =
                 preferences_.getBytes(
@@ -346,23 +329,13 @@ bool RuntimeSettings::begin() {
                 !storedMask.validFor(
                     ledMappingProfile_)) {
 
+                // Keep the original NVS record intact. A topology from a
+                // different firmware version may make the mask meaningful
+                // again after downgrade/recovery. Only the live view is
+                // sanitized for the active topology.
                 storedMask.sanitizeFor(
                     ledMappingProfile_);
-
-                const std::size_t rewritten =
-                    preferences_.putBytes(
-                        kLedPixelMaskProfileKey,
-                        &storedMask,
-                        sizeof(storedMask));
-
-                if (rewritten ==
-                    sizeof(storedMask)) {
-
-                    ++stats_.writes;
-                } else {
-                    ++stats_.writeFailures;
-                    maskValid = false;
-                }
+                maskAdjustedForTopology = true;
             }
         }
 
@@ -374,15 +347,9 @@ bool RuntimeSettings::begin() {
                 true;
 
             ledPixelMaskProfilePersisted_ =
-                true;
+                !maskAdjustedForTopology;
         } else {
             ++stats_.invalidStoredValues;
-
-            preferences_.remove(
-                kLedPixelMaskProfileKey);
-
-            preferences_.remove(
-                kLedPixelMaskVersionKey);
         }
     }
 
@@ -428,12 +395,6 @@ bool RuntimeSettings::begin() {
                 true;
         } else {
             ++stats_.invalidStoredValues;
-
-            preferences_.remove(
-                kTofSpatialProfileKey);
-
-            preferences_.remove(
-                kTofSpatialVersionKey);
         }
     }
 
@@ -495,12 +456,6 @@ bool RuntimeSettings::begin() {
                 true;
         } else {
             ++stats_.invalidStoredValues;
-
-            preferences_.remove(
-                kTofGainCurveKey);
-
-            preferences_.remove(
-                kTofGainCountKey);
         }
     }
 

@@ -17,7 +17,7 @@ void setUp() {
 
 void tearDown() {}
 
-void test_schema2_topology_is_invalidated_and_measured_default_wins() {
+void test_schema2_topology_is_ignored_but_preserved_for_recovery() {
     Preferences legacy;
 
     TEST_ASSERT_TRUE(
@@ -64,11 +64,11 @@ void test_schema2_topology_is_invalidated_and_measured_default_wins() {
         settings.
             ledMappingProfilePersisted());
 
-    TEST_ASSERT_FALSE(
+    TEST_ASSERT_TRUE(
         Preferences::testHasKey(
             "led_map"));
 
-    TEST_ASSERT_FALSE(
+    TEST_ASSERT_TRUE(
         Preferences::testHasKey(
             "led_map_ver"));
 
@@ -95,6 +95,75 @@ void test_schema2_topology_is_invalidated_and_measured_default_wins() {
         18,
         profile.gpioForSegment(
             ambilight::SegmentId::Left));
+}
+
+
+void test_unknown_output_state_schema_is_preserved_without_legacy_overwrite() {
+    Preferences stored;
+    TEST_ASSERT_TRUE(stored.begin("ambilight"));
+
+    const std::uint8_t futureRecord[4] = {99, 0, 77, 0};
+
+    TEST_ASSERT_EQUAL_UINT16(
+        sizeof(futureRecord),
+        stored.putBytes(
+            "output_state",
+            futureRecord,
+            sizeof(futureRecord)));
+
+    TEST_ASSERT_EQUAL_UINT16(
+        sizeof(std::uint8_t),
+        stored.putUChar(
+            "brightness",
+            11));
+
+    stored.end();
+
+    RuntimeSettings settings;
+    TEST_ASSERT_TRUE(settings.begin());
+
+    TEST_ASSERT_TRUE(settings.outputEnabled());
+    TEST_ASSERT_EQUAL_UINT8(
+        ambilight::config::kDefaultOutputBrightness,
+        settings.outputBrightness());
+
+    TEST_ASSERT_TRUE(
+        Preferences::testHasKey(
+            "output_state"));
+
+    TEST_ASSERT_TRUE(
+        Preferences::testHasKey(
+            "brightness"));
+}
+
+void test_invalid_correction_value_is_preserved_for_recovery() {
+    Preferences stored;
+    TEST_ASSERT_TRUE(stored.begin("ambilight"));
+
+    TEST_ASSERT_EQUAL_UINT16(
+        sizeof(std::uint8_t),
+        stored.putUChar(
+            "corr_mode",
+            99));
+
+    stored.end();
+
+    RuntimeSettings settings;
+    TEST_ASSERT_TRUE(settings.begin());
+
+    TEST_ASSERT_EQUAL_UINT8(
+        static_cast<std::uint8_t>(
+            ambilight::CorrectionMode::Shadow),
+        static_cast<std::uint8_t>(
+            settings.correctionMode()));
+
+    Preferences verify;
+    TEST_ASSERT_TRUE(verify.begin("ambilight"));
+    TEST_ASSERT_EQUAL_UINT8(
+        99,
+        verify.getUChar(
+            "corr_mode",
+            0));
 }
 
 void test_schema3_custom_topology_survives_reboot() {
@@ -326,7 +395,7 @@ void test_topology_reset_data_cleanup_failure_cannot_resurrect_old_blob() {
             "led_map"));
 }
 
-void test_schema1_pixel_mask_is_invalidated_after_physical_index_migration() {
+void test_schema1_pixel_mask_is_ignored_but_preserved_for_recovery() {
     Preferences legacy;
 
     TEST_ASSERT_TRUE(
@@ -369,11 +438,11 @@ void test_schema1_pixel_mask_is_invalidated_after_physical_index_migration() {
         settings.
             ledPixelMaskProfilePersisted());
 
-    TEST_ASSERT_FALSE(
+    TEST_ASSERT_TRUE(
         Preferences::testHasKey(
             "pixel_mask"));
 
-    TEST_ASSERT_FALSE(
+    TEST_ASSERT_TRUE(
         Preferences::testHasKey(
             "pixel_mask_ver"));
 }
@@ -808,11 +877,130 @@ void test_factory_reset_failure_leaves_live_runtime_untouched() {
         settings.outputEnabled());
 }
 
+
+void test_complete_current_configuration_survives_reopen() {
+    LedMappingProfile mapping;
+    mapping.segment[0].logicalLength = 220;
+    mapping.segment[1].logicalLength = 150;
+
+    LedPixelMaskProfile mask;
+    mask.disabledOffset[0] = 3;
+    mask.disabledOffset[1] = 7;
+
+    TofSpatialProfile spatial;
+    spatial.widthMmX10 = 15000;
+    spatial.heightMmX10 = 9000;
+    spatial.sensorOffsetXmmX10 = 120;
+    spatial.sensorOffsetYmmX10 = -80;
+    spatial.ledPlaneZmmX10 = 35;
+    spatial.rotationQuarterTurns = 1;
+    spatial.mirrorX = 1;
+    spatial.planeDeadbandMmX10 = 125;
+
+    std::array<
+        GainPoint,
+        ambilight::DistanceGainCurve::kMaxPoints>
+        curve{};
+
+    curve[0] = {50, 3000};
+    curve[1] = {4000, 4096};
+
+    {
+        RuntimeSettings settings;
+        TEST_ASSERT_TRUE(settings.begin());
+        TEST_ASSERT_TRUE(
+            settings.setCorrectionMode(
+                ambilight::CorrectionMode::Active));
+        TEST_ASSERT_TRUE(
+            settings.setOutputState(false, 77));
+        TEST_ASSERT_TRUE(
+            settings.setWifiCredentials(
+                "upgrade-test",
+                "upgrade-secret"));
+        TEST_ASSERT_TRUE(
+            settings.setLedMappingProfile(mapping));
+        TEST_ASSERT_TRUE(
+            settings.setLedPixelMaskProfile(mask));
+        TEST_ASSERT_TRUE(
+            settings.setTofSpatialProfile(spatial));
+        TEST_ASSERT_TRUE(
+            settings.setTofGainCurve(curve, 2));
+    }
+
+    RuntimeSettings restored;
+    TEST_ASSERT_TRUE(restored.begin());
+
+    TEST_ASSERT_EQUAL_UINT8(
+        static_cast<std::uint8_t>(
+            ambilight::CorrectionMode::Active),
+        static_cast<std::uint8_t>(
+            restored.correctionMode()));
+    TEST_ASSERT_FALSE(restored.outputEnabled());
+    TEST_ASSERT_EQUAL_UINT8(77, restored.outputBrightness());
+    TEST_ASSERT_EQUAL_STRING("upgrade-test", restored.wifiSsid());
+    TEST_ASSERT_EQUAL_STRING("upgrade-secret", restored.wifiPassword());
+    TEST_ASSERT_EQUAL_UINT16(
+        220,
+        restored.ledMappingProfile().segment[0].logicalLength);
+    TEST_ASSERT_EQUAL_UINT16(
+        150,
+        restored.ledMappingProfile().segment[1].logicalLength);
+    TEST_ASSERT_EQUAL_UINT16(
+        3,
+        restored.ledPixelMaskProfile().disabledOffset[0]);
+    TEST_ASSERT_EQUAL_UINT16(
+        7,
+        restored.ledPixelMaskProfile().disabledOffset[1]);
+    TEST_ASSERT_EQUAL_UINT16(
+        15000,
+        restored.tofSpatialProfile().widthMmX10);
+    TEST_ASSERT_EQUAL_UINT16(
+        9000,
+        restored.tofSpatialProfile().heightMmX10);
+    TEST_ASSERT_EQUAL_INT16(
+        120,
+        restored.tofSpatialProfile().sensorOffsetXmmX10);
+    TEST_ASSERT_EQUAL_INT16(
+        -80,
+        restored.tofSpatialProfile().sensorOffsetYmmX10);
+    TEST_ASSERT_EQUAL_INT16(
+        35,
+        restored.tofSpatialProfile().ledPlaneZmmX10);
+    TEST_ASSERT_EQUAL_UINT8(
+        1,
+        restored.tofSpatialProfile().rotationQuarterTurns);
+    TEST_ASSERT_EQUAL_UINT8(
+        1,
+        restored.tofSpatialProfile().mirrorX);
+    TEST_ASSERT_EQUAL_UINT16(
+        125,
+        restored.tofSpatialProfile().planeDeadbandMmX10);
+    TEST_ASSERT_EQUAL_UINT16(2, restored.tofGainPointCount());
+    TEST_ASSERT_EQUAL_UINT16(
+        50,
+        restored.tofGainPoints()[0].distanceMm);
+    TEST_ASSERT_EQUAL_UINT16(
+        3000,
+        restored.tofGainPoints()[0].gainQ12);
+    TEST_ASSERT_EQUAL_UINT16(
+        4000,
+        restored.tofGainPoints()[1].distanceMm);
+    TEST_ASSERT_EQUAL_UINT16(
+        4096,
+        restored.tofGainPoints()[1].gainQ12);
+}
+
 int main(int, char**) {
     UNITY_BEGIN();
 
     RUN_TEST(
-        test_schema2_topology_is_invalidated_and_measured_default_wins);
+        test_schema2_topology_is_ignored_but_preserved_for_recovery);
+
+    RUN_TEST(
+        test_unknown_output_state_schema_is_preserved_without_legacy_overwrite);
+
+    RUN_TEST(
+        test_invalid_correction_value_is_preserved_for_recovery);
 
     RUN_TEST(
         test_schema3_custom_topology_survives_reboot);
@@ -830,7 +1018,7 @@ int main(int, char**) {
         test_topology_reset_data_cleanup_failure_cannot_resurrect_old_blob);
 
     RUN_TEST(
-        test_schema1_pixel_mask_is_invalidated_after_physical_index_migration);
+        test_schema1_pixel_mask_is_ignored_but_preserved_for_recovery);
 
     RUN_TEST(
         test_pixel_mask_reset_marker_failure_keeps_live_mask);
@@ -867,6 +1055,9 @@ int main(int, char**) {
 
     RUN_TEST(
         test_factory_reset_failure_leaves_live_runtime_untouched);
+
+    RUN_TEST(
+        test_complete_current_configuration_survives_reopen);
 
     return UNITY_END();
 }

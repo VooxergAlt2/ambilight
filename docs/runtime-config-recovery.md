@@ -77,7 +77,8 @@ Wi-Fi startup therefore falls back to:
 
     secrets.h
 
-if compiled, otherwise Wi-Fi/DDP remains disabled until provisioned.
+if compiled. If no station connection is available for 60 seconds, the
+fallback AP is opened for recovery/provisioning.
 
 ToF gain curve:
 
@@ -106,3 +107,69 @@ It does not erase:
 - flash partitions outside this namespace
 - compile-time secrets.h
 - USB/AWA branch work
+
+## Firmware updates and NVS preservation
+
+Runtime configuration lives in the dedicated `nvs` data partition at
+`0x9000..0xDFFF`. Application images live in `app0` / `app1`; replacing an
+application image or switching OTA slots therefore does not require erasing
+the settings partition.
+
+Normal firmware updates must preserve NVS. Do not add an automatic
+`Preferences::clear()`, partition erase, or whole-chip erase to an update path.
+Only the explicit guarded factory-reset flow is allowed to clear the
+`ambilight` namespace.
+
+Boot loading is deliberately non-destructive. If a stored setting has an
+unknown schema version or cannot be applied by the running firmware, the
+controller uses a safe runtime fallback but leaves the stored bytes intact.
+This matters for forward upgrades, downgrade/recovery, and future migrations:
+an older firmware must not destroy a record merely because it does not
+understand it.
+
+Supported migrations may still replace an old representation after the new
+representation has been durably written. That is a migration, not boot-time
+self-healing.
+
+An explicit full-flash/chip erase still destroys NVS. Back up configuration
+before doing that.
+
+### Update image versus factory image
+
+Use the application image (`firmware.bin`) or a future OTA app-slot update when
+updating an already configured controller. Those paths replace application code
+without intentionally erasing the dedicated NVS partition.
+
+`firmware.factory.bin` is a combined first-install/factory image that starts at
+flash offset 0 and includes padding across the early data-partition area. Do
+**not** flash that combined image over an existing configured controller when
+you want to preserve NVS. Treat it as a blank-device provisioning image.
+
+## Configuration backup
+
+The Web UI System page can download a versioned JSON backup and restore it
+later.
+
+The backup contains:
+
+- output power and brightness
+- correction mode
+- LED COUNT/GPIO/REV topology
+- disabled-pixel mask
+- ToF spatial geometry
+- ToF gain curve
+- Wi-Fi SSID as a reference
+
+The saved Wi-Fi password is intentionally **not** returned to the browser and
+is not placed in the backup file. Restore therefore leaves the active network
+connection unchanged. If the backup references another SSID, enter its
+password in the Wi-Fi form and save it separately after restoring the other
+settings.
+
+Restore validates the backup format and then applies settings through the same
+runtime API used by normal Web UI edits. It first switches physical output off,
+then selects SHADOW mode so ToF geometry/curve changes are not rejected by
+ACTIVE-mode guards. The original correction mode is restored near the end and
+the requested output-power state is restored last. If any step is rejected,
+restore stops and leaves physical output off unless the final power step had
+already completed.

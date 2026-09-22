@@ -22,6 +22,8 @@ This project grew out of a real TV installation rather than a generic LED-contro
 - exposes a lightweight embedded Web UI for normal setup and diagnostics
 - exposes power, brightness, RGB, and a small manual effect set to **Home Assistant** through WLED-compatible discovery/API
 - stores runtime settings in NVS
+- preserves unknown settings records across firmware upgrade/downgrade boots
+- exports/restores a versioned JSON configuration backup from the Web UI
 - opens a recovery Wi-Fi AP after 60 seconds without a station connection
 - reserves two 7 MiB application slots in a 16 MiB flash layout for future OTA work
 
@@ -148,6 +150,12 @@ Serial monitor:
 pio device monitor -b 115200
 ```
 
+**Update warning:** use the application `firmware.bin` (or a future OTA app-slot
+update) for an already configured controller. The generated
+`firmware.factory.bin` is a combined blank-device image and must not be used as
+a normal update image if you want to keep NVS settings. A whole-chip erase has
+the same destructive effect.
+
 ## First boot and Wi-Fi recovery
 
 Wi-Fi credentials are resolved in this order:
@@ -227,11 +235,29 @@ The UI includes:
 - **LED** - side topology, GPIO identification, direction/range tests, disabled-pixel mask
 - **ToF** - 8x8 live matrix, geometry, gain curve, calibration
 - **Diagnostics** - transport, heap, ToF, and renderer counters
-- **System** - Wi-Fi provisioning and guarded factory reset
+- **System** - Wi-Fi provisioning, configuration backup/restore, and guarded factory reset
 
 The UI is intentionally lightweight: no external assets, no WebSocket, and no web framework.
 
 There is currently no Web UI authentication. Treat it as a trusted-LAN interface and do not publish TCP/80 to the internet.
+
+### Configuration backup and firmware updates
+
+The System page can download a versioned JSON backup of the current runtime
+configuration and restore it later. The file includes output state, correction
+mode, LED topology, disabled-pixel mask, ToF geometry, gain curve, and the Wi-Fi
+SSID. The saved Wi-Fi password is deliberately excluded and must be entered
+again if the restored setup uses a different network.
+
+Normal application updates preserve the dedicated NVS settings partition. The
+boot loader for runtime settings is also non-destructive: records with an
+unknown schema are left intact instead of being deleted merely because the
+running firmware cannot understand them. This keeps downgrade/recovery and
+future migrations possible.
+
+A deliberate whole-chip erase or flashing the combined factory image over an
+existing device still removes NVS. Download a backup first if you plan to do
+either.
 
 ## ToF distance correction
 
@@ -274,10 +300,10 @@ The current development line is validated with:
 
 - partition check: PASS
 - embedded Web UI structural check: PASS
-- native tests: **267 / 267 PASS**
+- native tests: **270 / 270 PASS**
 - ESP32-C6 build: PASS
 - RAM: **95,460 / 327,680 bytes (29.1%)**
-- application image: **1,338,858 / 7,340,032 bytes (18.2%)**
+- application image: **1,348,180 / 7,340,032 bytes (18.4%)**
 
 Exact numbers can move between commits. CI and `tools/validate.*` are the source of truth.
 

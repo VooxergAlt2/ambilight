@@ -493,9 +493,9 @@ maintained `main` line:
 3. `pio test -e native`
 4. `pio run -e esp32-c6-devkitc-1`
 
-The public-preparation baseline passed with 267 native tests, RAM usage
+The public-preparation baseline passed with 270 native tests, RAM usage
 95460 / 327680 bytes (29.1%), and an application image of
-1338858 / 7340032 bytes (18.2%).
+1348180 / 7340032 bytes (18.4%).
 
 Deployment is pinned to partitions/ambilight_16mb_ota.csv:
 
