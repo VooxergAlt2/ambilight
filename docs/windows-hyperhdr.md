@@ -27,6 +27,12 @@ That separation is deliberate:
 8. Keep realtime output on DDP. Do not select WLED realtime UDP or Hyperk for
    this firmware.
 
+The firmware has no separate 920-style aggregate LED-count ceiling. Each of the four side
+lengths is stored as a 16-bit value (up to 262,140 logical LEDs total by format), and runtime RGB/DDP/PARLIO storage scales
+with the configured topology until controller resources are exhausted. Hardware
+testing has been performed up to **230 LEDs on one physical output**; larger
+configurations are currently experimental on real hardware.
+
 The controller accepts one active DDP sender lease at a time. If two PCs send
 DDP concurrently, only one sender owns the stream until the short lease expires.
 This prevents packets from multiple HyperHDR instances from being mixed into a

@@ -81,9 +81,7 @@ constexpr bool measuredPanelTopologyValid() {
     for (const auto& segment :
          kPanelLedSegments) {
 
-        if (segment.logicalLength == 0 ||
-            segment.logicalLength >
-                kPhysicalLaneLength) {
+        if (segment.logicalLength == 0) {
 
             return false;
         }

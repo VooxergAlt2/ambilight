@@ -35,8 +35,8 @@ struct RenderDiagnosticStats {
 
     std::uint8_t maxChannelDelta = 0;
 
-    std::uint16_t lastWouldChangePixels = 0;
-    std::uint16_t lastPhysicalChangedPixels = 0;
+    std::uint32_t lastWouldChangePixels = 0;
+    std::uint32_t lastPhysicalChangedPixels = 0;
     std::uint8_t lastMaxChannelDelta = 0;
 
     std::uint32_t lastInputChannelSum = 0;
@@ -63,16 +63,18 @@ public:
 
         if (mode == CorrectionMode::Disabled ||
             !plan.valid ||
+            !frame.storageValid() ||
             frame.pixelCount !=
                 plan.totalLedCount ||
+            !gainContext.storageValid() ||
             !mask.validFor(
                 gainContext.topology)) {
 
             return false;
         }
 
-        std::uint16_t wouldChangePixels = 0;
-        std::uint16_t physicalChangedPixels = 0;
+        std::uint32_t wouldChangePixels = 0;
+        std::uint32_t physicalChangedPixels = 0;
         std::uint8_t maxChannelDelta = 0;
 
         std::uint32_t inputChannelSum = 0;
@@ -102,10 +104,9 @@ public:
                     segment.logicalLength;
                  ++offset) {
 
-                const std::uint16_t logical =
-                    static_cast<std::uint16_t>(
-                        segment.logicalStart +
-                        offset);
+                const std::size_t logical =
+                    segment.logicalStart +
+                    offset;
 
                 const Rgb8& original =
                     frame.pixels[

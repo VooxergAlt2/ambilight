@@ -131,7 +131,7 @@ button{cursor:pointer}button.primary{background:var(--primary);color:#fff;border
 <button id="mapApply" class="primary" onclick="applyMap()">Сохранить топологию</button>
 <button id="mapReset" onclick="resetMap()">Вернуть измеренный профиль</button>
 </div>
-<div class="muted">Количество 1..230. GPIO только 18/19/20/21, каждый выход используется один раз. Флаг «развернуть» (REV) меняет только физическую адресацию LED на проводе (с какого конца лента пронумерована 0); видимое направление стороны на схеме телевизора при этом не меняется.</div>
+<div class="muted">Длина каждой стороны хранится как 16-битное значение: 1..65535 LED. Фиксированного общего лимита количества LED в прошивке нет; фактический предел зависит от свободной памяти ESP32-C6 и длины PARLIO-буферов. На реальном железе проверено до 230 LED на одном выходе; большие конфигурации считаются экспериментальными. GPIO только 18/19/20/21, каждый выход используется один раз. Флаг «развернуть» (REV) меняет только физическую адресацию LED на проводе.</div>
 
 <div class="cols" style="margin-top:16px">
 <div>
@@ -151,8 +151,8 @@ button{cursor:pointer}button.primary{background:var(--primary);color:#fff;border
 <h2>Определение физического GPIO</h2>
 <div class="row">
 <select id="rawGpio"><option>18</option><option>19</option><option>20</option><option>21</option></select>
-<input id="rawStart" type="number" min="0" max="229" value="0" step="1">
-<input id="rawCount" type="number" min="1" max="230" value="1" step="1">
+<input id="rawStart" type="number" min="0" max="65534" value="0" step="1">
+<input id="rawCount" type="number" min="1" max="65535" value="1" step="1">
 </div>
 <div class="row">
 <button id="runRaw" onclick="runRawRange()">Зажечь GPIO</button>
@@ -324,7 +324,7 @@ const STATIC_EN={
 'Параметры сторон':'Side parameters',
 'Сохранить топологию':'Save topology',
 'Вернуть измеренный профиль':'Restore measured profile',
-'Количество 1..230. GPIO только 18/19/20/21, каждый выход используется один раз. Флаг «развернуть» (REV) меняет только физическую адресацию LED на проводе (с какого конца лента пронумерована 0); видимое направление стороны на схеме телевизора при этом не меняется.':'Count 1..230. GPIO may only be 18/19/20/21 and each output may be used once. REV changes only physical LED addressing on the wire; the visible side direction on the TV diagram does not change.',
+'Длина каждой стороны хранится как 16-битное значение: 1..65535 LED. Фиксированного общего лимита количества LED в прошивке нет; фактический предел зависит от свободной памяти ESP32-C6 и длины PARLIO-буферов. На реальном железе проверено до 230 LED на одном выходе; большие конфигурации считаются экспериментальными. GPIO только 18/19/20/21, каждый выход используется один раз. Флаг «развернуть» (REV) меняет только физическую адресацию LED на проводе.':'Each side is stored as a 16-bit length: 1..65535 LEDs. The firmware has no fixed aggregate LED-count ceiling; the practical limit depends on ESP32-C6 free memory and PARLIO buffer length. Hardware testing has been performed up to 230 LEDs on a single output; larger configurations are experimental. GPIO may only be 18/19/20/21 and each output may be used once. REV changes physical LED addressing on the wire.',
 'Проверка логической стороны':'Logical side test',
 'Проверить диапазон':'Test range',
 'Вся сторона':'Whole side',
@@ -506,6 +506,7 @@ function actionMessage(value){
 }
 
 const mapNames=['TOP','RIGHT','BOTTOM','LEFT'];
+const ledLaneFormatMax=65535;
 const pages=['home','led','tof','diag','system'];
 function showPage(name){
   if(!pages.includes(name))name='home';
@@ -551,7 +552,7 @@ function validateMap(){
   const gpios=[],p=[];
   for(let i=0;i<4;i++){
     const count=Number($('count'+i).value),gpio=Number($('gpio'+i).value);
-    if(!Number.isInteger(count)||count<1||count>230)return actionError(mapNames[i]+tr(': количество LED должно быть 1..230.',': LED count must be 1..230.'));
+    if(!Number.isInteger(count)||count<1||count>ledLaneFormatMax)return actionError(mapNames[i]+tr(': количество LED должно быть 1..65535.',': LED count must be 1..65535.'));
     if(![18,19,20,21].includes(gpio))return actionError(mapNames[i]+tr(': допустимы только GPIO18/19/20/21.',': only GPIO18/19/20/21 are allowed.'));
     if(gpios.includes(gpio))return actionError('GPIO'+gpio+tr(' назначен более чем одной стороне.',' is assigned to more than one side.'));
     gpios.push(gpio);p.push(count+':'+gpio+':'+($('rev'+i).checked?'1':'0'));
@@ -646,7 +647,7 @@ function validateConfigBackup(b){
   if(!b||b.format!=='ambilight-settings'||b.version!==1)return false;
   if(!b.output||![0,1,2].includes(Number(b.output.correction))||!Number.isInteger(Number(b.output.brightness))||Number(b.output.brightness)<0||Number(b.output.brightness)>255||typeof b.output.enabled!=='boolean')return false;
   if(!b.map||!backupSourceValid(b.map.source)||!Array.isArray(b.map.segments)||b.map.segments.length!==4)return false;
-  const gpios=[];for(const x of b.map.segments){if(!Array.isArray(x)||x.length!==3)return false;const c=Number(x[0]),g=Number(x[1]),r=Number(x[2]);if(!Number.isInteger(c)||c<1||c>230||![18,19,20,21].includes(g)||![0,1].includes(r)||gpios.includes(g))return false;gpios.push(g)}
+  const gpios=[];for(const x of b.map.segments){if(!Array.isArray(x)||x.length!==3)return false;const c=Number(x[0]),g=Number(x[1]),r=Number(x[2]);if(!Number.isInteger(c)||c<1||c>ledLaneFormatMax||![18,19,20,21].includes(g)||![0,1].includes(r)||gpios.includes(g))return false;gpios.push(g)}
   if(!b.pixel_mask||!backupSourceValid(b.pixel_mask.source)||!Array.isArray(b.pixel_mask.offsets)||b.pixel_mask.offsets.length!==4)return false;
   for(let i=0;i<4;i++){const v=Number(b.pixel_mask.offsets[i]),limit=Number(b.map.segments[i][0]);if(!Number.isInteger(v)||v < -1||v>=limit)return false}
   const sp=b.spatial;if(!sp||!backupSourceValid(sp.source))return false;
@@ -713,7 +714,7 @@ function factoryReset(){if(confirm(tr('Стереть всю конфигура�
 function renderMap(m){
   activeMap=m;
   if(!$('mapping').children.length){
-    mapNames.forEach((n,i)=>{$('mapping').insertAdjacentHTML('beforeend',`<div class="seg"><b>${n}</b><input id="count${i}" title="Количество LED" type="number" min="1" max="230" step="1"><select id="gpio${i}" title="GPIO"><option>18</option><option>19</option><option>20</option><option>21</option></select><label><input id="rev${i}" type="checkbox"> развернуть</label></div>`)});
+    mapNames.forEach((n,i)=>{$('mapping').insertAdjacentHTML('beforeend',`<div class="seg"><b>${n}</b><input id="count${i}" title="Количество LED" type="number" min="1" max="65535" step="1"><select id="gpio${i}" title="GPIO"><option>18</option><option>19</option><option>20</option><option>21</option></select><label><input id="rev${i}" type="checkbox"> развернуть</label></div>`)});
     markDirty();
   }
   m.segments.forEach((x,i)=>{setv('count'+i,x[0]);setv('gpio'+i,x[1]);const e=$('rev'+i);if(!e.dataset.dirty)e.checked=!!x[2]});

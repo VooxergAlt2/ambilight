@@ -150,7 +150,7 @@ void test_write_view_can_address_full_physical_lane() {
     std::array<
         std::uint8_t,
         ambilight::config::
-            kPhysicalLaneLength *
+            kTestedPhysicalLaneLength *
             3U>
         buffer{};
 
@@ -158,13 +158,13 @@ void test_write_view_can_address_full_physical_lane() {
         buffer.data(),
         static_cast<std::uint16_t>(
             ambilight::config::
-                kPhysicalLaneLength)
+                kTestedPhysicalLaneLength)
     };
 
     lane.writeUnchecked(
         static_cast<std::uint16_t>(
             ambilight::config::
-                kPhysicalLaneLength -
+                kTestedPhysicalLaneLength -
             1U),
         Rgb8{
             255,
@@ -175,7 +175,7 @@ void test_write_view_can_address_full_physical_lane() {
     const std::size_t base =
         (
             ambilight::config::
-                kPhysicalLaneLength -
+                kTestedPhysicalLaneLength -
             1U
         ) *
         3U;

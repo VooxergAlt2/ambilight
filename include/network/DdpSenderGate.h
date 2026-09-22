@@ -50,10 +50,6 @@ public:
         config::kDefaultLogicalLedCount *
         sizeof(Rgb8);
 
-    static constexpr std::size_t kMaxExpectedFrameBytes =
-        config::kLogicalLedCapacity *
-        sizeof(Rgb8);
-
     // One second is long relative to a realtime DDP stream but short enough
     // that a deliberately stopped sender can hand control to another PC
     // without a reboot.
@@ -70,8 +66,6 @@ public:
         std::size_t frameBytes) {
 
         if (frameBytes == 0 ||
-            frameBytes >
-                kMaxExpectedFrameBytes ||
             frameBytes %
                 sizeof(Rgb8) != 0) {
 
@@ -228,8 +222,5 @@ private:
 
 static_assert(
     DdpSenderGate::kDefaultExpectedFrameBytes == 2340);
-
-static_assert(
-    DdpSenderGate::kMaxExpectedFrameBytes == 2760);
 
 } // namespace ambilight

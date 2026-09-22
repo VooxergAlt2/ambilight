@@ -16,7 +16,7 @@ namespace {
 
 struct Fixture {
     std::array<
-        std::array<std::uint8_t, ambilight::config::kPhysicalLaneLength * 3U>,
+        std::array<std::uint8_t, ambilight::config::kTestedPhysicalLaneLength * 3U>,
         ambilight::config::kParlioLaneCount>
         bytes{};
 
@@ -30,7 +30,7 @@ struct Fixture {
             frame.lane[lane] = {
                 bytes[lane].data(),
                 static_cast<std::uint16_t>(
-                    ambilight::config::kPhysicalLaneLength)
+                    ambilight::config::kTestedPhysicalLaneLength)
             };
         }
     }

@@ -581,10 +581,105 @@ struct LedTopologyOutputGuard {
     bool quiesced = false;
 };
 
+struct PreparedTopologyFrames {
+    ambilight::RgbFrame render{0};
+    ambilight::RgbFrame manual{0};
+    ambilight::RgbFrame commissioning{0};
+
+    bool prepare(std::size_t count) {
+        if (count == 0 ||
+            !render.resizePixels(count) ||
+            !manual.resizePixels(count) ||
+            !commissioning.resizePixels(count)) {
+
+            return false;
+        }
+
+        render.clear();
+        manual.clear();
+        commissioning.clear();
+        return true;
+    }
+
+    bool validFor(std::size_t count) const {
+        return
+            render.storageValid() &&
+            manual.storageValid() &&
+            commissioning.storageValid() &&
+            render.pixelCount == count &&
+            manual.pixelCount == count &&
+            commissioning.pixelCount == count;
+    }
+};
+
+bool installTopologyFrames(
+    const ambilight::LedMappingProfile& profile,
+    PreparedTopologyFrames* prepared) {
+
+    const std::size_t count =
+        profile.totalLedCount();
+
+    if (prepared != nullptr) {
+        if (!prepared->validFor(count)) {
+            return false;
+        }
+
+        renderSnapshot =
+            std::move(prepared->render);
+        manualLightingFrame =
+            std::move(prepared->manual);
+        commissioningFrame =
+            std::move(prepared->commissioning);
+    } else if (
+        !renderSnapshot.storageValid() ||
+        !manualLightingFrame.storageValid() ||
+        !commissioningFrame.storageValid() ||
+        renderSnapshot.pixelCount != count ||
+        manualLightingFrame.pixelCount != count ||
+        commissioningFrame.pixelCount != count) {
+
+        // A rollback to the previously-active topology must never allocate.
+        // If this invariant is broken, keep output black rather than trying a
+        // late best-effort heap growth after subsystem topology already moved.
+        return false;
+    }
+
+    renderSnapshot.clear();
+    manualLightingFrame.clear();
+    commissioningFrame.clear();
+
+    renderSnapshot.receivedUs =
+        static_cast<std::uint64_t>(
+            esp_timer_get_time());
+
+    return true;
+}
+
 void restoreLedOutputAfterTopologyChange(
     LedTopologyOutputGuard& guard) {
 
     if (!guard.quiesced) {
+        return;
+    }
+
+    const std::size_t expectedLaneLength =
+        runtimeSettings.
+            ledMappingProfile().
+            maxSegmentLength();
+
+    if (ledEngine.physicalLaneLength() !=
+        expectedLaneLength) {
+
+        Serial.printf(
+            "LED TOPOLOGY output remains black: PARLIO lane length=%u but active topology requires %u; reboot required.\n",
+            static_cast<unsigned>(
+                ledEngine.physicalLaneLength()),
+            static_cast<unsigned>(
+                expectedLaneLength));
+
+        ledEngine.setBrightness(0);
+        guard.restoreBrightness = 0;
+        guard.quiesced = false;
         return;
     }
 
@@ -645,37 +740,43 @@ bool quiesceLedOutputForTopologyChange(
     return true;
 }
 
-void invalidateRuntimeAfterTopologyChange(
-    const ambilight::LedMappingProfile& profile) {
+bool invalidateRuntimeAfterTopologyChange(
+    const ambilight::LedMappingProfile& profile,
+    PreparedTopologyFrames* prepared = nullptr) {
+
+    if (!installTopologyFrames(
+            profile,
+            prepared)) {
+
+        Serial.println(
+            "LED TOPOLOGY runtime-frame storage mismatch; output must remain black.");
+        return false;
+    }
 
     cachedPerimeterGainSnapshot = {};
     haveCachedPerimeterGainSnapshot = false;
 
-    renderGainController.reset(
-        profile);
+    if (!renderGainController.reset(
+            profile)) {
+
+        // ToF correction is optional. If its dynamic gain buffers cannot be
+        // allocated, keep normal DDP rendering available and fail correction
+        // open until a later topology/reboot can allocate them.
+        Serial.println(
+            "LED TOPOLOGY warning: gain buffers unavailable; ToF correction is fail-open.");
+    }
 
     correctionModeDirty = true;
     ledMappingDirty = true;
     nextGainTargetPollUs = 0;
     nextRenderDiagnosticsUs = 0;
 
-    ambilight::RgbFrame black;
-    black.clear();
-    black.pixelCount =
-        profile.totalLedCount();
-
-    black.receivedUs =
-        static_cast<std::uint64_t>(
-            esp_timer_get_time());
-
-    renderSnapshot =
-        black;
-
     rgbFrameValid = true;
     rgbDirty = true;
 
     // DDP starts a fresh publication epoch when topology changes.
     lastDdpGeneration = 0;
+    return true;
 }
 
 bool activateLedMappingProfileWhileBlack(
@@ -710,6 +811,50 @@ bool activateLedMappingProfileWhileBlack(
         runtimeSettings.
             ledMappingProfile();
 
+    const std::size_t previousLaneLength =
+        ledEngine.physicalLaneLength();
+
+    const std::size_t requestedLaneLength =
+        profile.maxSegmentLength();
+
+    auto rollbackLaneLength = [&]() {
+        if (ledEngine.physicalLaneLength() ==
+            previousLaneLength) {
+
+            return true;
+        }
+
+        const esp_err_t result =
+            ledEngine.reconfigurePhysicalLaneLength(
+                previousLaneLength);
+
+        if (result != ESP_OK) {
+            Serial.printf(
+                "LED TOPOLOGY PARLIO rollback failed: %s; output must remain black.\n",
+                esp_err_to_name(result));
+            return false;
+        }
+
+        return true;
+    };
+
+    if (requestedLaneLength !=
+        previousLaneLength) {
+
+        const esp_err_t resizeResult =
+            ledEngine.reconfigurePhysicalLaneLength(
+                requestedLaneLength);
+
+        if (resizeResult != ESP_OK) {
+            Serial.printf(
+                "LED TOPOLOGY change refused: PARLIO lane resize %u -> %u failed (%s).\n",
+                static_cast<unsigned>(previousLaneLength),
+                static_cast<unsigned>(requestedLaneLength),
+                esp_err_to_name(resizeResult));
+            return false;
+        }
+    }
+
     // The ToF task is the only normal runtime participant that can refuse an
     // otherwise valid topology because its mutex is busy. Queue it first.
     if (!tof.setLedTopology(
@@ -717,6 +862,7 @@ bool activateLedMappingProfileWhileBlack(
 
         Serial.println(
             "LED TOPOLOGY change refused: ToF service could not queue topology.");
+        rollbackLaneLength();
         return false;
     }
 
@@ -731,6 +877,7 @@ bool activateLedMappingProfileWhileBlack(
 
         Serial.println(
             "LED TOPOLOGY change refused: DDP frame size rejected; ToF rollback requested.");
+        rollbackLaneLength();
         return false;
     }
 
@@ -745,6 +892,7 @@ bool activateLedMappingProfileWhileBlack(
 
         Serial.println(
             "LED TOPOLOGY change refused: renderer rejected profile; DDP/ToF rollback requested.");
+        rollbackLaneLength();
         return false;
     }
 
@@ -770,7 +918,11 @@ bool activateLedMappingProfileWhileBlack(
             effectiveMask)) {
 
         // This should be unreachable after sanitizeFor(profile), but preserve
-        // the old live topology if the renderer contract changes later.
+        // the old live topology if the renderer contract changes later. Restore
+        // the old PARLIO length first so a longer previous mapping can never
+        // coexist with shorter physical buffers, even while output is black.
+        rollbackLaneLength();
+
         renderer.setMappingProfile(
             previous);
 
@@ -826,6 +978,16 @@ bool applyLedMappingProfile(
     const ambilight::LedMappingProfile previous =
         runtimeSettings.
             ledMappingProfile();
+
+    PreparedTopologyFrames preparedFrames;
+
+    if (!preparedFrames.prepare(
+            profile.totalLedCount())) {
+
+        Serial.println(
+            "LED TOPOLOGY change refused: insufficient heap for runtime RGB frames.");
+        return false;
+    }
 
     if (commissioningPattern !=
         ambilight::LedCommissioningPattern::None) {
@@ -885,8 +1047,11 @@ bool applyLedMappingProfile(
             return false;
         }
 
-        invalidateRuntimeAfterTopologyChange(
-            previous);
+        if (!invalidateRuntimeAfterTopologyChange(
+                previous)) {
+
+            outputGuard.restoreBrightness = 0;
+        }
 
         restoreLedOutputAfterTopologyChange(
             outputGuard);
@@ -902,8 +1067,12 @@ bool applyLedMappingProfile(
         effectiveMask,
         maskChanged);
 
-    invalidateRuntimeAfterTopologyChange(
-        profile);
+    if (!invalidateRuntimeAfterTopologyChange(
+            profile,
+            &preparedFrames)) {
+
+        outputGuard.restoreBrightness = 0;
+    }
 
     restoreLedOutputAfterTopologyChange(
         outputGuard);
@@ -941,6 +1110,16 @@ bool resetLedMappingProfile() {
             ledMappingProfile();
 
     const ambilight::LedMappingProfile profile;
+
+    PreparedTopologyFrames preparedFrames;
+
+    if (!preparedFrames.prepare(
+            profile.totalLedCount())) {
+
+        Serial.println(
+            "LED TOPOLOGY reset refused: insufficient heap for runtime RGB frames.");
+        return false;
+    }
 
     if (commissioningPattern !=
         ambilight::LedCommissioningPattern::None) {
@@ -1005,8 +1184,11 @@ bool resetLedMappingProfile() {
             runtimeSettings.
                 ledPixelMaskProfile());
 
-        invalidateRuntimeAfterTopologyChange(
-            previous);
+        if (!invalidateRuntimeAfterTopologyChange(
+                previous)) {
+
+            outputGuard.restoreBrightness = 0;
+        }
 
         restoreLedOutputAfterTopologyChange(
             outputGuard);
@@ -1021,8 +1203,12 @@ bool resetLedMappingProfile() {
         effectiveMask,
         maskChanged);
 
-    invalidateRuntimeAfterTopologyChange(
-        profile);
+    if (!invalidateRuntimeAfterTopologyChange(
+            profile,
+            &preparedFrames)) {
+
+        outputGuard.restoreBrightness = 0;
+    }
 
     restoreLedOutputAfterTopologyChange(
         outputGuard);
@@ -1625,7 +1811,7 @@ void handleGainCurveCommand(
 void printFirmwareInfo() {
     Serial.printf(
         "FW name=%s version=%s stage=%u target=%s serial_proto=%u "
-        "logical_leds=%u logical_capacity=%u ddp_bytes=%u ddp_port=%u spatial_schema=%u ledmap_schema=%u pixelmask_schema=%u\n",
+        "logical_leds=%u ddp_bytes=%u ddp_port=%u tested_lane=%u spatial_schema=%u ledmap_schema=%u pixelmask_schema=%u\n",
         ambilight::config::kFirmwareName,
         ambilight::config::kFirmwareVersion,
         static_cast<unsigned>(
@@ -1638,15 +1824,14 @@ void printFirmwareInfo() {
                 ledMappingProfile().
                 totalLedCount()),
         static_cast<unsigned>(
-            ambilight::config::
-                kLogicalLedCapacity),
-        static_cast<unsigned>(
             runtimeSettings.
                 ledMappingProfile().
                 totalLedCount() *
             sizeof(ambilight::Rgb8)),
         static_cast<unsigned>(
             ambilight::DdpUdpService::kPort),
+        static_cast<unsigned>(
+            ambilight::config::kTestedPhysicalLaneLength),
         static_cast<unsigned>(
             ambilight::TofSpatialProfile::kSchemaVersion),
         static_cast<unsigned>(
@@ -2096,17 +2281,12 @@ void finishCommissioning(
     } else if (rgbFrameValid) {
         rgbDirty = true;
     } else {
-        ambilight::RgbFrame black;
-        black.clear();
-        black.pixelCount =
-            runtimeSettings.
-                ledMappingProfile().
-                totalLedCount();
-        black.receivedUs = nowUs;
+        renderSnapshot.clear();
+        renderSnapshot.receivedUs = nowUs;
 
         const esp_err_t result =
             renderer.render(
-                black,
+                renderSnapshot,
                 false);
 
         if (result != ESP_OK) {
@@ -2390,18 +2570,20 @@ bool startRawGpioCommissioning(
         return false;
     }
 
+    const std::size_t physicalLaneLength =
+        ledEngine.physicalLaneLength();
+
     if (count == 0 ||
-        start >=
-            ambilight::config::
-                kPhysicalLaneLength ||
+        start >= physicalLaneLength ||
         static_cast<std::uint32_t>(
             start) +
             count >
-                ambilight::config::
-                    kPhysicalLaneLength) {
+                physicalLaneLength) {
 
-        Serial.println(
-            "GPIO TEST refused: start/count exceed physical 230-address lane.");
+        Serial.printf(
+            "GPIO TEST refused: start/count exceed current physical lane length %u.\n",
+            static_cast<unsigned>(
+                physicalLaneLength));
         return false;
     }
 
@@ -2692,20 +2874,13 @@ bool serviceManualLighting(
             if (rgbFrameValid) {
                 rgbDirty = true;
             } else {
-                ambilight::RgbFrame black;
-                black.clear();
-
-                black.pixelCount =
-                    runtimeSettings.
-                        ledMappingProfile().
-                        totalLedCount();
-
-                black.receivedUs =
+                renderSnapshot.clear();
+                renderSnapshot.receivedUs =
                     nowUs;
 
                 const esp_err_t result =
                     renderer.render(
-                        black,
+                        renderSnapshot,
                         false);
 
                 if (result != ESP_OK) {
@@ -2794,12 +2969,20 @@ bool serviceManualLighting(
             ESP_ERR_INVALID_STATE);
     }
 
+    const auto& activeGainContext =
+        renderGainController.current();
+
+    const bool gainStorageReady =
+        activeCorrection &&
+        activeGainContext.storageValid() &&
+        activeGainContext.topology.segment ==
+            runtimeSettings.ledMappingProfile().segment;
+
     const esp_err_t result =
-        activeCorrection
+        gainStorageReady
             ? renderer.renderActive(
                   manualLightingFrame,
-                  renderGainController.
-                      current(),
+                  activeGainContext,
                   false)
             : renderer.render(
                   manualLightingFrame,
@@ -2807,7 +2990,7 @@ bool serviceManualLighting(
 
     if (result != ESP_OK) {
         fatal(
-            activeCorrection
+            gainStorageReady
                 ? "manual renderActive failed"
                 : "manual render failed",
             result);
@@ -2909,18 +3092,26 @@ bool serviceRender(
             esp_timer_get_time()) -
         serviceStartedUs);
 
+    const auto& activeGainContext =
+        renderGainController.current();
+
+    const bool gainStorageReady =
+        activeCorrection &&
+        activeGainContext.storageValid() &&
+        activeGainContext.topology.segment ==
+            runtimeSettings.ledMappingProfile().segment;
+
     const esp_err_t result =
-        activeCorrection
+        gainStorageReady
             ? renderer.renderActive(
                   renderSnapshot,
-                  renderGainController.
-                      current())
+                  activeGainContext)
             : renderer.render(
                   renderSnapshot);
 
     if (result != ESP_OK) {
         fatal(
-            activeCorrection
+            gainStorageReady
                 ? "LedRenderer::renderActive failed"
                 : "LedRenderer::render failed",
             result);
@@ -3172,10 +3363,9 @@ void printRenderSegmentGain(
             segment);
 
     if (segmentConfig.logicalLength > 0) {
-        const std::uint16_t midpoint =
-            static_cast<std::uint16_t>(
-                segmentConfig.logicalStart +
-                segmentConfig.logicalLength / 2U);
+        const std::size_t midpoint =
+            segmentConfig.logicalStart +
+            segmentConfig.logicalLength / 2U;
 
         midpointQ12 =
             context.gainForLogicalIndex(
@@ -3344,7 +3534,7 @@ void dumpRenderShadow() {
     Serial.printf(
         "RENDER mode=%s physical_frames=%lu diagnostic_frames=%lu shadow_diag=%lu active_diag=%lu "
         "present=%lu usable=%lu failopen=%lu nonunity=%lu "
-        "last_candidate_changed=%u last_physical_changed=%u max_delta=%u candidate_rgb=%lu.%lu%% "
+        "last_candidate_changed=%lu last_physical_changed=%lu max_delta=%u candidate_rgb=%lu.%lu%% "
         "source_gen=%lu source_age=%lluus prepare_last=%lluus prepare_p95<=%luus diag_p95<=%luus\n",
         ambilight::correctionModeName(
             correctionMode),
@@ -3364,8 +3554,10 @@ void dumpRenderShadow() {
             stats.failOpenFrames),
         static_cast<unsigned long>(
             stats.nonUnityContextFrames),
-        stats.lastWouldChangePixels,
-        stats.lastPhysicalChangedPixels,
+        static_cast<unsigned long>(
+            stats.lastWouldChangePixels),
+        static_cast<unsigned long>(
+            stats.lastPhysicalChangedPixels),
         static_cast<unsigned>(
             stats.lastMaxChannelDelta),
         static_cast<unsigned long>(
@@ -5369,7 +5561,7 @@ void dumpRuntimeStatus() {
         "pcalc=%lu pskip=%lu pdelta=%u pfail=%lu "
         "spfail=%s spmin=%u spmax=%u "
         "gainfail=%s gl=%u gt=%u gb=%u gr=%u "
-        "diag_frames=%lu diag_usable=%lu diag_nonunity=%lu diag_changed=%u phys_changed=%u diag_delta=%u renderprep=%lluus diag_p95<=%luus "
+        "diag_frames=%lu diag_usable=%lu diag_nonunity=%lu diag_changed=%lu phys_changed=%lu diag_delta=%u renderprep=%lluus diag_p95<=%luus "
         "slew_snap=%lu probe=%s sched_rgb=%lu sched_state=%lu sched_comb=%lu sched_state_def=%lu rgbgen=%lu "
         "tofinit=%lu toffail=%lu tofreadfail=%lu tofrestart=%lu frame_hold=%s frame_hold_age=%llums heap=%lu minheap=%lu\n",
         ambilight::correctionModeName(
@@ -5510,10 +5702,12 @@ void dumpRuntimeStatus() {
         static_cast<unsigned long>(
             renderDiagnostics.stats().
                 nonUnityContextFrames),
-        renderDiagnostics.stats().
-            lastWouldChangePixels,
-        renderDiagnostics.stats().
-            lastPhysicalChangedPixels,
+        static_cast<unsigned long>(
+            renderDiagnostics.stats().
+                lastWouldChangePixels),
+        static_cast<unsigned long>(
+            renderDiagnostics.stats().
+                lastPhysicalChangedPixels),
         static_cast<unsigned>(
             renderDiagnostics.stats().
                 lastMaxChannelDelta),
@@ -5651,14 +5845,11 @@ void printConfiguration() {
             ambilight::config::kSerialProtocolVersion));
 
     Serial.printf(
-        "Logical LEDs=%u/%u capacity payload=%uB DDP=%u poll_budget=%luus max_datagrams=%u\n",
+        "Logical LEDs=%u payload=%uB DDP=%u poll_budget=%luus max_datagrams=%u\n",
         static_cast<unsigned>(
             runtimeSettings.
                 ledMappingProfile().
                 totalLedCount()),
-        static_cast<unsigned>(
-            ambilight::config::
-                kLogicalLedCapacity),
         static_cast<unsigned>(
             runtimeSettings.
                 ledMappingProfile().
@@ -5671,9 +5862,11 @@ void printConfiguration() {
             ambilight::DdpUdpService::kMaxDatagramsPerPoll));
 
     Serial.printf(
-        "PARLIO lanes=%u lane_length=%u brightness=%u/255\n",
+        "PARLIO lanes=%u lane_length=%u lane_format_max=%u tested_lane=%u brightness=%u/255\n",
         static_cast<unsigned>(ambilight::config::kParlioLaneCount),
-        static_cast<unsigned>(ambilight::config::kPhysicalLaneLength),
+        static_cast<unsigned>(ledEngine.physicalLaneLength()),
+        static_cast<unsigned>(ambilight::config::kMaxRepresentablePhysicalLaneLength),
+        static_cast<unsigned>(ambilight::config::kTestedPhysicalLaneLength),
         static_cast<unsigned>(
             ledEngine.brightness()));
 
@@ -5782,6 +5975,20 @@ void setup() {
     const auto& startupTopology =
         runtimeSettings.ledMappingProfile();
 
+    // Mirror the live topology transaction's mandatory allocation order so a
+    // topology that was accepted and persisted is not made artificially harder
+    // to boot merely because the same heap blocks are requested in a different
+    // sequence after reset.
+    PreparedTopologyFrames startupFrames;
+
+    if (!startupFrames.prepare(
+            startupTopology.totalLedCount())) {
+
+        fatal(
+            "Runtime RGB frame allocation failed",
+            ESP_ERR_NO_MEM);
+    }
+
     if (!renderer.setMappingProfile(
             startupTopology)) {
 
@@ -5790,12 +5997,29 @@ void setup() {
             ESP_ERR_INVALID_ARG);
     }
 
+    const esp_err_t ledResult =
+        ledEngine.begin(
+            startupTopology.maxSegmentLength());
+
+    if (ledResult != ESP_OK) {
+        fatal("LedEngine::begin failed", ledResult);
+    }
+
     if (!ddp.setLogicalLedCount(
             startupTopology.totalLedCount())) {
 
         fatal(
-            "DDP runtime topology size is invalid",
-            ESP_ERR_INVALID_ARG);
+            "DDP runtime topology size is invalid or does not fit memory",
+            ESP_ERR_NO_MEM);
+    }
+
+    if (!installTopologyFrames(
+            startupTopology,
+            &startupFrames)) {
+
+        fatal(
+            "Runtime RGB frame installation failed",
+            ESP_ERR_INVALID_STATE);
     }
 
     if (!tof.setLedTopology(
@@ -5806,14 +6030,12 @@ void setup() {
             ESP_ERR_INVALID_ARG);
     }
 
-    renderGainController.reset(
-        startupTopology);
+    if (!renderGainController.reset(
+            startupTopology)) {
 
-    renderSnapshot.pixelCount =
-        startupTopology.totalLedCount();
-
-    commissioningFrame.pixelCount =
-        startupTopology.totalLedCount();
+        Serial.println(
+            "Startup warning: gain buffers unavailable; ToF correction is fail-open.");
+    }
 
     if (!renderer.setPixelMaskProfile(
             runtimeSettings.ledPixelMaskProfile())) {
@@ -5840,11 +6062,6 @@ void setup() {
     }
 
     printConfiguration();
-
-    const esp_err_t ledResult = ledEngine.begin();
-    if (ledResult != ESP_OK) {
-        fatal("LedEngine::begin failed", ledResult);
-    }
 
     const char* startupWifiSsid = "";
     const char* startupWifiPassword = "";

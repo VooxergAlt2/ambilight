@@ -84,6 +84,8 @@ REQUIRED_TOKENS = {
     "localStorage.setItem('ambilight.locale'",
     "function corrName(",
     "function actionMessage(",
+    "const ledLaneFormatMax=65535;",
+    "no fixed aggregate LED-count ceiling",
     "const ACTION_RU={",
     "p.push(String(value-1))",
     "v<0?'':v+1",
@@ -99,6 +101,8 @@ FORBIDDEN_TOKENS = {
     "idle_blanked",
     "const corrNames=",
     "Индекс считается от логического начала стороны.",
+    "const ledCapacity=920;",
+    "1..920",
 }
 
 

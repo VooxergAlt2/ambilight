@@ -21,7 +21,7 @@ The active firmware now combines:
 - realtime Wi-Fi/DDP RGB transport
 - one active DDP sender lease
 - checked UDP socket receive-buffer tuning
-- fixed 920-LED memory capacity with runtime active logical count
+- dynamic RGB/DDP/per-pixel storage sized from the active runtime topology
 - four synchronized ESP32-C6 PARLIO outputs
 - runtime LED side length / GPIO / reversal topology
 - slow VL53L5CX wall-plane geometry
@@ -159,46 +159,32 @@ Socket-option failures are observable but non-fatal.
 
 ## Runtime LED topology
 
-Memory capacity is fixed and heap-free:
+There is no separate 230-per-lane or 920-total policy limit. The four
+`uint16_t` side-length fields imply a representable aggregate of up to 262,140 LEDs. `LedMappingProfile`
+stores each of the four side lengths as `uint16_t`; aggregate logical offsets
+and frame sizes use wider runtime types. The practical limit is available
+ESP32-C6 memory plus physical PARLIO/LED timing.
 
-    4 PARLIO lanes x 230 = 920 LED capacity
+Hardware validation has been performed up to 230 LEDs on one output. Larger
+configurations are software-supported but experimentally unvalidated on a real
+strip.
 
-LedMappingProfile schema 3 is the authoritative topology. For each logical TV
-side it stores:
+Runtime buffers follow the topology rather than the historical maximum:
 
-- active logical length, 1..230
-- physical PARLIO lane, surfaced to users as GPIO18/19/20/21
-- FWD/REV direction
+- main RGB frames allocate `totalLedCount` pixels;
+- DDP staging/coverage allocates `totalLedCount * 3` bytes plus coverage bits;
+- PARLIO allocates every physical lane to the current longest side;
+- ToF/render gain fields allocate one Q12 value per active logical LED.
 
-The four active segments remain contiguous in logical order:
+The four logical segments remain contiguous:
 
     TOP -> RIGHT -> BOTTOM -> LEFT
 
-Their starts are recomputed from the configured lengths. Therefore:
-
-    active DDP bytes = totalLedCount * 3
-
-There are no logical holes and inactive capacity is never part of the DDP
-frame.
-
-Every physical GPIO must be assigned exactly once. ToF gains are indexed in
-logical screen space before physical reversal, so wiring cannot reverse the
-wall model.
-
-A topology apply owns its safety blackout and does not require the operator to
-set brightness to zero manually. It acts as a coordinated transaction:
-
-1. cancel active commissioning and enter controlled physical blackout
-2. queue the new topology to ToF
-3. reconfigure DDP expected frame bytes and reset sender/assembly epoch
-4. switch renderer mapping
-5. clear fixed physical lane buffers when mapping actually changes
-6. prepare a sanitized disabled-pixel mask without mutating persistence yet
-7. commit/reset the runtime topology in NVS
-8. persist any required mask sanitation only after topology commit
-9. publish a black frame with the new pixelCount
-10. reset gain-controller state and wait fail-open for fresh ToF projection
-11. restore configured effective output state
+A topology update is transactional: runtime RGB memory is preflighted, output
+is blacked out, PARLIO/DDP/renderer/ToF are reconfigured, NVS is committed, and
+brightness is restored. Allocation or subsystem failure rejects/rolls back the
+change. Optional ToF gain allocation failure is fail-open and does not disable
+normal DDP output.
 
 ## ToF path
 
@@ -212,12 +198,12 @@ set brightness to zero manually. It acts as a coordinated transaction:
       -> +Z intersection with wall plane
       -> active throw-distance field
       -> runtime DistanceGainCurve
-      -> PerimeterGainSnapshot.logicalGainQ12[capacity]
+      -> PerimeterGainSnapshot.logicalGainQ12[active topology]
       -> TofRenderGainBridge
-      -> RenderGainContext.logicalGainQ12[capacity]
+      -> RenderGainContext.logicalGainQ12[active topology]
 
-Only indices below topology.totalLedCount() are active. Capacity arrays are
-fixed at 920 entries to avoid heap allocation during commissioning.
+Gain arrays are sized to `topology.totalLedCount()` on the slow control/ToF
+path. Realtime rendering reuses that storage and performs no allocation.
 
 ## Wall model
 
@@ -493,9 +479,9 @@ maintained `main` line:
 3. `pio test -e native`
 4. `pio run -e esp32-c6-devkitc-1`
 
-The public-preparation baseline passed with 270 native tests, RAM usage
-95460 / 327680 bytes (29.1%), and an application image of
-1348180 / 7340032 bytes (18.4%).
+The public-preparation baseline passed with 272 native tests, RAM usage
+70460 / 327680 bytes (21.5%), and an application image of
+1342096 / 7340032 bytes (18.3%).
 
 Deployment is pinned to partitions/ambilight_16mb_ota.csv:
 

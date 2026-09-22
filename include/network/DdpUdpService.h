@@ -85,9 +85,9 @@ public:
     void stop();
 
     bool setLogicalLedCount(
-        std::uint16_t logicalLedCount);
+        std::size_t logicalLedCount);
 
-    std::uint16_t logicalLedCount() const {
+    std::size_t logicalLedCount() const {
         return logicalLedCount_;
     }
 
@@ -143,9 +143,8 @@ private:
 
     DdpUdpStats stats_{};
 
-    std::uint16_t logicalLedCount_ =
-        static_cast<std::uint16_t>(
-            config::kDefaultLogicalLedCount);
+    std::size_t logicalLedCount_ =
+        config::kDefaultLogicalLedCount;
 
     std::uint64_t lastPacketUs_ = 0;
     std::uint64_t lastCompleteFrameUs_ = 0;

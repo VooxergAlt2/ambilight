@@ -191,15 +191,13 @@ void test_runtime_lengths_recompute_logical_starts_once() {
         plan.segment[3].logicalStart);
 }
 
-void test_full_920_led_capacity_is_supported() {
+void test_uneven_lanes_above_230_are_supported() {
     LedMappingProfile profile;
 
-    for (auto& mapping :
-         profile.segment) {
-
-        mapping.logicalLength =
-            230;
-    }
+    profile.segment[0].logicalLength = 500;
+    profile.segment[1].logicalLength = 140;
+    profile.segment[2].logicalLength = 140;
+    profile.segment[3].logicalLength = 140;
 
     LedRenderPlan plan;
 
@@ -212,18 +210,54 @@ void test_full_920_led_capacity_is_supported() {
         920,
         plan.totalLedCount);
 
-    const auto& left =
+    TEST_ASSERT_EQUAL_UINT16(
+        500,
+        profile.maxSegmentLength());
+
+    const auto& right =
         segment(
             plan,
-            SegmentId::Left);
+            SegmentId::Right);
 
     TEST_ASSERT_EQUAL_UINT16(
-        690,
-        left.logicalStart);
+        500,
+        right.logicalStart);
+
+    const auto& top =
+        segment(
+            plan,
+            SegmentId::Top);
 
     TEST_ASSERT_EQUAL_UINT16(
-        229,
-        left.physicalIndex(229));
+        499,
+        top.physicalIndex(0));
+}
+
+void test_aggregate_logical_indices_do_not_wrap_above_uint16() {
+    LedMappingProfile profile;
+
+    for (auto& mapping : profile.segment) {
+        mapping.logicalLength = 30000;
+    }
+
+    LedRenderPlan plan;
+
+    TEST_ASSERT_TRUE(
+        LedRenderPlan::build(
+            profile,
+            plan));
+
+    TEST_ASSERT_EQUAL_UINT32(
+        120000,
+        plan.totalLedCount);
+
+    TEST_ASSERT_EQUAL_UINT32(
+        90000,
+        plan.segment[3].logicalStart);
+
+    TEST_ASSERT_EQUAL_UINT16(
+        0,
+        plan.segment[3].physicalIndex(0));
 }
 
 void test_invalid_profile_does_not_build_plan() {
@@ -251,6 +285,21 @@ void test_invalid_profile_does_not_build_plan() {
             plan));
 
     TEST_ASSERT_FALSE(plan.valid);
+
+    LedMappingProfile largeTopology;
+    largeTopology.segment[0].logicalLength = 1000;
+    largeTopology.segment[1].logicalLength = 900;
+    largeTopology.segment[2].logicalLength = 800;
+    largeTopology.segment[3].logicalLength = 700;
+
+    TEST_ASSERT_TRUE(
+        LedRenderPlan::build(
+            largeTopology,
+            plan));
+
+    TEST_ASSERT_EQUAL_UINT32(
+        3400,
+        plan.totalLedCount);
 }
 
 void test_disabled_pixel_uses_physical_offset_under_reversal() {
@@ -325,7 +374,10 @@ int main(int, char**) {
         test_runtime_lengths_recompute_logical_starts_once);
 
     RUN_TEST(
-        test_full_920_led_capacity_is_supported);
+        test_uneven_lanes_above_230_are_supported);
+
+    RUN_TEST(
+        test_aggregate_logical_indices_do_not_wrap_above_uint16);
 
     RUN_TEST(
         test_invalid_profile_does_not_build_plan);

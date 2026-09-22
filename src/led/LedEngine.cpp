@@ -6,33 +6,52 @@
 
 namespace ambilight {
 
-LedEngine::LedEngine()
-    : group_(LED_STRIP_WS2812, config::kPhysicalLaneLength, false) {}
+LedEngine::LedEngine() = default;
 
-esp_err_t LedEngine::begin() {
+esp_err_t LedEngine::initializeGroup(
+    std::size_t physicalLaneLength) {
+
+    if (physicalLaneLength == 0 ||
+        physicalLaneLength >
+            config::kMaxRepresentablePhysicalLaneLength ||
+        group_.has_value()) {
+
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    group_.emplace(
+        LED_STRIP_WS2812,
+        physicalLaneLength,
+        false);
+
+    lanes_.fill(nullptr);
+    frameWriteView_ = {};
+
     for (std::size_t lane = 0;
          lane < config::kParlioLaneCount;
          ++lane) {
 
         lanes_[lane] =
-            &group_.addStrip(
+            &group_->addStrip(
                 config::kLedGpios[lane]);
 
         if (lanes_[lane] == nullptr ||
             !lanes_[lane]->isValid()) {
 
+            releaseGroup();
             return ESP_ERR_INVALID_STATE;
         }
     }
 
     const esp_err_t result =
-        group_.begin();
+        group_->begin();
 
     if (result != ESP_OK) {
+        releaseGroup();
         return result;
     }
 
-    group_.brightness(
+    group_->brightness(
         brightness_);
 
     for (std::size_t lane = 0;
@@ -45,10 +64,12 @@ esp_err_t LedEngine::begin() {
 
         if (buffer.data == nullptr ||
             buffer.pixel_count !=
-                config::kPhysicalLaneLength ||
+                physicalLaneLength ||
             buffer.bytes_per_pixel != 3 ||
-            buffer.order != ORDER_GRB) {
+            buffer.order != ORDER_GRB ||
+            buffer.pixel_count > 0xFFFFU) {
 
+            releaseGroup();
             return ESP_ERR_INVALID_STATE;
         }
 
@@ -60,24 +81,123 @@ esp_err_t LedEngine::begin() {
     }
 
     if (!frameWriteView_.valid()) {
+        releaseGroup();
         return ESP_ERR_INVALID_STATE;
     }
 
     begun_ = true;
+    physicalLaneLength_ =
+        physicalLaneLength;
 
     clear();
 
-    // Startup must leave a completed black frame on the wire before the rest
-    // of the runtime starts scheduling DDP/commissioning work.
+    // The startup/reconfiguration blackout must not be rejected merely
+    // because a mask from the previous topology lies beyond a newly-shortened
+    // lane. Preserve the mask logically, but emit this one black frame with an
+    // empty physical mask. The renderer reprojects the mask immediately after
+    // a successful topology transaction.
+    const LedPhysicalPixelMask savedMask =
+        physicalPixelMask_;
+
+    physicalPixelMask_ = {};
+
     const esp_err_t showResult =
         show();
 
-    if (showResult != ESP_OK) {
-        return showResult;
+    esp_err_t completionResult =
+        showResult;
+
+    if (showResult == ESP_OK) {
+        completionResult =
+            waitForIdle();
+    }
+
+    physicalPixelMask_ =
+        savedMask;
+
+    if (completionResult != ESP_OK) {
+        releaseGroup();
+        return completionResult;
+    }
+
+    return ESP_OK;
+}
+
+void LedEngine::releaseGroup() {
+    begun_ = false;
+    physicalLaneLength_ = 0;
+    frameWriteView_ = {};
+    lanes_.fill(nullptr);
+    group_.reset();
+}
+
+esp_err_t LedEngine::begin(
+    std::size_t physicalLaneLength) {
+
+    if (begun_ ||
+        group_.has_value()) {
+
+        return ESP_ERR_INVALID_STATE;
     }
 
     return
+        initializeGroup(
+            physicalLaneLength);
+}
+
+esp_err_t LedEngine::reconfigurePhysicalLaneLength(
+    std::size_t physicalLaneLength) {
+
+    if (physicalLaneLength == 0 ||
+        physicalLaneLength >
+            config::kMaxRepresentablePhysicalLaneLength) {
+
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    if (!begun_) {
+        return begin(
+            physicalLaneLength);
+    }
+
+    if (physicalLaneLength ==
+        physicalLaneLength_) {
+
+        return ESP_OK;
+    }
+
+    const esp_err_t idleResult =
         waitForIdle();
+
+    if (idleResult != ESP_OK) {
+        return idleResult;
+    }
+
+    const std::size_t previousLength =
+        physicalLaneLength_;
+
+    releaseGroup();
+
+    const esp_err_t requestedResult =
+        initializeGroup(
+            physicalLaneLength);
+
+    if (requestedResult == ESP_OK) {
+        return ESP_OK;
+    }
+
+    // Recreate the previous known-good geometry before returning a rejected
+    // topology change. If this rare rollback also fails, the caller can detect
+    // physicalLaneLength()==0 and must keep output black until reboot.
+    const esp_err_t rollbackResult =
+        initializeGroup(
+            previousLength);
+
+    if (rollbackResult != ESP_OK) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    return requestedResult;
 }
 
 void LedEngine::setBrightness(
@@ -85,8 +205,10 @@ void LedEngine::setBrightness(
 
     brightness_ = brightness;
 
-    if (begun_) {
-        group_.brightness(
+    if (begun_ &&
+        group_) {
+
+        group_->brightness(
             brightness_);
     }
 }
@@ -153,6 +275,12 @@ bool LedEngine::fillPhysicalRange(
 }
 
 esp_err_t LedEngine::show() {
+    if (!begun_ ||
+        !group_) {
+
+        return ESP_ERR_INVALID_STATE;
+    }
+
     // Disabled pixels are a physical output invariant. Enforce them at the
     // lowest common path so DDP, ACTIVE correction and raw commissioning can
     // never re-light a masked LED.
@@ -167,7 +295,7 @@ esp_err_t LedEngine::show() {
             esp_timer_get_time());
 
     const bool hadInFlight =
-        group_.inFlight();
+        group_->inFlight();
 
     if (hadInFlight) {
         ++overlappedShows_;
@@ -179,7 +307,7 @@ esp_err_t LedEngine::show() {
         showStartedUs;
 
     esp_err_t result =
-        group_.encode();
+        group_->encode();
 
     const std::uint64_t encodeFinishedUs =
         static_cast<std::uint64_t>(
@@ -203,7 +331,7 @@ esp_err_t LedEngine::show() {
                 esp_timer_get_time());
 
         result =
-            group_.wait();
+            group_->wait();
 
         const std::uint64_t waitFinishedUs =
             static_cast<std::uint64_t>(
@@ -229,7 +357,7 @@ esp_err_t LedEngine::show() {
             esp_timer_get_time());
 
     result =
-        group_.transmit();
+        group_->transmit();
 
     const std::uint64_t submitFinishedUs =
         static_cast<std::uint64_t>(
@@ -251,7 +379,10 @@ esp_err_t LedEngine::show() {
 }
 
 esp_err_t LedEngine::waitForIdle() {
-    if (!group_.inFlight()) {
+    if (!begun_ ||
+        !group_ ||
+        !group_->inFlight()) {
+
         return ESP_OK;
     }
 
@@ -260,7 +391,7 @@ esp_err_t LedEngine::waitForIdle() {
             esp_timer_get_time());
 
     const esp_err_t result =
-        group_.wait();
+        group_->wait();
 
     const std::uint64_t waitFinishedUs =
         static_cast<std::uint64_t>(

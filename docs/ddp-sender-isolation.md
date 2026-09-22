@@ -40,8 +40,10 @@ The frame bound is:
 
     topology.totalLedCount() * 3
 
-Default remains 2340 bytes for 780 LEDs; maximum Stage 38 capacity is 2760
-bytes for 920 LEDs.
+The measured default remains 2340 bytes for 780 LEDs. The historical Stage 38
+2760-byte / 920-LED ceiling no longer exists: the sender gate and assembler use
+the active runtime frame size, and DDP staging is allocated when topology
+changes.
 
 DdpAssembler repeats its own validation afterward as defense in depth.
 

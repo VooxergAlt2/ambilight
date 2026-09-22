@@ -25,17 +25,9 @@ struct LedPixelMaskProfile {
         }};
 
     constexpr bool valid() const {
-        for (const std::uint16_t value :
-             disabledOffset) {
-
-            if (value != kNone &&
-                value >=
-                    config::kPhysicalLaneLength) {
-
-                return false;
-            }
-        }
-
+        // Every stored value is representable by the persisted uint16 format.
+        // kNone (0xFFFF) is the sentinel; topology-specific bounds are checked
+        // by validFor()/apply().
         return true;
     }
 

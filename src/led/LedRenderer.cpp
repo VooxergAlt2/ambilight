@@ -90,6 +90,7 @@ bool LedRenderer::validateFrame(
     return
         renderPlan_.valid &&
         engine_.frameWriteView().valid() &&
+        frame.storageValid() &&
         frame.pixelCount ==
             renderPlan_.totalLedCount;
 }
@@ -293,10 +294,9 @@ esp_err_t LedRenderer::render(
                 segment.logicalLength;
              ++offset) {
 
-            const std::uint16_t logical =
-                static_cast<std::uint16_t>(
-                    segment.logicalStart +
-                    offset);
+            const std::size_t logical =
+                segment.logicalStart +
+                offset;
 
             const std::uint16_t physical =
                 segment.physicalIndex(
@@ -387,10 +387,9 @@ esp_err_t LedRenderer::renderActive(
                 segment.logicalLength;
              ++offset) {
 
-            const std::uint16_t logical =
-                static_cast<std::uint16_t>(
-                    segment.logicalStart +
-                    offset);
+            const std::size_t logical =
+                segment.logicalStart +
+                offset;
 
             const std::uint16_t physical =
                 segment.physicalIndex(

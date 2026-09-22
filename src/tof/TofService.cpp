@@ -289,6 +289,11 @@ bool TofService::copySnapshot(TofSnapshot& destination) const {
 
     destination = snapshot_;
 
+    if (!destination.perimeterGains.storageValid()) {
+        destination.perimeterGains.failOpen = true;
+        destination.perimeterGains.projectionUsable = false;
+    }
+
     xSemaphoreGive(mutex_);
     return true;
 }
@@ -323,6 +328,11 @@ bool TofService::copyPerimeterGainSnapshot(
 
     destination =
         snapshot_.perimeterGains;
+
+    if (!destination.storageValid()) {
+        destination.failOpen = true;
+        destination.projectionUsable = false;
+    }
 
     xSemaphoreGive(mutex_);
     return true;
@@ -569,6 +579,12 @@ void TofService::publishResults(
     if (mutex_ != nullptr &&
         xSemaphoreTake(mutex_, portMAX_DELAY) == pdTRUE) {
         snapshot_ = next;
+
+        if (!snapshot_.perimeterGains.storageValid()) {
+            snapshot_.perimeterGains.failOpen = true;
+            snapshot_.perimeterGains.projectionUsable = false;
+        }
+
         xSemaphoreGive(mutex_);
     }
 }

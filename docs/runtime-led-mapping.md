@@ -2,32 +2,56 @@
 
 ## Purpose
 
-Stage 38 introduced the authoritative runtime LED topology. Stage 39 hardens
-its transition and persistence behavior before flashing.
+The controller keeps logical TV geometry separate from physical wiring. Each of
+the four logical sides stores:
 
-For each logical TV side the profile stores:
+- LED count;
+- physical PARLIO output/GPIO;
+- FWD/REV strip direction.
 
-- active LED count
-- physical PARLIO output, surfaced as GPIO
-- forward/reversed direction
+No firmware rebuild is required when those values change.
 
-No firmware rebuild is required.
+## Capacity model
 
-## Capacity and default
+There is **no separate aggregate LED-count ceiling** such as the old 920-address
+limit. The sum is derived from four `uint16_t` side fields, so the persisted
+format itself can represent up to 262,140 logical LEDs total.
 
-Static capacity:
+Each individual side length is persisted as `uint16_t`, so the configuration
+format represents `1..65535` LEDs per side. Aggregate logical indices and frame
+sizes use wider runtime types and do not wrap at 65535 total LEDs.
 
-    4 lanes x 230 = 920 LEDs
+The practical controller limit is resource-based:
 
-Default topology:
+- free ESP32-C6 heap for RGB, DDP and optional gain fields;
+- PARLIO/LiteLED lane buffer allocation;
+- physical LED wire time and the resulting maximum frame rate.
 
-    TOP     230 : GPIO18 : FWD
-    RIGHT   160 : GPIO19 : FWD
-    BOTTOM  230 : GPIO20 : FWD
-    LEFT    160 : GPIO21 : FWD
+Topology changes pre-allocate the required main RGB buffers before the physical
+mapping is changed. DDP staging/coverage and PARLIO lane storage are then resized
+transactionally. If required memory cannot be obtained, the new topology is
+rejected rather than partially applied.
 
-The logical frame is contiguous in TOP, RIGHT, BOTTOM, LEFT order. Logical
-starts are recomputed from configured lengths.
+**Hardware testing has been performed up to 230 LEDs on a single output.**
+Values above 230 are accepted by the software path but remain experimental on
+real LED hardware.
+
+The measured/default installation remains:
+
+    TOP     230 : GPIO20 : REV
+    RIGHT   160 : GPIO19 : REV
+    BOTTOM  230 : GPIO21 : REV
+    LEFT    160 : GPIO18 : FWD
+
+Logical order is always:
+
+    TOP -> RIGHT -> BOTTOM -> LEFT
+
+Therefore:
+
+    active DDP bytes = totalLedCount * 3
+
+There are no logical holes.
 
 ## Serial commands
 
@@ -39,74 +63,73 @@ Set:
 
     lCOUNT:GPIO:REV,COUNT:GPIO:REV,COUNT:GPIO:REV,COUNT:GPIO:REV<Enter>
 
-Default example:
+Measured-default example:
 
-    l230:18:0,160:19:0,230:20:0,160:21:0<Enter>
+    l230:20:1,160:19:1,230:21:1,160:18:0<Enter>
 
 Reset:
 
     lreset<Enter>
 
-## Validation
+Validation rules:
 
-For every side:
+- `COUNT`: `1..65535` for each side (storage-format range, not a promise that an
+  extreme value will fit ESP32-C6 memory);
+- `GPIO`: 18, 19, 20 or 21;
+- every GPIO must be assigned exactly once;
+- `REV`: 0 or 1.
 
-    COUNT  1..230
-    GPIO   18 | 19 | 20 | 21
-    REV    0 | 1
+## Coordinated topology transaction
 
-Every GPIO must be used exactly once.
+A normal topology change is controller-owned and performs a safety blackout.
+The operator does not need to set brightness to zero first.
 
-Topology edits use a controller-owned safety transaction:
+The transaction is:
 
-    cancel active commissioning
-    controlled physical blackout
-    apply/persist topology
-    rollback on failure
-    restore output brightness
+1. pre-allocate RGB frames for the requested aggregate topology;
+2. cancel active commissioning and enter a physical blackout;
+3. resize PARLIO lanes to the longest requested side;
+4. queue the topology to ToF;
+5. resize DDP staging/coverage to `totalLedCount * 3` and reset the sender epoch;
+6. switch renderer logical-to-physical mapping;
+7. sanitize the disabled-pixel mask for any shortened side;
+8. persist/reset topology in NVS;
+9. install the pre-allocated runtime RGB frames and reset RGB generation state;
+10. reset dynamic gain storage; if optional ToF gain storage cannot be allocated,
+    correction fails open while normal DDP rendering remains available;
+11. restore configured output brightness.
 
-The operator does not need to set brightness to 0.
-
-## Coordinated runtime behavior
-
-A valid topology apply coordinates all dependent subsystems:
-
-1. ToF receives the new LED sampling topology
-2. DDP expected frame size becomes totalLedCount * 3
-3. sender lease and assembler sequence epoch reset
-4. LedRenderer switches logical-to-physical mapping and clears all fixed
-   physical lane buffers when the mapping actually changes
-5. disabled-pixel entries outside shortened sides are prepared in memory
-6. topology persistence/reset is committed
-7. any required disabled-pixel sanitation is persisted only after topology
-   commit
-8. cached RGB is replaced with a black frame carrying the new pixelCount
-9. gain state returns fail-open/unity until a fresh ToF projection exists
-
-This avoids mixed old/new topology frames.
+Every intermediate failure requests rollback to the previously active topology.
+If a low-level physical rollback itself fails, output is deliberately kept black
+and a reboot is required rather than illuminating a mixed topology.
 
 ## Physical GPIO model
 
-PARLIO is initialized on four fixed physical outputs:
+The four fixed PARLIO outputs are:
 
     lane 0 -> GPIO18
     lane 1 -> GPIO19
     lane 2 -> GPIO20
     lane 3 -> GPIO21
 
-The commissioning UI exposes GPIO numbers, not internal lane numbers.
+All four PARLIO lane buffers use the length of the **longest active side**.
+This is important: allowing a long strip does not make the normal 230/160
+reference topology transmit 65535 empty pixel slots every frame.
 
-Raw GPIO tests can directly light a physical lane before logical side
-assignment is trusted.
+Raw GPIO commissioning tests are bounded by the currently allocated physical
+lane length.
 
-## ToF independence from wiring direction
+## ToF independence from wiring
 
-ToF distance/gain is calculated in logical screen order.
+ToF distance/gain is calculated in logical screen order. Physical GPIO mapping
+and REV are applied afterward, so rewiring/reversing a strip cannot reverse the
+wall model.
 
-Physical GPIO assignment and REV are applied afterward by SegmentMapper.
-Therefore rewiring or reversing a strip cannot reverse the wall model.
+Per-pixel gain buffers are dynamic and follow the active logical topology. If
+the optional gain field cannot allocate memory, correction is fail-open rather
+than blocking normal Ambilight output.
 
-## NVS
+## NVS compatibility
 
 Namespace:
 
@@ -117,15 +140,11 @@ Keys:
     led_map
     led_map_ver
 
-Schema:
+Schema remains:
 
     3
 
-The blob is written first and the version commit marker last.
-
-Reset removes the version commit marker first. If later stale-blob cleanup
-fails, the old blob is inert on reboot and cannot resurrect a topology the
-operator already reset.
-
-A stale/incompatible mapping schema falls back to the firmware default
-topology and can then be recommissioned from the web UI.
+Removing the old 230/920 policy limits did **not** change the persisted
+`LedMappingProfile` blob: it still stores four `uint16` side lengths plus lane
+and direction fields. Existing v0.46.3 settings therefore need no migration and
+are not reset by v0.46.4.

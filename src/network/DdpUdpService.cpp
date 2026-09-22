@@ -14,11 +14,12 @@ DdpUdpService::~DdpUdpService() {
 }
 
 bool DdpUdpService::setLogicalLedCount(
-    std::uint16_t logicalLedCount) {
+    std::size_t logicalLedCount) {
 
     if (logicalLedCount == 0 ||
         logicalLedCount >
-            config::kLogicalLedCapacity) {
+            static_cast<std::size_t>(-1) /
+                sizeof(Rgb8)) {
 
         return false;
     }
@@ -28,17 +29,36 @@ bool DdpUdpService::setLogicalLedCount(
             logicalLedCount) *
         sizeof(Rgb8);
 
+    RgbFrame candidateFrame{0};
+
+    if (!candidateFrame.resizePixels(
+            logicalLedCount)) {
+
+        return false;
+    }
+
+    const std::size_t previousFrameBytes =
+        assembler_.frameBytes();
+
     if (!assembler_.setFrameBytes(
             frameBytes) ||
         !senderGate_.
             setExpectedFrameBytes(
                 frameBytes)) {
 
+        if (previousFrameBytes > 0) {
+            assembler_.setFrameBytes(
+                previousFrameBytes);
+        }
+
         return false;
     }
 
     logicalLedCount_ =
         logicalLedCount;
+
+    completedFrame_ =
+        std::move(candidateFrame);
 
     // Topology may change lane assignment or direction while retaining the
     // same total. Every explicit topology apply starts a fresh sender/assembly
@@ -47,8 +67,6 @@ bool DdpUdpService::setLogicalLedCount(
     assembler_.resetStream();
 
     completedFrame_.clear();
-    completedFrame_.pixelCount =
-        logicalLedCount_;
     completedFrame_.generation = 0;
     publishedGeneration_ = 0;
 
@@ -407,6 +425,13 @@ bool DdpUdpService::copyLatest(
 
     destination =
         completedFrame_;
+
+    if (!destination.storageValid() ||
+        destination.pixelCount !=
+            completedFrame_.pixelCount) {
+
+        return false;
+    }
 
     stats_.snapshotCopyTime.observe(
         static_cast<std::uint64_t>(

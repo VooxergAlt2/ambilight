@@ -87,6 +87,42 @@ void test_logical_gain_field_is_authoritative() {
             4));
 }
 
+void test_dynamic_gain_field_supports_logical_indices_above_uint16() {
+    LedMappingProfile topology;
+
+    for (auto& mapping : topology.segment) {
+        mapping.logicalLength = 20000;
+    }
+
+    RenderGainContext context;
+
+    TEST_ASSERT_TRUE(
+        context.configureTopology(
+            topology));
+
+    TEST_ASSERT_EQUAL_UINT32(
+        80000,
+        context.logicalGainQ12.size());
+
+    context.sourcePresent = true;
+    context.sourceUsable = true;
+    context.failOpen = false;
+
+    context.setSegmentUniform(
+        SegmentId::Left,
+        2048);
+
+    TEST_ASSERT_EQUAL_UINT16(
+        2048,
+        context.gainForLogicalIndex(
+            60000));
+
+    TEST_ASSERT_EQUAL_UINT16(
+        2048,
+        context.gainForLogicalIndex(
+            79999));
+}
+
 void test_shadow_preview_changes_rgb_but_not_original_value() {
     RenderGainContext context;
     context.sourcePresent = true;
@@ -481,6 +517,7 @@ int main(int, char**) {
     RUN_TEST(test_q12_channel_scaling_rounds_and_clamps);
     RUN_TEST(test_fail_open_context_is_always_unity);
     RUN_TEST(test_logical_gain_field_is_authoritative);
+    RUN_TEST(test_dynamic_gain_field_supports_logical_indices_above_uint16);
     RUN_TEST(test_shadow_preview_changes_rgb_but_not_original_value);
     RUN_TEST(test_fail_open_gain_application_remains_original);
     RUN_TEST(test_correction_mode_raw_values_are_bounded);

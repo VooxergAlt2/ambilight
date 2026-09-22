@@ -164,11 +164,14 @@ The web UI does not weaken existing guards.
 
 LED topology:
 
-    COUNT 1..230
+    COUNT 1..65535 per side (persisted uint16 format)
+    no fixed aggregate LED-count ceiling
+    practical limit = ESP32-C6 memory + PARLIO / LED timing
     GPIO one of 18/19/20/21, unique
     REV 0/1
+    hardware-tested up to 230 LEDs on one output
     active LED commissioning is cancelled before a topology transaction
-    controller performs the safety blackout and restores brightness automatically
+    controller preflights memory, performs the safety blackout and restores brightness automatically
 
 Factory reset:
 

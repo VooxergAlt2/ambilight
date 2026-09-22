@@ -4,7 +4,7 @@
 
 namespace ambilight {
 
-void RenderGainController::reset(
+bool RenderGainController::reset(
     const LedMappingProfile& topology) {
 
     current_ =
@@ -15,6 +15,17 @@ void RenderGainController::reset(
         RenderGainContext::unity(
             topology);
 
+    const bool storageOk =
+        current_.storageValid() &&
+        target_.storageValid();
+
+    if (!storageOk) {
+        current_.sourceUsable = false;
+        current_.failOpen = true;
+        target_.sourceUsable = false;
+        target_.failOpen = true;
+    }
+
     initialized_ = false;
     settled_ = true;
     nonUnity_ = false;
@@ -23,6 +34,7 @@ void RenderGainController::reset(
     lastTargetGeneration_ = 0;
 
     stats_ = {};
+    return storageOk;
 }
 
 std::uint16_t RenderGainController::moveTowards(
@@ -156,9 +168,20 @@ bool RenderGainController::setTarget(
     target_ =
         target;
 
+    const bool targetStorageValid =
+        target_.storageValid() &&
+        target_.topology.segment ==
+            target.topology.segment;
+
+    if (!targetStorageValid) {
+        target_.sourceUsable = false;
+        target_.failOpen = true;
+    }
+
     const bool failOpen =
         !target_.sourceUsable ||
-        target_.failOpen;
+        target_.failOpen ||
+        !targetStorageValid;
 
     if (failOpen) {
         const bool wasAttenuated =
@@ -195,15 +218,23 @@ bool RenderGainController::setTarget(
         current_ =
             target_;
 
+        const bool currentStorageValid =
+            current_.storageValid() &&
+            current_.topology.segment ==
+                target_.topology.segment;
+
         current_.forceUnity();
-        current_.sourceUsable = true;
-        current_.failOpen = false;
+        current_.sourceUsable =
+            currentStorageValid;
+        current_.failOpen =
+            !currentStorageValid;
 
         initialized_ = true;
         nonUnity_ = false;
         lastUpdateUs_ = nowUs;
 
         settled_ =
+            !currentStorageValid ||
             current_.
                 sameRenderProfileAs(
                     target_);
@@ -233,7 +264,11 @@ bool RenderGainController::advance(
     if (!initialized_ ||
         settled_ ||
         !target_.sourceUsable ||
-        target_.failOpen) {
+        target_.failOpen ||
+        !target_.storageValid() ||
+        !current_.storageValid() ||
+        target_.topology.segment !=
+            current_.topology.segment) {
 
         return false;
     }

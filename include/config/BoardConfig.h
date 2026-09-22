@@ -7,12 +7,20 @@
 namespace ambilight::config {
 
 constexpr std::size_t kParlioLaneCount = 4;
-constexpr std::size_t kPhysicalLaneLength = 230;
 
-// Static memory capacity. Runtime topology can use any valid total up to this
-// value without heap allocation.
-constexpr std::size_t kLogicalLedCapacity =
-    kParlioLaneCount * kPhysicalLaneLength;
+// Runtime topology has no fixed aggregate LED ceiling. Each persisted segment
+// length is uint16_t, while total frame/storage size is derived dynamically
+// from the active topology and ultimately limited by available controller RAM.
+//
+// Hardware validation baseline. This is not a software limit; it records the
+// longest strip actually exercised on the reference installation.
+constexpr std::size_t kTestedPhysicalLaneLength = 230;
+constexpr std::size_t kDefaultPhysicalLaneLength =
+    kTestedPhysicalLaneLength;
+
+// Persisted/runtime lane lengths use uint16_t. This is a representation bound,
+// not a project-level LED-count policy.
+constexpr std::size_t kMaxRepresentablePhysicalLaneLength = 0xFFFFU;
 
 // Default 65-inch topology preserved from earlier stages.
 constexpr std::size_t kDefaultLogicalLedCount = 780;

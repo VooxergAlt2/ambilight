@@ -47,11 +47,11 @@ struct BlackFrameSample {
     std::uint64_t observedUs = 0;
     std::uint64_t sourceAgeUs = 0;
 
-    std::uint16_t pixelCount = 0;
-    std::uint16_t sourceNonZeroPixels = 0;
-    std::uint16_t afterGainNonZeroPixels = 0;
-    std::uint16_t outputNonZeroPixels = 0;
-    std::uint16_t zeroGainPixels = 0;
+    std::uint32_t pixelCount = 0;
+    std::uint32_t sourceNonZeroPixels = 0;
+    std::uint32_t afterGainNonZeroPixels = 0;
+    std::uint32_t outputNonZeroPixels = 0;
+    std::uint32_t zeroGainPixels = 0;
 
     std::uint8_t sourceMaxChannel = 0;
     std::uint8_t outputMaxChannel = 0;
@@ -96,14 +96,18 @@ public:
         std::uint64_t nowUs) {
 
         if (!topology.valid() ||
+            !frame.storageValid() ||
             frame.pixelCount !=
                 topology.totalLedCount() ||
             !pixelMask.validFor(
                 topology) ||
             (
                 activeGain != nullptr &&
-                activeGain->topology.segment !=
-                    topology.segment
+                (
+                    activeGain->topology.segment !=
+                        topology.segment ||
+                    !activeGain->storageValid()
+                )
             )) {
 
             ++stats_.invalidSamples;
@@ -121,7 +125,8 @@ public:
                 ? nowUs - frame.receivedUs
                 : 0;
         sample.pixelCount =
-            frame.pixelCount;
+            static_cast<std::uint32_t>(
+                frame.pixelCount);
         sample.activeCorrection =
             activeGain != nullptr;
 
@@ -150,10 +155,9 @@ public:
                     segment.logicalLength;
                  ++offset) {
 
-                const std::uint16_t logical =
-                    static_cast<std::uint16_t>(
-                        segment.logicalStart +
-                        offset);
+                const std::size_t logical =
+                    segment.logicalStart +
+                    offset;
 
                 const Rgb8 source =
                     frame.pixels[

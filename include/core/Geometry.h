@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 
 namespace ambilight {
@@ -14,7 +15,7 @@ enum class SegmentId : std::uint8_t {
 
 struct SegmentConfig {
     SegmentId id = SegmentId::Top;
-    std::uint16_t logicalStart = 0;
+    std::size_t logicalStart = 0;
     std::uint16_t logicalLength = 0;
     std::uint8_t lane = 0;
     bool reversed = false;

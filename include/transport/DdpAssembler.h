@@ -1,9 +1,9 @@
 #pragma once
 
-#include <array>
 #include <cstddef>
 #include <cstdint>
 
+#include "core/HeapBuffer.h"
 #include "core/RgbFrame.h"
 #include "transport/DdpProtocol.h"
 
@@ -38,17 +38,14 @@ public:
     static constexpr std::size_t kDefaultFrameBytes =
         config::kDefaultLogicalLedCount * sizeof(Rgb8);
 
-    static constexpr std::size_t kMaxFrameBytes =
-        config::kLogicalLedCapacity * sizeof(Rgb8);
-
-    static constexpr std::size_t kCoverageBytes =
-        (kMaxFrameBytes + 7) / 8;
     static constexpr std::uint64_t kDefaultAssemblyTimeoutUs = 50000;
     static constexpr std::uint64_t kSequenceResyncSilenceUs = 250000;
 
     explicit DdpAssembler(
         std::uint64_t assemblyTimeoutUs = kDefaultAssemblyTimeoutUs)
-        : assemblyTimeoutUs_(assemblyTimeoutUs) {}
+        : assemblyTimeoutUs_(assemblyTimeoutUs) {
+        setFrameBytes(kDefaultFrameBytes);
+    }
 
     bool setFrameBytes(
         std::size_t frameBytes);
@@ -80,7 +77,7 @@ public:
 
     bool active() const { return active_; }
     std::uint8_t activeSequence() const { return activeSequence_; }
-    std::uint16_t coveredBytes() const { return coveredBytes_; }
+    std::size_t coveredBytes() const { return coveredBytes_; }
 
 private:
     void startFrame(std::uint8_t sequence, std::uint64_t nowUs);
@@ -99,8 +96,8 @@ private:
     bool isComplete() const;
     bool canStartSequence(std::uint8_t sequence, std::uint64_t nowUs);
 
-    std::array<std::uint8_t, kMaxFrameBytes> staging_{};
-    std::array<std::uint8_t, kCoverageBytes> coverage_{};
+    HeapBuffer<std::uint8_t> staging_{};
+    HeapBuffer<std::uint8_t> coverage_{};
 
     bool active_ = false;
     bool pushSeen_ = false;
@@ -109,21 +106,18 @@ private:
     std::uint8_t activeSequence_ = 0;
     std::uint8_t lastCompletedSequence_ = 0;
 
-    std::uint16_t coveredBytes_ = 0;
-    std::uint16_t contiguousPrefixBytes_ = 0;
+    std::size_t coveredBytes_ = 0;
+    std::size_t contiguousPrefixBytes_ = 0;
 
     std::uint64_t lastPacketUs_ = 0;
     std::uint64_t lastCompletedUs_ = 0;
     std::uint64_t assemblyTimeoutUs_ = kDefaultAssemblyTimeoutUs;
 
-    std::size_t frameBytes_ =
-        kDefaultFrameBytes;
+    std::size_t frameBytes_ = 0;
 
     DdpAssemblerStats stats_{};
 };
 
 static_assert(DdpAssembler::kDefaultFrameBytes == 2340);
-static_assert(DdpAssembler::kMaxFrameBytes == 2760);
-static_assert(DdpAssembler::kCoverageBytes == 345);
 
 } // namespace ambilight

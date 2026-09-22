@@ -15,7 +15,7 @@ This project grew out of a real TV installation rather than a generic LED-contro
 
 - receives realtime RGB from **HyperHDR over DDP UDP/4048**
 - drives **4 synchronized LED outputs** using the ESP32-C6 PARLIO peripheral
-- supports up to **4 x 230 physical LEDs**, 920 addresses total
+- has **no separate fixed aggregate LED-count ceiling**; runtime buffers scale to the active topology
 - keeps LED side length, GPIO assignment, and direction configurable at runtime
 - provides safe logical-side and raw-GPIO commissioning tests
 - can force one physical LED per side permanently black, useful for a bad pixel without changing logical indexing
@@ -87,6 +87,17 @@ The default topology matches the author's 65-inch installation and can be change
 | Right | 160 | 19 | REV |
 | Bottom | 230 | 21 | REV |
 | Left | 160 | 18 | FWD |
+
+There is no separate 920-address firmware ceiling. Each side length is stored as a
+16-bit value (`1..65535`), so the four-side format can represent up to 262,140
+logical LEDs in total, while RGB/DDP/gain/PARLIO storage is sized from the active
+topology at runtime. The practical limit is therefore the memory and
+timing budget of the ESP32-C6 rather than an arbitrary project constant.
+
+**Hardware validation has been performed up to 230 LEDs on a single output.**
+Larger per-output configurations are accepted by the software path and covered
+by host-side large-topology tests, but have not yet been validated on a real LED
+strip.
 
 Do not assume those side assignments match your wiring. Use the commissioning tools to identify each physical output first.
 
@@ -310,10 +321,10 @@ The current development line is validated with:
 
 - partition check: PASS
 - embedded Web UI structural check: PASS
-- native tests: **270 / 270 PASS**
+- native tests: **272 / 272 PASS**
 - ESP32-C6 build: PASS
-- RAM: **95,460 / 327,680 bytes (29.1%)**
-- application image: **1,348,180 / 7,340,032 bytes (18.4%)**
+- RAM: **70,460 / 327,680 bytes (21.5%)**
+- application image: **1,342,096 / 7,340,032 bytes (18.3%)**
 
 Exact numbers can move between commits. CI and `tools/validate.*` are the source of truth.
 

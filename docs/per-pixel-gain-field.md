@@ -2,96 +2,64 @@
 
 ## Purpose
 
-Every logical LED receives its own wall distance and its own calibration-curve evaluation.
+Every active logical LED may receive its own projected wall distance and gain.
+This lets yaw, pitch and combined wall geometry vary continuously inside a side.
 
-Physical correction can therefore represent yaw, pitch and combined wall geometry continuously inside each segment.
-
-## Exact composition
-
-For LED i:
+For LED `i`:
 
     P_led_i = (x_i, y_i, z_i)
-
-Wall plane:
-
-    z_wall = intercept + slope_x*x + slope_y*y
-
-Screen-normal wall distance:
-
-    distance_i = z_wall(x_i, y_i) - z_i
-
-Gain:
-
+    z_wall  = intercept + slope_x*x_i + slope_y*y_i
+    distance_i = z_wall - z_i
     gain_i = curve(distance_i)
 
-This is evaluated for every active logical LED whenever a new plane is accepted.
+The field is indexed in logical screen order before physical GPIO mapping and
+strip reversal.
 
-## Why not endpoint gain interpolation
+## Dynamic storage
 
-The wall distance is linear along a straight segment.
+The old fixed 920-entry gain arrays were removed.
 
-The gain curve is piecewise linear in distance.
+`PerimeterGainSnapshot.logicalGainQ12` and
+`RenderGainContext.logicalGainQ12` now allocate exactly for the active topology
+on the slow control/ToF path. The realtime renderer does not allocate while
+processing video frames.
 
-Therefore the composition may cross calibration knots and is not necessarily one straight gain line between segment endpoints.
+This has two consequences:
 
-Per-LED evaluation preserves the curve exactly.
+- there is no fixed aggregate gain-field ceiling tied to 920 LEDs;
+- static `.bss` usage is lower, while very large topologies consume heap in
+  proportion to their active LED count.
 
-## Data model
+If optional gain storage cannot be allocated, the correction path marks the
+snapshot unusable and **fails open to unity**. Normal DDP Ambilight rendering is
+kept available.
 
-    PerimeterGainSnapshot.logicalGainQ12[920 capacity]
-    RenderGainContext.logicalGainQ12[920 capacity]
+## Why per-LED evaluation
 
-Only indices below the active topology total are rendered.
+Wall distance is linear along a straight screen segment, but the calibration
+curve is piecewise linear in distance. Their composition may cross calibration
+knots, so interpolating only between side endpoints can be wrong. Evaluating
+each active LED preserves the configured curve exactly.
 
-The array is indexed in logical screen order before physical lane reversal.
+## Plane deadband and cadence
 
-## Plane deadband
+Small sensor jitter does not rebuild the field. A new fitted wall plane is
+compared with the last accepted plane over the screen rectangle.
 
-The active gain field is not rebuilt for sensor jitter.
+Current wall-position deadband:
 
-The new plane is compared with the last accepted plane over the screen rectangle.
+    10 mm
 
-Current threshold:
+Typical rate domains:
 
-    10 mm max wall-position change
+    ToF internal ranging      1 Hz
+    pose transfer / fit       ~1 / 12 s
+    main target polling       1 Hz
+    gain slew / render        up to ~60 Hz
 
-Below the threshold:
+## Validation scope
 
-    refresh timestamp only
-
-At/above the threshold:
-
-    recompute active wall distances
-    recompute active gain values
-
-## Rate domains
-
-ToF internal ranging:
-
-    1 Hz
-
-Pose transfer/plane fit:
-
-    ~1 / 12 s
-
-Large gain target polling by main loop:
-
-    1 Hz
-
-Gain slew/render after an accepted target change:
-
-    up to ~60 Hz
-
-## Performance
-
-Capacity field:
-
-    920 * 2 bytes = 1840 bytes
-
-The default topology still activates 780 entries. Explicit evaluation of all
-active LED intersections is inexpensive at the slow pose cadence and remains
-preferable to hidden geometric approximations.
-
-## Fail-open
-
-Any invalid/stale spatial source resolves the full field to unity immediately.
+The software test suite includes gain fields whose logical indices exceed
+65535, specifically to prevent aggregate-index narrowing from returning.
+Physical LED hardware has been tested up to **230 LEDs on one output**; larger
+physical strips have not yet been validated.

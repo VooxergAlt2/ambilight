@@ -16,8 +16,15 @@ PerimeterGainSnapshot TofPerimeterGainModel::unitySnapshot(
     snapshot.timestampUs = sourceTimestampUs;
     snapshot.planeUsable = planeUsable;
     snapshot.failOpen = true;
-    snapshot.topology =
-        config_.topology;
+
+    if (!snapshot.configureTopology(
+            config_.topology)) {
+
+        snapshot.logicalGainQ12.clearStorage();
+        snapshot.topology =
+            config_.topology;
+        return snapshot;
+    }
 
     for (auto& segment : snapshot.segment) {
         segment.startQ12 = kGainUnityQ12;
@@ -125,8 +132,19 @@ PerimeterGainSnapshot TofPerimeterGainModel::evaluate(
     }
 
     PerimeterGainSnapshot next;
-    next.topology =
-        config_.topology;
+
+    if (!next.configureTopology(
+            config_.topology)) {
+
+        latest_ =
+            unitySnapshot(
+                generation,
+                geometry.timestampUs,
+                true);
+
+        return latest_;
+    }
+
     next.generation = generation;
     next.timestampUs = geometry.timestampUs;
     next.planeUsable = true;
@@ -202,10 +220,9 @@ PerimeterGainSnapshot TofPerimeterGainModel::evaluate(
                 return latest_;
             }
 
-            const std::uint16_t logicalIndex =
-                static_cast<std::uint16_t>(
-                    logicalSegment.logicalStart +
-                    offset);
+            const std::size_t logicalIndex =
+                logicalSegment.logicalStart +
+                offset;
 
             next.logicalGainQ12[
                 logicalIndex] =

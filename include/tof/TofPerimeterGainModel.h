@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "core/HeapBuffer.h"
 #include "core/ScreenGeometry.h"
 #include "led/LedMappingProfile.h"
 #include "tof/TofGainModel.h"
@@ -20,6 +21,11 @@ struct PerimeterSegmentGain {
 };
 
 struct PerimeterGainSnapshot {
+    PerimeterGainSnapshot() {
+        configureTopology(
+            LedMappingProfile{});
+    }
+
     // Generation/timestamp belong to the source ToF geometry frame.
     std::uint32_t generation = 0;
     std::uint64_t timestampUs = 0;
@@ -29,14 +35,40 @@ struct PerimeterGainSnapshot {
         static_cast<std::size_t>(SegmentId::Count)>
         segment{};
 
-    // Exact target Q12 for every logical LED. Each LED position is projected
-    // along screen +Z onto the fitted wall plane and evaluated independently.
-    std::array<
-        std::uint16_t,
-        config::kLogicalLedCapacity>
-        logicalGainQ12{};
+    // Exact target Q12 for every logical LED. Storage follows the active
+    // topology; allocation happens only when topology changes or a slow ToF
+    // snapshot is rebuilt.
+    HeapBuffer<std::uint16_t> logicalGainQ12{};
 
     LedMappingProfile topology{};
+
+    bool configureTopology(
+        const LedMappingProfile& activeTopology) {
+
+        if (!activeTopology.valid()) {
+            return false;
+        }
+
+        HeapBuffer<std::uint16_t> candidate;
+
+        if (!candidate.resize(
+                activeTopology.totalLedCount(),
+                kGainUnityQ12)) {
+
+            return false;
+        }
+
+        logicalGainQ12.swap(candidate);
+        topology = activeTopology;
+        return true;
+    }
+
+    bool storageValid() const {
+        return
+            topology.valid() &&
+            logicalGainQ12.size() >=
+                topology.totalLedCount();
+    }
 
     std::uint16_t minDistanceMm = 0;
     std::uint16_t maxDistanceMm = 0;

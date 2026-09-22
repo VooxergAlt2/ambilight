@@ -6,6 +6,7 @@
 
 #include "config/BoardConfig.h"
 #include "core/GainQ12.h"
+#include "core/HeapBuffer.h"
 #include "core/Geometry.h"
 #include "core/RgbFrame.h"
 #include "led/LedMappingProfile.h"
@@ -28,14 +29,10 @@ struct RenderGainContext {
     std::uint64_t sourceTimestampUs = 0;
     std::uint64_t sourceAgeUs = 0;
 
-    // Exact logical LED gain field.
-    //
-    // Index is HyperHDR logical perimeter index, before physical lane mapping
-    // or strip reversal. This keeps spatial correction independent from wiring.
-    std::array<
-        std::uint16_t,
-        config::kLogicalLedCapacity>
-        logicalGainQ12{};
+    // Exact logical LED gain field. Storage follows the active topology and is
+    // resized only on control-plane topology changes, never in the render hot
+    // path. Index is HyperHDR logical perimeter index before physical mapping.
+    HeapBuffer<std::uint16_t> logicalGainQ12{};
 
     LedMappingProfile topology{};
 
@@ -44,7 +41,36 @@ struct RenderGainContext {
     bool failOpen = true;
 
     RenderGainContext() {
-        forceUnity();
+        configureTopology(
+            LedMappingProfile{});
+    }
+
+    bool configureTopology(
+        const LedMappingProfile& activeTopology) {
+
+        if (!activeTopology.valid()) {
+            return false;
+        }
+
+        HeapBuffer<std::uint16_t> candidate;
+
+        if (!candidate.resize(
+                activeTopology.totalLedCount(),
+                kGainUnityQ12)) {
+
+            return false;
+        }
+
+        logicalGainQ12.swap(candidate);
+        topology = activeTopology;
+        return true;
+    }
+
+    bool storageValid() const {
+        return
+            topology.valid() &&
+            logicalGainQ12.size() >=
+                topology.totalLedCount();
     }
 
     static RenderGainContext unity(
@@ -52,8 +78,14 @@ struct RenderGainContext {
             LedMappingProfile{}) {
 
         RenderGainContext context;
-        context.topology =
-            activeTopology;
+
+        if (!context.configureTopology(
+                activeTopology)) {
+
+            context.logicalGainQ12.clearStorage();
+            context.topology =
+                activeTopology;
+        }
 
         return context;
     }
@@ -64,7 +96,7 @@ struct RenderGainContext {
     }
 
     std::uint16_t gainForLogicalIndex(
-        std::uint16_t logicalIndex) const {
+        std::size_t logicalIndex) const {
 
         if (!sourceUsable ||
             failOpen ||
@@ -90,14 +122,13 @@ struct RenderGainContext {
             return {};
         }
 
-        const std::uint16_t start =
+        const std::size_t start =
             configSegment.logicalStart;
 
-        const std::uint16_t end =
-            static_cast<std::uint16_t>(
-                configSegment.logicalStart +
-                configSegment.logicalLength -
-                1);
+        const std::size_t end =
+            configSegment.logicalStart +
+            configSegment.logicalLength -
+            1U;
 
         return SegmentGainEndpoints{
             gainForLogicalIndex(start),
@@ -132,7 +163,10 @@ struct RenderGainContext {
             topology.segmentConfig(
                 segment);
 
-        if (configSegment.logicalLength == 0) {
+        if (configSegment.logicalLength == 0 ||
+            logicalGainQ12.size() <
+                topology.totalLedCount()) {
+
             return;
         }
 
@@ -195,7 +229,8 @@ struct RenderGainContext {
 
     bool hasNonUnityGain() const {
         if (!sourceUsable ||
-            failOpen) {
+            failOpen ||
+            !storageValid()) {
             return false;
         }
 
@@ -239,7 +274,9 @@ struct RenderGainContext {
         }
 
         if (topology.segment !=
-            other.topology.segment) {
+                other.topology.segment ||
+            !storageValid() ||
+            !other.storageValid()) {
 
             return false;
         }
@@ -301,7 +338,7 @@ public:
 
     static ShadowPixelResult preview(
         const Rgb8& input,
-        std::uint16_t logicalIndex,
+        std::size_t logicalIndex,
         SegmentId segment,
         const RenderGainContext& context) {
 

@@ -60,7 +60,7 @@ struct WledCompatSnapshot {
     bool outputEnabled = true;
     std::uint8_t brightness = 1;
     std::uint8_t defaultBrightness = 1;
-    std::uint16_t ledCount = 0;
+    std::uint32_t ledCount = 0;
 
     bool wifiConnected = false;
     std::int32_t wifiRssi = 0;

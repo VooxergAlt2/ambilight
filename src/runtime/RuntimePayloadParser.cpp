@@ -196,15 +196,7 @@ RuntimePayloadParser::parseCommissioningRange(
                 InvalidFormat;
     }
 
-    if (count == 0 ||
-        start >=
-            config::kPhysicalLaneLength ||
-        count >
-            config::kPhysicalLaneLength ||
-        static_cast<std::uint32_t>(
-            start) +
-            count >
-                config::kPhysicalLaneLength) {
+    if (count == 0) {
 
         return
             RuntimePayloadParseResult::
@@ -337,8 +329,6 @@ RuntimePayloadParser::parseLedMapping(
         }
 
         if (length == 0 ||
-            length >
-                config::kPhysicalLaneLength ||
             reversed > 1U) {
 
             return

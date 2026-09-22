@@ -434,10 +434,11 @@ void test_runtime_topology_rebuilds_gain_sampling_and_total() {
         2560,
         result.logicalGainQ12[299]);
 
-    // Capacity beyond the active topology is not part of the rendered frame.
-    TEST_ASSERT_EQUAL_UINT16(
-        0,
-        result.logicalGainQ12[300]);
+    // Dynamic gain storage follows the active topology exactly; there is no
+    // hidden 920-entry tail beyond the rendered frame.
+    TEST_ASSERT_EQUAL_UINT32(
+        300,
+        result.logicalGainQ12.size());
 }
 
 void test_runtime_curve_replacement_rebuilds_exact_per_pixel_values() {

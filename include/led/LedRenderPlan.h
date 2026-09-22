@@ -11,7 +11,7 @@ namespace ambilight {
 
 struct LedRenderSegment {
     SegmentId id = SegmentId::Top;
-    std::uint16_t logicalStart = 0;
+    std::size_t logicalStart = 0;
     std::uint16_t logicalLength = 0;
     std::uint8_t lane = 0;
     bool reversed = false;
@@ -39,7 +39,7 @@ struct LedRenderPlan {
         static_cast<std::size_t>(SegmentId::Count)>
         segment{};
 
-    std::uint16_t totalLedCount = 0;
+    std::size_t totalLedCount = 0;
     bool valid = false;
 
     static bool build(
@@ -52,7 +52,7 @@ struct LedRenderPlan {
             return false;
         }
 
-        std::uint16_t logicalStart = 0;
+        std::size_t logicalStart = 0;
 
         for (std::size_t index = 0;
              index < output.segment.size();
@@ -80,10 +80,8 @@ struct LedRenderPlan {
             destination.reversed =
                 source.reversed != 0;
 
-            logicalStart =
-                static_cast<std::uint16_t>(
-                    logicalStart +
-                    source.logicalLength);
+            logicalStart +=
+                source.logicalLength;
         }
 
         output.totalLedCount =

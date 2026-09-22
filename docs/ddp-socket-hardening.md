@@ -16,7 +16,11 @@ Firmware requests:
 
     SO_RCVBUF = 32768 bytes
 
-The request is deliberately larger than the default 2340-byte RGB frame and the Stage 38 maximum 2760-byte frame so short scheduling/network bursts have room before user-space polling catches up.
+The request was originally sized comfortably above the default 2340-byte RGB
+frame and the historical Stage 38 2760-byte / 920-LED frame. Runtime DDP frames
+are now topology-sized and may be larger than the socket receive-buffer request;
+`SO_RCVBUF` is backlog capacity rather than a per-frame protocol limit, because
+DDP frames may arrive as multiple datagrams.
 
 ## Configuration sequence
 

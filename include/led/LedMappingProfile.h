@@ -88,21 +88,12 @@ struct LedMappingProfile {
         for (const auto& mapping :
              segment) {
 
-            if (mapping.logicalLength == 0 ||
-                mapping.logicalLength >
-                    config::kPhysicalLaneLength) {
-
+            if (mapping.logicalLength == 0) {
                 return false;
             }
 
             total +=
                 mapping.logicalLength;
-
-            if (total >
-                config::kLogicalLedCapacity) {
-
-                return false;
-            }
 
             if (mapping.lane >=
                 config::kParlioLaneCount) {
@@ -135,15 +126,31 @@ struct LedMappingProfile {
         return total > 0;
     }
 
-    constexpr std::uint16_t totalLedCount() const {
-        std::uint16_t total = 0;
+    constexpr std::uint16_t maxSegmentLength() const {
+        std::uint16_t maximum = 0;
 
         for (const auto& mapping :
              segment) {
 
-            total = static_cast<std::uint16_t>(
-                total +
-                mapping.logicalLength);
+            if (mapping.logicalLength >
+                maximum) {
+
+                maximum =
+                    mapping.logicalLength;
+            }
+        }
+
+        return maximum;
+    }
+
+    constexpr std::size_t totalLedCount() const {
+        std::size_t total = 0;
+
+        for (const auto& mapping :
+             segment) {
+
+            total +=
+                mapping.logicalLength;
         }
 
         return total;
@@ -178,17 +185,15 @@ struct LedMappingProfile {
             return {};
         }
 
-        std::uint16_t logicalStart = 0;
+        std::size_t logicalStart = 0;
 
         for (std::size_t index = 0;
              index < wanted;
              ++index) {
 
-            logicalStart =
-                static_cast<std::uint16_t>(
-                    logicalStart +
-                    segment[index]
-                        .logicalLength);
+            logicalStart +=
+                segment[index]
+                    .logicalLength;
         }
 
         const auto& runtime =

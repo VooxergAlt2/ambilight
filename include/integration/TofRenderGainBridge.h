@@ -55,7 +55,11 @@ public:
             fresh &&
             gains.planeUsable &&
             gains.projectionUsable &&
-            !gains.failOpen;
+            !gains.failOpen &&
+            gains.storageValid() &&
+            gains.topology.segment ==
+                activeTopology.segment &&
+            context.storageValid();
 
         context.failOpen =
             !context.sourceUsable;
@@ -64,9 +68,8 @@ public:
             return context;
         }
 
-        context.topology =
-            gains.topology;
-
+        // context was allocated for activeTopology above. At this point the
+        // gain snapshot is proven to describe the exact same logical topology.
         for (std::size_t index = 0;
              index <
                 context.logicalGainQ12.size();

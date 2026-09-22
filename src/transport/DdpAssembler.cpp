@@ -8,16 +8,32 @@ bool DdpAssembler::setFrameBytes(
     std::size_t frameBytes) {
 
     if (frameBytes == 0 ||
-        frameBytes > kMaxFrameBytes ||
         frameBytes % sizeof(Rgb8) != 0) {
 
         return false;
     }
 
-    if (frameBytes_ == frameBytes) {
+    if (frameBytes_ == frameBytes &&
+        staging_.size() == frameBytes &&
+        coverage_.size() ==
+            (frameBytes + 7U) / 8U) {
+
         return true;
     }
 
+    HeapBuffer<std::uint8_t> staging;
+    HeapBuffer<std::uint8_t> coverage;
+
+    if (!staging.resize(frameBytes, 0) ||
+        !coverage.resize(
+            (frameBytes + 7U) / 8U,
+            0)) {
+
+        return false;
+    }
+
+    staging_.swap(staging);
+    coverage_.swap(coverage);
     frameBytes_ = frameBytes;
     resetStream();
     return true;
@@ -164,10 +180,8 @@ bool DdpAssembler::copySequentialFastPath(
         offset,
         length);
 
-    coveredBytes_ =
-        static_cast<std::uint16_t>(
-            coveredBytes_ +
-            length);
+    coveredBytes_ +=
+        length;
 
     contiguousPrefixBytes_ =
         coveredBytes_;
@@ -367,15 +381,22 @@ DdpIngestResult DdpAssembler::ingestParsed(
             DdpIngestResult::Partial;
     }
 
+    const std::size_t pixelCount =
+        frameBytes_ /
+        sizeof(Rgb8);
+
+    if (!completedFrame.resizePixels(
+            pixelCount)) {
+
+        ++stats_.rejected;
+        resetActive();
+        return DdpIngestResult::Rejected;
+    }
+
     std::memcpy(
         completedFrame.pixels.data(),
         staging_.data(),
         frameBytes_);
-
-    completedFrame.pixelCount =
-        static_cast<std::uint16_t>(
-            frameBytes_ /
-            sizeof(Rgb8));
 
     completedFrame.generation = 0;
     completedFrame.receivedUs =

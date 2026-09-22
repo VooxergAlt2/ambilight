@@ -3,6 +3,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 
 #include <LiteLED.h>
 #include <esp_err.h>
@@ -23,7 +24,16 @@ class LedEngine {
 public:
     LedEngine();
 
-    esp_err_t begin();
+    esp_err_t begin(
+        std::size_t physicalLaneLength =
+            config::kDefaultPhysicalLaneLength);
+
+    esp_err_t reconfigurePhysicalLaneLength(
+        std::size_t physicalLaneLength);
+
+    std::size_t physicalLaneLength() const {
+        return physicalLaneLength_;
+    }
 
     // Pipelined runtime submission. Encodes into the free DMA buffer while the
     // previous frame may still be on the wire, waits only for that older frame
@@ -97,11 +107,13 @@ public:
     }
 
     std::size_t dmaBufferBytes() const {
-        return group_.dmaBufferBytes();
+        return group_
+            ? group_->dmaBufferBytes()
+            : 0U;
     }
 
     std::uint8_t dmaBufferCount() const {
-        return group_.dmaBufferCount();
+        return LiteLEDpioGroup::dmaBufferCount();
     }
 
     // Compatibility accessors retained while Stage 40 replaces the old STAT
@@ -117,8 +129,15 @@ public:
     }
 
 private:
-    LiteLEDpioGroup group_;
+    esp_err_t initializeGroup(
+        std::size_t physicalLaneLength);
+
+    void releaseGroup();
+
+    std::optional<LiteLEDpioGroup> group_{};
     std::array<LiteLEDpioLane*, config::kParlioLaneCount> lanes_{};
+
+    std::size_t physicalLaneLength_ = 0;
 
     std::uint8_t brightness_ =
         config::kDefaultOutputBrightness;
