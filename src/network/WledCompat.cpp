@@ -1117,6 +1117,39 @@ const char* boolJson(
         : "false";
 }
 
+bool appendEffectsJson(
+    WledJsonWriter& writer) {
+
+    if (!writer.append("[")) {
+        return false;
+    }
+
+    for (std::uint8_t index = 0;
+         index <
+            ManualLighting::
+                kEffectCount;
+         ++index) {
+
+        if (index != 0U &&
+            !writer.append(",")) {
+
+            return false;
+        }
+
+        if (!writer.appendJsonString(
+                ManualLighting::
+                    effectName(
+                        static_cast<
+                            ManualLightingEffect>(
+                                index)))) {
+
+            return false;
+        }
+    }
+
+    return writer.append("]");
+}
+
 WledResolvedOutputState projectedOutputState(
     const WledCompatSnapshot& snapshot,
     const WledStateCommand* overlay) {
@@ -1256,7 +1289,15 @@ bool appendInfoJson(
         ",\"brand\":\"Ambilight\""
         ",\"product\":\"ESP32-C6 DDP Ambilight\""
         ",\"arch\":\"ESP32-C6\""
-        ",\"fxcount\":4"
+        ",\"fxcount\":");
+
+    writer.appendf(
+        "%u",
+        static_cast<unsigned>(
+            ManualLighting::
+                kEffectCount));
+
+    writer.append(
         ",\"palcount\":1"
         ",\"mac\":");
 
@@ -1634,7 +1675,12 @@ bool WledCompat::buildJson(
             snapshot);
 
         writer.append(
-            ",\"effects\":[\"Ambilight\",\"Solid\",\"Rainbow\",\"Breathing\"]"
+            ",\"effects\":");
+
+        appendEffectsJson(
+            writer);
+
+        writer.append(
             ",\"palettes\":[\"Default\"]"
             "}");
         break;
@@ -1653,8 +1699,8 @@ bool WledCompat::buildJson(
         break;
 
     case WledJsonDocument::Effects:
-        writer.append(
-            "[\"Ambilight\",\"Solid\",\"Rainbow\",\"Breathing\"]");
+        appendEffectsJson(
+            writer);
         break;
 
     case WledJsonDocument::Palettes:
