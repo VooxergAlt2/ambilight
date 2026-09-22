@@ -760,9 +760,10 @@ function render(s){
   $('calStart').disabled=s.calibration.active||!s.tof.available||s.tof.state!=='ranging';
   $('probeStart').disabled=s.output.correction!==1||s.probe;
   $('probeStart').textContent=s.probe?tr('Тест модели активен','Model test active'):tr('Тест модели 10 с','Model test 10 s');
-  const wifiMode=!s.wifi.enabled?tr('Wi-Fi выключен','Wi-Fi disabled'):(s.wifi.connected?tr('Подключено','Connected'):tr('Не подключено','Disconnected'));
+  const wifiMode=s.wifi.connected?tr('Подключено','Connected'):(s.wifi.ap_active?tr('Резервная точка доступа активна','Fallback access point active'):(!s.wifi.enabled?tr('Wi-Fi станция выключена','Wi-Fi station disabled'):tr('Не подключено','Disconnected')));
   const wifiRssi=s.wifi.connected?(' · RSSI '+s.wifi.rssi+' dBm'):'';
-  txt('wifiState',wifiMode+' · '+(s.wifi.ip||tr('без IP','no IP'))+wifiRssi+' · '+(s.wifi.ssid||tr('SSID не задан','SSID not set')));
+  const wifiAddress=s.wifi.connected?(s.wifi.ip||tr('без IP','no IP')):(s.wifi.ap_active?(s.wifi.ap_ip+' · '+s.wifi.ap_ssid):(s.wifi.ssid||tr('SSID не задан','SSID not set')));
+  txt('wifiState',wifiMode+' · '+wifiAddress+wifiRssi+(s.wifi.connected?(' · '+(s.wifi.ssid||tr('SSID не задан','SSID not set'))):''));
   setv('ssid',s.wifi.ssid||'');
   txt('diag',`output: enabled=${s.output.enabled} configured=${s.output.brightness} effective=${s.output.effective_brightness} owner=${s.output.owner} effect=${manualEffectName(s.output.effect)} rgb=${s.output.rgb.join(',')}\nDDP: running=${s.ddp.running} frames=${s.ddp.frames} publications=${s.ddp.publications}\nlast frame: ${s.ddp.has_frame?s.ddp.frame_age_ms+' ms':'none'} · frame hold=${s.output.frame_held}\nsender: ${s.ddp.sender_locked?(s.ddp.sender_ip+':'+s.ddp.sender_port):'none'}\nToF: state=${s.tof.state} age=${s.tof.age_ms} ms valid=${s.tof.valid_zones}/64 plane=${s.tof.plane_valid}\npersistence: ${s.persistence?'available':'unavailable'}\nheap free/min: ${s.heap.free}/${s.heap.min} B\nweb requests/actions/dropped/bad: ${s.web.requests}/${s.web.actions}/${s.web.dropped}/${s.web.bad}`);
   $('factory').disabled=s.output.effective_brightness!==0;
@@ -1518,10 +1519,12 @@ bool WebUiService::buildStatusResponse(
     writer.appendf(
         "\"enabled\":%s,"
         "\"connected\":%s,"
+        "\"ap_active\":%s,"
         "\"rssi\":%ld,"
         "\"ssid\":",
         boolJson(snapshot.wifiEnabled),
         boolJson(snapshot.wifiConnected),
+        boolJson(snapshot.wifiApActive),
         static_cast<long>(
             snapshot.wifiRssi));
 
@@ -1533,6 +1536,18 @@ bool WebUiService::buildStatusResponse(
 
     writer.appendJsonString(
         snapshot.wifiIp.data());
+
+    writer.append(
+        ",\"ap_ssid\":");
+
+    writer.appendJsonString(
+        snapshot.wifiApSsid.data());
+
+    writer.append(
+        ",\"ap_ip\":");
+
+    writer.appendJsonString(
+        snapshot.wifiApIp.data());
 
     writer.append(
         "},\"ddp\":{");

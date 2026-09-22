@@ -432,7 +432,7 @@ Do not expose TCP/80 to the public internet.
 
 ## Wi-Fi lifecycle
 
-The listener exists only while Wi-Fi is enabled.
+The listener exists while either the STA runtime or the fallback AP is active.
 
 Startup:
 
@@ -443,11 +443,19 @@ Startup:
 Clearing credentials with no compile-time fallback:
 
     web stop
-    Wi-Fi off
     DDP stop
+    station off
+    wait 60 s
+    fallback AP -> HTTP/80 + DDP UDP/4048
 
-If compile-time fallback exists, DDP and the web listener continue using the
-fallback network.
+The fallback AP uses `Ambilight-XXXXXX`, password `ambilight` and IP
+`4.3.2.1`. It also appears in `/api/status`, allowing the System page to show
+whether the browser is currently using the provisioning network. STA reconnect
+continues in parallel and automatically closes the AP after a successful
+connection.
+
+If compile-time credentials exist, DDP and the web listener continue using
+that configured station network.
 
 ## Validation
 

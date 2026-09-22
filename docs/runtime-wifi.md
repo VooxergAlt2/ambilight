@@ -6,9 +6,11 @@ Startup resolves Wi-Fi credentials in this order:
 
 1. NVS credentials
 2. compile-time fallback from `secrets.h`
-3. no credentials -> Wi-Fi/DDP/Web disabled
+3. no credentials -> wait 60 seconds, then open the fallback AP
 
-The password is never printed by firmware diagnostics.
+The saved station password is never printed by firmware diagnostics. The
+fixed fallback-AP credential is intentionally documented and may be printed so
+the recovery network remains usable without stored secrets.
 
 ## Serial commands
 
@@ -46,6 +48,25 @@ Setting new credentials:
 
 No reboot is required.
 
+## Fallback access point
+
+If the station interface has not connected for 60 seconds, including after a
+later prolonged disconnect, firmware opens a provisioning AP while continuing
+STA reconnect attempts:
+
+    SSID:     Ambilight-XXXXXX
+    password: ambilight
+    IP:       4.3.2.1
+
+`XXXXXX` is derived from the controller MAC/chip identity so nearby Ambilight
+controllers do not all advertise the same SSID. HTTP/80 and DDP UDP/4048 bind
+to the fallback network as well, so the existing Web UI can be used to enter
+new Wi-Fi credentials at `http://4.3.2.1/`.
+
+The AP is not a replacement for STA. A successful station connection closes
+the fallback AP automatically. If the AP itself cannot be started, firmware
+retries AP startup every 5 seconds rather than waiting another full minute.
+
 If NVS is unavailable, the credentials still work for the current boot and are reported as:
 
     RUNTIME_VOLATILE
@@ -70,10 +91,16 @@ If compile-time fallback exists:
 If no fallback exists:
 
     Web UI listener stopped
-    Wi-Fi disabled
     DDP socket stopped
+    station disabled
+    fallback AP scheduled after 60 s
 
-If fallback configuration is invalid, Wi-Fi/DDP/Web are explicitly disabled rather than silently continuing with old credentials.
+If credentials are cleared while already connected through the fallback AP,
+the AP remains up so the provisioning page does not deliberately disconnect
+the operator.
+
+If compile-time fallback configuration is invalid, firmware does not silently
+continue with old credentials; it schedules the same fallback AP path.
 
 The web UI never returns the saved password. Changing credentials from the
 browser may move the controller to another network, so the current page can

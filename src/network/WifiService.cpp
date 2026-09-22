@@ -3,6 +3,7 @@
 #include <Arduino.h>
 
 #include <algorithm>
+#include <cstdio>
 #include <cstring>
 #include <WiFi.h>
 #include <esp_err.h>
@@ -13,6 +14,9 @@ namespace ambilight {
 namespace {
 
 constexpr std::uint32_t kReconnectIntervalMs = 5000;
+constexpr const char kFallbackApPassword[] = "ambilight";
+constexpr std::uint8_t kFallbackApChannel = 1;
+constexpr std::uint8_t kFallbackApMaxClients = 4;
 
 bool deadlineReached(std::uint32_t nowMs, std::uint32_t deadlineMs) {
     return static_cast<std::int32_t>(nowMs - deadlineMs) >= 0;
@@ -98,9 +102,35 @@ bool WifiService::begin(
     if (ssid == nullptr ||
         ssid[0] == '\0') {
 
+        if (accessPointActive_) {
+            if (enabled_) {
+                WiFi.disconnect(
+                    false,
+                    false);
+            }
+
+            enabled_ = false;
+            wasConnected_ = false;
+            nextReconnectMs_ = 0;
+            fallbackPolicy_.cancel();
+
+            ssid_.fill('\0');
+            password_.fill('\0');
+
+            WiFi.mode(
+                WIFI_AP);
+
+            Serial.println(
+                "Wi-Fi station disabled: fallback AP remains active for provisioning.");
+            return true;
+        }
+
         disable();
+        configureAccessPointIdentity();
+        armFallback(
+            millis());
         Serial.println(
-            "Wi-Fi disabled: no credentials configured.");
+            "Wi-Fi station disabled: no credentials configured; fallback AP will open after 60 s.");
         return true;
     }
 
@@ -142,7 +172,10 @@ bool WifiService::configure(
     wasConnected_ = false;
 
     WiFi.persistent(false);
-    WiFi.mode(WIFI_STA);
+    WiFi.mode(
+        accessPointActive_
+            ? WIFI_AP_STA
+            : WIFI_STA);
     WiFi.setAutoReconnect(true);
     WiFi.setSleep(false);
 
@@ -164,6 +197,10 @@ bool WifiService::configure(
         millis() +
         kReconnectIntervalMs;
 
+    configureAccessPointIdentity();
+    armFallback(
+        millis());
+
     Serial.printf(
         "Wi-Fi connecting to SSID '%s' with power-save disabled.\n",
         ssid_.data());
@@ -172,7 +209,12 @@ bool WifiService::configure(
 }
 
 void WifiService::disable() {
-    if (enabled_) {
+    if (accessPointActive_) {
+        WiFi.softAPdisconnect(false);
+    }
+
+    if (enabled_ ||
+        accessPointActive_) {
         WiFi.disconnect(
             true,
             false);
@@ -183,10 +225,13 @@ void WifiService::disable() {
 
     enabled_ = false;
     wasConnected_ = false;
+    accessPointActive_ = false;
     nextReconnectMs_ = 0;
+    fallbackPolicy_.cancel();
 
     ssid_.fill('\0');
     password_.fill('\0');
+    accessPointIp_.fill('\0');
 }
 
 bool WifiService::connected() const {
@@ -203,11 +248,136 @@ void WifiService::requestReconnect(std::uint32_t nowMs) {
     nextReconnectMs_ = nowMs + kReconnectIntervalMs;
 }
 
+void WifiService::configureAccessPointIdentity() {
+    const std::uint64_t chipId =
+        static_cast<std::uint64_t>(
+            ESP.getEfuseMac());
+
+    std::snprintf(
+        accessPointSsid_.data(),
+        accessPointSsid_.size(),
+        "Ambilight-%06llX",
+        static_cast<unsigned long long>(
+            chipId & 0xFFFFFFULL));
+}
+
+void WifiService::armFallback(
+    std::uint32_t nowMs) {
+
+    fallbackPolicy_.arm(
+        nowMs);
+}
+
+bool WifiService::startFallbackAccessPoint(
+    std::uint32_t nowMs) {
+
+    if (accessPointActive_) {
+        fallbackPolicy_.cancel();
+        return true;
+    }
+
+    if (accessPointSsid_[0] == '\0') {
+        configureAccessPointIdentity();
+    }
+
+    WiFi.persistent(false);
+
+    if (!WiFi.mode(
+            enabled_
+                ? WIFI_AP_STA
+                : WIFI_AP)) {
+
+        Serial.println(
+            "Wi-Fi fallback AP failed: could not enable AP mode.");
+        fallbackPolicy_.retryLater(
+            nowMs);
+        return false;
+    }
+
+    const IPAddress apIp(
+        4,
+        3,
+        2,
+        1);
+
+    const IPAddress subnet(
+        255,
+        255,
+        255,
+        0);
+
+    if (!WiFi.softAPConfig(
+            apIp,
+            apIp,
+            subnet) ||
+        !WiFi.softAP(
+            accessPointSsid_.data(),
+            kFallbackApPassword,
+            kFallbackApChannel,
+            0,
+            kFallbackApMaxClients)) {
+
+        Serial.println(
+            "Wi-Fi fallback AP failed to start; retrying in 5 s.");
+
+        WiFi.mode(
+            enabled_
+                ? WIFI_STA
+                : WIFI_OFF);
+
+        fallbackPolicy_.retryLater(
+            nowMs);
+        return false;
+    }
+
+    accessPointActive_ = true;
+    fallbackPolicy_.cancel();
+
+    const String ip =
+        WiFi.softAPIP().toString();
+
+    std::snprintf(
+        accessPointIp_.data(),
+        accessPointIp_.size(),
+        "%s",
+        ip.c_str());
+
+    Serial.printf(
+        "Wi-Fi fallback AP started: SSID='%s' password='%s' IP=%s. STA reconnect remains active.\n",
+        accessPointSsid_.data(),
+        kFallbackApPassword,
+        accessPointIp_.data());
+
+    return true;
+}
+
+void WifiService::stopFallbackAccessPoint() {
+    if (!accessPointActive_) {
+        return;
+    }
+
+    WiFi.softAPdisconnect(false);
+
+    WiFi.mode(
+        enabled_
+            ? WIFI_STA
+            : WIFI_OFF);
+
+    accessPointActive_ = false;
+    accessPointIp_.fill('\0');
+
+    Serial.println(
+        "Wi-Fi fallback AP stopped after STA connection.");
+}
+
 void WifiService::updateConnectionState(std::uint32_t nowMs) {
     const bool isConnected = connected();
 
     if (isConnected != wasConnected_) {
         if (isConnected) {
+            fallbackPolicy_.cancel();
+            stopFallbackAccessPoint();
+
             ++connectEvents_;
             Serial.printf(
                 "Wi-Fi connected: IP=%s RSSI=%d dBm channel=%ld\n",
@@ -220,6 +390,8 @@ void WifiService::updateConnectionState(std::uint32_t nowMs) {
                 "Wi-Fi disconnected: status=%d\n",
                 static_cast<int>(WiFi.status()));
             nextReconnectMs_ = nowMs + kReconnectIntervalMs;
+            armFallback(
+                nowMs);
         }
 
         wasConnected_ = isConnected;
@@ -228,10 +400,27 @@ void WifiService::updateConnectionState(std::uint32_t nowMs) {
     if (!isConnected && deadlineReached(nowMs, nextReconnectMs_)) {
         requestReconnect(nowMs);
     }
+
+    if (!isConnected &&
+        !accessPointActive_ &&
+        fallbackPolicy_.due(
+            nowMs)) {
+
+        startFallbackAccessPoint(
+            nowMs);
+    }
 }
 
 void WifiService::tick(std::uint32_t nowMs) {
     if (!enabled_) {
+        if (!accessPointActive_ &&
+            fallbackPolicy_.due(
+                nowMs)) {
+
+            startFallbackAccessPoint(
+                nowMs);
+        }
+
         return;
     }
 
@@ -240,19 +429,30 @@ void WifiService::tick(std::uint32_t nowMs) {
 
 void WifiService::printStatus() const {
     if (!enabled_) {
-        Serial.println("Wi-Fi status: disabled");
+        Serial.printf(
+            "Wi-Fi status: station disabled fallback_ap=%s ap_ssid='%s' ap_ip=%s\n",
+            accessPointActive_ ? "on" : "off",
+            accessPointSsid_.data(),
+            accessPointActive_
+                ? accessPointIp_.data()
+                : "-");
         return;
     }
 
     Serial.printf(
-        "Wi-Fi status: ssid='%s' connected=%s status=%d RSSI=%d reconnects=%lu connects=%lu disconnects=%lu\n",
+        "Wi-Fi status: ssid='%s' connected=%s status=%d RSSI=%d reconnects=%lu connects=%lu disconnects=%lu fallback_ap=%s ap_ssid='%s' ap_ip=%s\n",
         ssid_.data(),
         connected() ? "yes" : "no",
         static_cast<int>(WiFi.status()),
         connected() ? WiFi.RSSI() : 0,
         static_cast<unsigned long>(reconnectAttempts_),
         static_cast<unsigned long>(connectEvents_),
-        static_cast<unsigned long>(disconnectEvents_));
+        static_cast<unsigned long>(disconnectEvents_),
+        accessPointActive_ ? "on" : "off",
+        accessPointSsid_.data(),
+        accessPointActive_
+            ? accessPointIp_.data()
+            : "-");
 }
 
 } // namespace ambilight

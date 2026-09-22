@@ -61,6 +61,9 @@ struct WebUiSnapshot {
     bool wifiConnected = false;
     std::array<char, 33> wifiSsid{};
     std::array<char, 16> wifiIp{};
+    bool wifiApActive = false;
+    std::array<char, 33> wifiApSsid{};
+    std::array<char, 16> wifiApIp{};
     std::array<char, 13> wifiMac{};
     std::int32_t wifiRssi = 0;
     std::uint8_t wifiChannel = 0;

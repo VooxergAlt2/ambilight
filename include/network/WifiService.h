@@ -4,6 +4,8 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "network/WifiFallbackPolicy.h"
+
 namespace ambilight {
 
 class WifiService {
@@ -27,8 +29,24 @@ public:
     bool enabled() const { return enabled_; }
     bool connected() const;
 
+    bool accessPointActive() const {
+        return accessPointActive_;
+    }
+
+    bool networkRuntimeEnabled() const {
+        return enabled_ || accessPointActive_;
+    }
+
     const char* ssid() const {
         return ssid_.data();
+    }
+
+    const char* accessPointSsid() const {
+        return accessPointSsid_.data();
+    }
+
+    const char* accessPointIp() const {
+        return accessPointIp_.data();
     }
 
     std::uint32_t reconnectAttempts() const { return reconnectAttempts_; }
@@ -50,12 +68,21 @@ private:
 
     void updateConnectionState(std::uint32_t nowMs);
     void requestReconnect(std::uint32_t nowMs);
+    bool startFallbackAccessPoint(std::uint32_t nowMs);
+    void stopFallbackAccessPoint();
+    void armFallback(std::uint32_t nowMs);
+    void configureAccessPointIdentity();
 
     bool enabled_ = false;
     bool wasConnected_ = false;
+    bool accessPointActive_ = false;
 
     std::array<char, kMaxSsidLength + 1> ssid_{};
     std::array<char, kMaxPasswordLength + 1> password_{};
+    std::array<char, kMaxSsidLength + 1> accessPointSsid_{};
+    std::array<char, 16> accessPointIp_{};
+
+    WifiFallbackPolicy fallbackPolicy_{};
 
     std::uint32_t nextReconnectMs_ = 0;
     std::uint32_t reconnectAttempts_ = 0;

@@ -251,7 +251,7 @@ const char* wifiCredentialSourceName(
 }
 
 bool ensureDdpRunning() {
-    if (!wifi.enabled()) {
+    if (!wifi.networkRuntimeEnabled()) {
         return false;
     }
 
@@ -282,7 +282,7 @@ bool ensureDdpRunning() {
 }
 
 bool ensureWebUiRunning() {
-    if (!wifi.enabled()) {
+    if (!wifi.networkRuntimeEnabled()) {
         return false;
     }
 
@@ -385,14 +385,16 @@ bool clearRuntimeWifiCredentials() {
                 ambilight::config::kWifiPassword)) {
 
             webUi.stop();
-            wifi.disable();
             ddp.stop();
+            wifi.begin(
+                "",
+                "");
 
             wifiCredentialSource =
                 WifiCredentialSource::None;
 
             Serial.println(
-                "Compile-time Wi-Fi fallback is invalid; Wi-Fi/DDP disabled.");
+                "Compile-time Wi-Fi fallback is invalid; station disabled and fallback AP scheduled.");
             return cleared;
         }
 
@@ -411,14 +413,16 @@ bool clearRuntimeWifiCredentials() {
     }
 
     webUi.stop();
-    wifi.disable();
     ddp.stop();
+    wifi.begin(
+        "",
+        "");
 
     wifiCredentialSource =
         WifiCredentialSource::None;
 
     Serial.printf(
-        "Wi-Fi NVS credentials cleared (%s); no compile-time fallback, Wi-Fi/DDP disabled.\n",
+        "Wi-Fi NVS credentials cleared (%s); no compile-time fallback, fallback AP scheduled after 60 s.\n",
         cleared ? "persisted" : "volatile-only");
 
     return cleared;
@@ -3957,9 +3961,20 @@ bool fillWebUiSnapshot(
     snapshot.wifiConnected =
         wifi.connected();
 
+    snapshot.wifiApActive =
+        wifi.accessPointActive();
+
     copyWebText(
         snapshot.wifiSsid,
         wifi.ssid());
+
+    copyWebText(
+        snapshot.wifiApSsid,
+        wifi.accessPointSsid());
+
+    copyWebText(
+        snapshot.wifiApIp,
+        wifi.accessPointIp());
 
     copyNormalizedWifiMac(
         snapshot.wifiMac);
@@ -5868,7 +5883,7 @@ void setup() {
             ESP_FAIL);
     }
 
-    if (wifi.enabled()) {
+    if (wifi.networkRuntimeEnabled()) {
         if (!ensureDdpRunning()) {
             fatal(
                 "DdpUdpService::begin failed",
@@ -5878,7 +5893,7 @@ void setup() {
         ensureWebUiRunning();
     } else {
         Serial.println(
-            "DDP/Web runtime inactive because Wi-Fi credentials are absent. Provision with wSSID|PASSWORD.");
+            "DDP/Web runtime inactive until the 60 s fallback AP starts. Serial provisioning remains available with wSSID|PASSWORD.");
     }
 
     if (!tof.begin()) {
@@ -5901,8 +5916,18 @@ void loop() {
     const std::uint32_t networkNowMs =
         millis();
 
+    const bool networkRuntimeWasEnabled =
+        wifi.networkRuntimeEnabled();
+
     wifi.tick(
         networkNowMs);
+
+    if (!networkRuntimeWasEnabled &&
+        wifi.networkRuntimeEnabled()) {
+
+        ensureDdpRunning();
+        ensureWebUiRunning();
+    }
 
     compatibilityDiscovery.tick(
         wifi.connected() &&

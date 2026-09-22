@@ -104,7 +104,17 @@ STAT reports:
 
 Startup:
 
-    NVS -> secrets.h fallback -> disabled
+    NVS -> secrets.h fallback -> STA retry
+
+If no station connection is available for 60 seconds, the controller opens a
+fallback access point:
+
+    SSID:     Ambilight-XXXXXX
+    password: ambilight
+    Web UI:   http://4.3.2.1/
+
+STA reconnect continues in parallel. Once the configured network connects,
+the fallback AP closes automatically.
 
 ## Web UI
 
