@@ -1,5 +1,7 @@
 # Ambilight ESP32-C6
 
+[English](README.md) | [Русский](README_RU.md)
+
 [![Build](https://github.com/VooxergAlt2/ambilight/actions/workflows/build.yml/badge.svg)](https://github.com/VooxergAlt2/ambilight/actions/workflows/build.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
