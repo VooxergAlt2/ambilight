@@ -187,7 +187,12 @@ wclear                  clear saved credentials
 
 For optional compile-time credentials, copy `include/secrets.example.h` to `include/secrets.h`. The real file is ignored by Git.
 
-## HyperHDR
+## HyperHDR / Windows PC integration
+
+No separate custom Windows plugin is required. Install **HyperHDR** on the PC
+and configure this controller as a standard **DDP** network LED device. HyperHDR
+does screen capture and realtime RGB generation; the ESP32-C6 owns LED topology,
+physical output, commissioning and optional ToF correction.
 
 Configure the ESP32 as a **DDP** LED device:
 
@@ -202,6 +207,9 @@ The active RGB payload is always `totalLedCount * 3` bytes.
 The firmware holds the last complete DDP frame through short transport gaps. Partial or missing packets are never converted into an artificial black frame. A real complete black frame from HyperHDR still renders as black.
 
 Do **not** configure this firmware as a WLED realtime device or HyperHDR Hyperk device.
+
+For the Windows setup flow, sender-ownership nuances, and release-binary flashing
+commands, see [Windows: HyperHDR integration and firmware installation](docs/windows-hyperhdr.md).
 
 ## Home Assistant
 
@@ -318,6 +326,7 @@ Start here:
 - [WLED / Home Assistant compatibility](docs/wled-ha-compat.md)
 - [Runtime LED mapping](docs/runtime-led-mapping.md)
 - [Runtime configuration recovery](docs/runtime-config-recovery.md)
+- [Windows / HyperHDR installation](docs/windows-hyperhdr.md)
 - [ToF processing](docs/tof-processing.md)
 
 The `docs/` directory also keeps stage-specific engineering notes. Those files are useful historical context, but this README and the current code are authoritative for the present firmware.
