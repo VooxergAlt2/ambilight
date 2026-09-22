@@ -1,0 +1,68 @@
+name: Bug report
+description: Report a reproducible firmware, Web UI, HyperHDR, Home Assistant, or hardware-integration problem
+title: "[Bug] "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a problem. Please remove passwords, tokens, private IP details you do not want public, and other secrets from logs before posting.
+  - type: input
+    id: commit
+    attributes:
+      label: Firmware version or commit
+      placeholder: e.g. 0.46.2-dev / b5d4b2c
+    validations:
+      required: true
+  - type: input
+    id: board
+    attributes:
+      label: ESP32-C6 board and flash size
+      placeholder: e.g. ESP32-C6 DevKit, 16 MiB
+    validations:
+      required: true
+  - type: textarea
+    id: setup
+    attributes:
+      label: Hardware and software setup
+      description: LED type/count, topology, ToF presence, HyperHDR/Home Assistant versions when relevant.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. ...
+        2. ...
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: Paste serial/validation logs after removing credentials or other sensitive data.
+      render: text
+  - type: checkboxes
+    id: validation
+    attributes:
+      label: Checks
+      options:
+        - label: I searched existing issues first.
+          required: true
+        - label: I removed passwords, tokens, and other secrets from the report.
+          required: true

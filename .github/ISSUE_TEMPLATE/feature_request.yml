@@ -1,0 +1,29 @@
+name: Feature request
+description: Propose a focused improvement to the firmware, commissioning workflow, integrations, or documentation
+title: "[Feature] "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or use case
+      description: What limitation are you trying to solve?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: Describe the smallest useful change and how it should behave.
+    validations:
+      required: true
+  - type: textarea
+    id: hardware
+    attributes:
+      label: Hardware impact
+      description: Mention any new GPIO, timing, memory, power, or sensor requirements.
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered

@@ -1,22 +1,20 @@
 # Architecture
 
-## Current stage
+## Current architecture
 
-Stage 46.1 is the Home Assistant RGB/effects and physical pixel-mask hardening
-line on top of the flashed Stage 46 baseline.
+The current firmware combines the Home Assistant RGB/effects compatibility
+surface, physical pixel-mask hardening, the fail-open ToF/topology fixes, and
+the delayed Wi-Fi recovery AP on one maintained `main` line.
 
-The two changes are intentionally orthogonal:
+The major concerns remain intentionally orthogonal:
 
 - disabled-pixel masking is enforced as a physical lane invariant immediately
   before every PARLIO encode;
 - Home Assistant may temporarily own visible RGB/effects, while HyperHDR DDP
   continues receiving in the background and regains output through the
-  `Ambilight` effect.
-
-The flashed Stage 46 P0 ToF/topology fix may exist only in the deployment
-worktree until it is pushed. Stage 46.1 is therefore maintained as a
-cherry-pickable patch branch and must not be treated as a replacement for that
-unpublished hardware fix.
+  `Ambilight` effect;
+- Wi-Fi recovery may expose a fallback AP after a 60-second STA outage without
+  becoming part of the realtime render path.
 
 The active firmware now combines:
 
@@ -487,15 +485,17 @@ Optional socket tuning failure does not disable DDP.
 
 Software behavior is locked with deterministic native tests where hardware APIs are not required.
 
-GitHub Actions remain manual because repository Actions quota is exhausted.
+GitHub Actions and the local validation harness run the same four gates on the
+maintained `main` line:
 
-Stage 39 passed its local Windows validation gates before hardware
-commissioning:
+1. `tools/check_partition.py`
+2. `tools/check_web_ui.py`
+3. `pio test -e native`
+4. `pio run -e esp32-c6-devkitc-1`
 
-1. tools/check_partition.py: `partition_ok=1`
-2. 19 native suites: 182 test cases passed
-3. full ESP32-C6 firmware build: RAM 91636 / 327680 bytes (28.0%), PROGRAM
-   1269494 / 7340032 bytes (17.3%)
+The public-preparation baseline passed with 267 native tests, RAM usage
+95460 / 327680 bytes (29.1%), and an application image of
+1338858 / 7340032 bytes (18.2%).
 
 Deployment is pinned to partitions/ambilight_16mb_ota.csv:
 
@@ -506,8 +506,9 @@ Deployment is pinned to partitions/ambilight_16mb_ota.csv:
     coredump   64 KiB
 
 PlatformIO is configured with a 7 MiB maximum application image so partition
-fit is checked by the normal firmware build. The validated `firmware.bin` is
-1306928 bytes, leaving 6070538 bytes of app-slot margin.
+fit is checked by the normal firmware build. Exact image size is expected to
+move with normal development; the partition gate and PlatformIO limit are
+authoritative.
 
 Physical commissioning remains a later stage for:
 

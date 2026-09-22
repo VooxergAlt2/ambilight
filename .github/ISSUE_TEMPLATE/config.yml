@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security report
+    url: https://github.com/VooxergAlt2/ambilight/security
+    about: Please read SECURITY.md and avoid posting exploit details or credentials publicly.

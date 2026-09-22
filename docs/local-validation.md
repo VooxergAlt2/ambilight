@@ -2,147 +2,128 @@
 
 ## Purpose
 
-GitHub Actions are currently manual-only and repository Actions quota is exhausted.
+The local harness mirrors the public GitHub Actions gates so the same checks can
+be run before pushing a branch or flashing hardware.
 
-Stage 31 provides local commands that mirror the two CI gates:
+The complete validation path is:
 
-1. native unit tests
-2. ESP32-C6 firmware build
+1. 16 MiB partition-layout check
+2. embedded Web UI structural check
+3. native unit tests
+4. ESP32-C6 firmware build
 
-Both gates are attempted in one run so a native-test failure does not hide a separate firmware compile failure.
+All gates are attempted in one run so an early failure does not hide a separate
+firmware compile failure.
 
 ## Required tools
 
 PlatformIO must already be installed.
 
-The scripts try these launchers in order.
+Typical install:
 
-Windows PowerShell:
+```bash
+python -m pip install --upgrade platformio
+```
 
-    pio
-    py -m platformio
-    python -m platformio
-
-Linux/macOS shell:
-
-    pio
-    python3 -m platformio
-    python -m platformio
-
-The scripts deliberately do not install or upgrade PlatformIO automatically.
+The scripts try the usual `pio` and `python -m platformio` launchers.
 
 ## Windows
 
 From the repository root:
 
-    powershell -ExecutionPolicy Bypass -File tools/validate.ps1
+```powershell
+powershell -ExecutionPolicy Bypass -File tools/validate.ps1
+```
 
-PowerShell 7 also works:
+PowerShell 7:
 
-    pwsh -File tools/validate.ps1
+```powershell
+pwsh -File tools/validate.ps1
+```
 
-Skip native tests:
+Optional skips:
 
-    powershell -ExecutionPolicy Bypass -File tools/validate.ps1 -SkipNative
+```powershell
+powershell -ExecutionPolicy Bypass -File tools/validate.ps1 -SkipNative
+powershell -ExecutionPolicy Bypass -File tools/validate.ps1 -SkipFirmware
+```
 
-Skip firmware build:
+## Linux / macOS
 
-    powershell -ExecutionPolicy Bypass -File tools/validate.ps1 -SkipFirmware
+```bash
+bash tools/validate.sh
+```
 
-## Linux/macOS
+Optional skips:
 
-Run explicitly through bash so the Git executable bit is not required:
+```bash
+bash tools/validate.sh --skip-native
+bash tools/validate.sh --skip-firmware
+```
 
-    bash tools/validate.sh
+## Direct commands
 
-Skip native tests:
+Partition layout:
 
-    bash tools/validate.sh --skip-native
+```bash
+python tools/check_partition.py
+```
 
-Skip firmware build:
+Embedded Web UI:
 
-    bash tools/validate.sh --skip-firmware
+```bash
+python tools/check_web_ui.py
+```
 
-## Commands mirrored from CI
+Native tests:
 
-Native:
-
-    pio test -e native
+```bash
+pio test -e native
+```
 
 Firmware:
 
-    pio run -e esp32-c6-devkitc-1
-
-The launcher may be python -m platformio instead of pio depending on the local installation.
+```bash
+pio run -e esp32-c6-devkitc-1
+```
 
 ## Artifacts
 
-Each run creates:
+Each harness run creates:
 
-    .artifacts/validation/YYYYMMDD-HHMMSS/
+```text
+.artifacts/validation/YYYYMMDD-HHMMSS/
+```
 
-Files:
+Files include:
 
-    native-test.log
-    firmware-build.log
-    summary.txt
+```text
+partition-check.log
+web-ui-check.log
+native-test.log
+firmware-build.log
+summary.txt
+```
 
-The directory is excluded by .gitignore.
+The directory is ignored by Git.
 
-summary.txt contains:
+The harness returns success only when every non-skipped gate succeeds.
 
-- timestamp
-- skipped gates
-- native exit code
-- firmware exit code
-- artifact directory
+## Current baseline
 
-## Exit status
+The public-preparation baseline completed successfully with:
 
-The harness exits:
+```text
+partition: PASS, 16 MiB flash, 7 MiB application slots
+web UI:    PASS
+native:    267 passed, 0 failed
+firmware:  ESP32-C6 build passed
+RAM:       95460 / 327680 bytes (29.1%)
+Flash:     1338858 / 7340032 bytes (18.2%)
+```
 
-    0
+These values are a snapshot, not a compatibility contract. A fresh CI or local
+validation run is authoritative for the current commit.
 
-only when every non-skipped gate succeeds.
-
-It exits:
-
-    1
-
-when either validation gate fails.
-
-Launcher/argument setup errors use a non-success exit as well.
-
-## Important status
-
-The harness was exercised on Windows during Stage 35.
-
-Validated Stage 35 result:
-
-    native:   147 passed, 0 failed
-    firmware: ESP32-C6 build passed
-
-The Windows PowerShell wrapper was fixed so native stderr does not terminate
-the script before the firmware gate. Both gate exit codes are now collected
-and written to summary.txt.
-
-The latest fully recorded local validation in this document remains historical.
-Stage 46 changes HTTP protocol parsing, WLED/Home Assistant compatibility,
-mDNS discovery, output-state persistence and native compatibility contracts.
-It is not considered validated until a fresh harness run passes both native
-and firmware gates.
-
-The target hardware has 16 MB flash. Before flashing, Codex/local validation
-must adapt or verify the intended partition table for that flash size and
-record:
-
-- native test total/pass/fail
-- firmware build result
-- RAM usage
-- firmware.bin / factory image sizes
-- actual application partition size and percentage
-
-Do not compare Stage 38 against the historical Stage 35 1.31 MB app partition
-as if it were still the deployment limit.
-
-Preserve the generated artifact directory whenever a gate fails.
+Preserve the generated artifact directory whenever a gate fails because the
+individual logs often make unrelated failures visible at the same time.
