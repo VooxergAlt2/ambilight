@@ -2,7 +2,7 @@
 
 [English](README.md) | [Русский](README_RU.md)
 
-[![Build](https://github.com/VooxergAlt2/ambilight/actions/workflows/build.yml/badge.svg)](https://github.com/VooxergAlt2/ambilight/actions/workflows/build.yml)
+[![Latest release](https://img.shields.io/github/v/release/VooxergAlt2/ambilight)](https://github.com/VooxergAlt2/ambilight/releases/latest)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 A DIY ESP32-C6 Ambilight controller built for low-latency HyperHDR output, with optional VL53L5CX wall-distance correction, a small built-in Web UI, and Home Assistant control through a deliberately limited WLED-compatible facade.

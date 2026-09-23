@@ -2,7 +2,7 @@
 
 [English](README.md) | [Русский](README_RU.md)
 
-[![Build](https://github.com/VooxergAlt2/ambilight/actions/workflows/build.yml/badge.svg)](https://github.com/VooxergAlt2/ambilight/actions/workflows/build.yml)
+[![Latest release](https://img.shields.io/github/v/release/VooxergAlt2/ambilight)](https://github.com/VooxergAlt2/ambilight/releases/latest)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 DIY-контроллер Ambilight на ESP32-C6 для работы с HyperHDR через DDP. Проект поддерживает четыре синхронных выхода на светодиодные ленты, опциональный датчик VL53L5CX для коррекции яркости по расстоянию до стены, встроенный Web UI и ограниченный WLED-compatible интерфейс для Home Assistant.

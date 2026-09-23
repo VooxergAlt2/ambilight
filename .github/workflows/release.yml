@@ -1,9 +1,8 @@
 name: release
 
+# Release publication is manual while hosted Actions are unavailable.
+# The workflow is kept ready for one-click reuse once hosted runners return.
 on:
-  push:
-    tags:
-      - "v*"
   workflow_dispatch:
     inputs:
       tag:

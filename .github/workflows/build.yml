@@ -1,12 +1,9 @@
 name: build
 
+# Hosted Actions are intentionally manual for now. Local `tools/validate.sh`
+# remains the release gate and avoids creating misleading failed runs when a
+# hosted runner is unavailable at the account level.
 on:
-  push:
-    branches:
-      - main
-  pull_request:
-    branches:
-      - main
   workflow_dispatch:
 
 concurrency:
