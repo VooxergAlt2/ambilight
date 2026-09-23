@@ -471,8 +471,9 @@ Optional socket tuning failure does not disable DDP.
 
 Software behavior is locked with deterministic native tests where hardware APIs are not required.
 
-GitHub Actions and the local validation harness run the same four gates on the
-maintained `main` line:
+The local validation harness is the release gate. The manual GitHub Actions
+workflow mirrors the same four gates on the maintained `main` line when hosted
+runners are available:
 
 1. `tools/check_partition.py`
 2. `tools/check_web_ui.py`

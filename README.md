@@ -326,7 +326,7 @@ The current development line is validated with:
 - RAM: **70,460 / 327,680 bytes (21.5%)**
 - application image: **1,342,096 / 7,340,032 bytes (18.3%)**
 
-Exact numbers can move between commits. CI and `tools/validate.*` are the source of truth.
+Exact numbers can move between commits. A fresh `tools/validate.*` run is authoritative; the manual GitHub Actions workflows mirror the same gates when hosted runners are available.
 
 ## Documentation
 

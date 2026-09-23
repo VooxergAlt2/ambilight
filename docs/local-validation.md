@@ -2,8 +2,9 @@
 
 ## Purpose
 
-The local harness mirrors the public GitHub Actions gates so the same checks can
-be run before pushing a branch or flashing hardware.
+The local harness is the primary release gate. The manual GitHub Actions workflows
+mirror the same checks when hosted runners are available, so validation can be
+repeated remotely without changing the test contract.
 
 The complete validation path is:
 
@@ -122,8 +123,9 @@ RAM:       70460 / 327680 bytes (21.5%)
 Flash:     1342096 / 7340032 bytes (18.3%)
 ```
 
-These values are a snapshot, not a compatibility contract. A fresh CI or local
-validation run is authoritative for the current commit.
+These values are a snapshot, not a compatibility contract. A fresh local
+validation run is authoritative for the current commit; the manual hosted
+workflow is an equivalent remote execution path when available.
 
 Preserve the generated artifact directory whenever a gate fails because the
 individual logs often make unrelated failures visible at the same time.
