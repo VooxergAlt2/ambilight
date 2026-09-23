@@ -115,6 +115,10 @@ layout is already installed. If the partition table ever changes incompatibly,
 the release notes will call that out explicitly and a backup/re-provisioning
 path may be required.
 
+## Wi-Fi OTA
+
+For an already configured controller, the preferred no-cable update path is **System → Wi-Fi firmware update** in the controller Web UI. Arm OTA, choose the release `firmware.bin`, and upload it within 120 seconds. Do not choose `firmware.factory.bin`; the controller also rejects that combined image at the OTA validator. USB/esptool remains the recovery/first-install path. See [wifi-ota.md](wifi-ota.md).
+
 ## Home Assistant nuance
 
 Home Assistant discovery is intentionally independent from HyperHDR. The

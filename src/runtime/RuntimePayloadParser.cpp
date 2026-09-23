@@ -285,6 +285,93 @@ RuntimePayloadParser::parseBrightness(
 }
 
 RuntimePayloadParseResult
+RuntimePayloadParser::parseManualLighting(
+    const char* text,
+    ManualLightingState& state) {
+
+    if (text == nullptr ||
+        *text == '\0') {
+
+        return
+            RuntimePayloadParseResult::Empty;
+    }
+
+    const char* cursor = text;
+    std::uint16_t values[7] = {};
+
+    for (std::size_t index = 0;
+         index < 7;
+         ++index) {
+
+        if (!parseUint16(
+                cursor,
+                values[index])) {
+
+            return
+                RuntimePayloadParseResult::
+                    InvalidFormat;
+        }
+
+        if (index + 1U < 7U &&
+            !consume(
+                cursor,
+                ',')) {
+
+            return
+                RuntimePayloadParseResult::
+                    InvalidFormat;
+        }
+    }
+
+    if (*cursor != '\0') {
+        return
+            RuntimePayloadParseResult::
+                InvalidFormat;
+    }
+
+    if (values[0] >=
+            ManualLighting::kEffectCount ||
+        values[1] >=
+            ManualLighting::kEffectCount ||
+        !ManualLighting::validLocalEffect(
+            static_cast<ManualLightingEffect>(
+                values[1])) ||
+        values[2] > 255U ||
+        values[3] > 255U ||
+        values[4] > 255U ||
+        values[5] > 255U ||
+        values[6] > 255U) {
+
+        return
+            RuntimePayloadParseResult::
+                OutOfRange;
+    }
+
+    ManualLightingState parsed = state;
+    parsed.effect =
+        static_cast<ManualLightingEffect>(
+            values[0]);
+    parsed.fallbackEffect =
+        static_cast<ManualLightingEffect>(
+            values[1]);
+    parsed.color = {
+        static_cast<std::uint8_t>(values[2]),
+        static_cast<std::uint8_t>(values[3]),
+        static_cast<std::uint8_t>(values[4])
+    };
+    parsed.speed =
+        static_cast<std::uint8_t>(
+            values[5]);
+    parsed.intensity =
+        static_cast<std::uint8_t>(
+            values[6]);
+
+    state = parsed;
+    return
+        RuntimePayloadParseResult::Ok;
+}
+
+RuntimePayloadParseResult
 RuntimePayloadParser::parseLedMapping(
     const char* text,
     LedMappingProfile& profile) {

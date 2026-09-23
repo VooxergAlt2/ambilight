@@ -23,7 +23,7 @@ A complete black-output transition is classified as one of:
 - `PIXEL_MASK`: non-zero post-gain data exists but the configured disabled-pixel mask removes all remaining lit pixels;
 - `UNKNOWN`: defensive fallback for an unclassified complete-black result.
 
-`scale8_video()` in LiteLED guarantees that a non-zero prepared RGB channel remains non-zero for any non-zero global brightness. Therefore exact complete-black classification before the PARLIO brightness scaler is valid as long as brightness itself is handled separately, which the tracker does.
+`scale8_video()` in LiteLED guarantees that a non-zero prepared RGB channel remains non-zero for any non-zero effective whole-output brightness. Therefore exact complete-black classification before the PARLIO brightness scaler is valid as long as brightness itself is handled separately, which the tracker does.
 
 On the transition into black, Serial prints one line similar to:
 

@@ -30,11 +30,13 @@
 #include "render/RenderDiagnostics.h"
 #include "render/RenderGainController.h"
 #include "render/ManualLighting.h"
+#include "render/LightingSourcePolicy.h"
 #include "render/ShadowGainProbe.h"
 #include "render/RenderScheduler.h"
 #include "runtime/RuntimePayloadParser.h"
 #include "runtime/SerialCommandParser.h"
 #include "network/DdpUdpService.h"
+#include "network/OtaUpdateService.h"
 #include "network/WebUiService.h"
 #include "network/WifiService.h"
 #include "network/CompatibilityDiscoveryService.h"
@@ -62,6 +64,7 @@ ambilight::LedEngine ledEngine;
 ambilight::LedRenderer renderer(ledEngine);
 ambilight::WifiService wifi;
 ambilight::DdpUdpService ddp;
+ambilight::OtaUpdateService ota;
 ambilight::LatencyHistogram frameAgeHistogram;
 ambilight::PerformanceMetric renderPreflightMetric;
 ambilight::PerformanceMetric renderServiceMetric;
@@ -84,6 +87,8 @@ ambilight::RgbFrame renderSnapshot;
 ambilight::PerimeterGainSnapshot cachedPerimeterGainSnapshot{};
 
 ambilight::ManualLightingState manualLightingState{};
+ambilight::LightingOwner activeLightingOwner =
+    ambilight::LightingOwner::Local;
 ambilight::RgbFrame manualLightingFrame;
 bool manualLightingDirty = false;
 std::uint64_t nextManualLightingFrameUs = 0;
@@ -143,6 +148,7 @@ std::uint64_t shadowProbeUntilUs = 0;
 std::uint64_t tofDebugUntilUs = 0;
 std::uint64_t nextGainTargetPollUs = 0;
 std::uint64_t nextRenderDiagnosticsUs = 0;
+bool otaWasInProgress = false;
 
 std::uint64_t lastFrameAgeUs = 0;
 std::uint64_t maxFrameAgeUs = 0;
@@ -150,6 +156,7 @@ std::uint64_t maxFrameAgeUs = 0;
 bool shadowGainProbeActive();
 bool fillWebUiSnapshot(
     ambilight::WebUiSnapshot& snapshot);
+void refreshRgbCache();
 void handleWebUiAction(
     ambilight::WebUiActionEvent event);
 void finishCommissioning(
@@ -304,6 +311,30 @@ bool ensureWebUiRunning() {
     return true;
 }
 
+
+bool ensureOtaRunning() {
+    if (!wifi.networkRuntimeEnabled()) {
+        return false;
+    }
+
+    if (ota.running()) {
+        return true;
+    }
+
+    if (!ota.begin()) {
+        Serial.println(
+            "OTA warning: HTTP/3232 listener could not start. Core Ambilight continues.");
+        return false;
+    }
+
+    Serial.printf(
+        "OTA upload service listening on HTTP/%u; upload remains locked until explicitly armed.\n",
+        static_cast<unsigned>(
+            ambilight::OtaUpdateService::kPort));
+
+    return true;
+}
+
 void printWifiProvisioningStatus() {
     wifi.printStatus();
 
@@ -355,6 +386,7 @@ bool applyWifiCredentials(
     }
 
     ensureWebUiRunning();
+    ensureOtaRunning();
 
     Serial.printf(
         "Wi-Fi credentials applied: ssid='%s' source=%s password=hidden\n",
@@ -385,6 +417,7 @@ bool clearRuntimeWifiCredentials() {
                 ambilight::config::kWifiPassword)) {
 
             webUi.stop();
+            ota.stop();
             ddp.stop();
             wifi.begin(
                 "",
@@ -403,6 +436,7 @@ bool clearRuntimeWifiCredentials() {
 
         ensureDdpRunning();
         ensureWebUiRunning();
+        ensureOtaRunning();
 
         Serial.printf(
             "Wi-Fi NVS credentials cleared (%s); using compile-time fallback SSID '%s'.\n",
@@ -413,6 +447,7 @@ bool clearRuntimeWifiCredentials() {
     }
 
     webUi.stop();
+    ota.stop();
     ddp.stop();
     wifi.begin(
         "",
@@ -1860,43 +1895,41 @@ void printCorrectionMode() {
 }
 
 void printOutputBrightness() {
-    const std::uint8_t configured =
-        runtimeSettings.outputBrightness();
-
-    const std::uint8_t effective =
-        ledEngine.brightness();
-
-    const std::uint32_t percentX10 =
-        (
-            static_cast<std::uint32_t>(
-                configured) *
-            1000U +
-            127U
-        ) /
-        255U;
-
     Serial.printf(
-        "OUTPUT enabled=%s configured=%u/255 (%lu.%lu%%) effective=%u/255 persisted=%s\n",
+        "OUTPUT enabled=%s ddp=%u/255 lighting=%u/255 owner=%s effective=%u/255 persisted=%s\n",
         runtimeSettings.outputEnabled()
             ? "yes"
             : "no",
         static_cast<unsigned>(
-            configured),
-        static_cast<unsigned long>(
-            percentX10 / 10U),
-        static_cast<unsigned long>(
-            percentX10 % 10U),
+            runtimeSettings.ddpBrightness()),
         static_cast<unsigned>(
-            effective),
+            runtimeSettings.lightingBrightness()),
+        activeLightingOwner ==
+                ambilight::LightingOwner::Ddp
+            ? "DDP"
+            : "LOCAL",
+        static_cast<unsigned>(
+            ledEngine.brightness()),
         runtimeSettings.persistenceAvailable()
             ? "yes"
             : "no");
 }
 
+std::uint8_t configuredBrightnessForOwner(
+    ambilight::LightingOwner owner) {
+
+    return
+        owner ==
+            ambilight::LightingOwner::Ddp
+            ? runtimeSettings.ddpBrightness()
+            : runtimeSettings.lightingBrightness();
+}
+
 std::uint8_t effectiveOutputBrightness() {
     return
         runtimeSettings.outputEnabled()
-            ? runtimeSettings.outputBrightness()
+            ? configuredBrightnessForOwner(
+                  activeLightingOwner)
             : 0U;
 }
 
@@ -1907,20 +1940,22 @@ void applyEffectiveOutputBrightness() {
     brightnessDirty = true;
 }
 
-void applyOutputState(
+void applyOutputBanks(
     bool enabled,
-    std::uint8_t brightness,
+    std::uint8_t ddpBrightness,
+    std::uint8_t lightingBrightness,
     const char* source) {
 
     const bool persisted =
         runtimeSettings.setOutputState(
             enabled,
-            brightness);
+            ddpBrightness,
+            lightingBrightness);
 
     applyEffectiveOutputBrightness();
 
     Serial.printf(
-        "OUTPUT source=%s enabled=%s configured=%u/255 effective=%u/255 persisted=%s.\n",
+        "OUTPUT source=%s enabled=%s ddp=%u/255 lighting=%u/255 owner=%s effective=%u/255 persisted=%s.\n",
         source != nullptr
             ? source
             : "unknown",
@@ -1928,7 +1963,13 @@ void applyOutputState(
             ? "yes"
             : "no",
         static_cast<unsigned>(
-            runtimeSettings.outputBrightness()),
+            runtimeSettings.ddpBrightness()),
+        static_cast<unsigned>(
+            runtimeSettings.lightingBrightness()),
+        activeLightingOwner ==
+                ambilight::LightingOwner::Ddp
+            ? "DDP"
+            : "LOCAL",
         static_cast<unsigned>(
             ledEngine.brightness()),
         persisted
@@ -1939,36 +1980,64 @@ void applyOutputState(
 void setOutputEnabled(
     bool enabled) {
 
-    std::uint8_t brightness =
-        runtimeSettings.outputBrightness();
+    std::uint8_t ddpBrightness =
+        runtimeSettings.ddpBrightness();
+    std::uint8_t lightingBrightness =
+        runtimeSettings.lightingBrightness();
 
     if (enabled &&
-        brightness == 0) {
+        ddpBrightness == 0 &&
+        lightingBrightness == 0) {
 
-        brightness =
+        const std::uint8_t fallback =
             ambilight::config::
-                kDefaultOutputBrightness;
+                    kDefaultOutputBrightness != 0
+                ? ambilight::config::
+                      kDefaultOutputBrightness
+                : 1U;
 
-        if (brightness == 0) {
-            brightness = 1;
-        }
+        ddpBrightness = fallback;
+        lightingBrightness = fallback;
     }
 
-    applyOutputState(
+    applyOutputBanks(
         enabled,
-        brightness,
+        ddpBrightness,
+        lightingBrightness,
         "power");
 }
 
 void setOutputBrightness(
     std::uint8_t brightness) {
 
-    // Preserve the historical b0/b1..255 and web-slider behaviour:
-    // zero means off, any non-zero brightness also turns the output on.
-    applyOutputState(
+    // Legacy serial/API behavior intentionally remains atomic across both
+    // banks: zero means off, non-zero means on. New UI controls address each
+    // bank separately without changing global power.
+    applyOutputBanks(
         brightness != 0,
         brightness,
-        "brightness");
+        brightness,
+        "legacy-brightness");
+}
+
+void setDdpBrightness(
+    std::uint8_t brightness) {
+
+    applyOutputBanks(
+        runtimeSettings.outputEnabled(),
+        brightness,
+        runtimeSettings.lightingBrightness(),
+        "ddp-brightness");
+}
+
+void setLightingBrightness(
+    std::uint8_t brightness) {
+
+    applyOutputBanks(
+        runtimeSettings.outputEnabled(),
+        runtimeSettings.ddpBrightness(),
+        brightness,
+        "lighting-brightness");
 }
 
 bool sameManualLightingState(
@@ -1977,6 +2046,7 @@ bool sameManualLightingState(
 
     return
         left.effect == right.effect &&
+        left.fallbackEffect == right.fallbackEffect &&
         left.color.r == right.color.r &&
         left.color.g == right.color.g &&
         left.color.b == right.color.b &&
@@ -1984,52 +2054,56 @@ bool sameManualLightingState(
         left.intensity == right.intensity;
 }
 
-bool applyWledManualLightingCommand(
-    const ambilight::WledStateCommand& command) {
+bool applyManualLightingState(
+    ambilight::ManualLightingState next,
+    const char* source) {
 
-    const ambilight::ManualLightingState next =
-        ambilight::WledCompat::
-            resolveManualLighting(
-                manualLightingState,
-                command);
+    if (!ambilight::ManualLighting::validEffect(
+            static_cast<std::uint8_t>(
+                next.effect))) {
+
+        return false;
+    }
+
+    if (next.effect !=
+            ambilight::ManualLightingEffect::Ambilight) {
+
+        next.fallbackEffect =
+            next.effect;
+    }
+
+    if (!ambilight::ManualLighting::validLocalEffect(
+            next.fallbackEffect)) {
+
+        return false;
+    }
 
     if (sameManualLightingState(
             next,
             manualLightingState)) {
 
-        return false;
+        return true;
     }
 
-    const bool ownerChanged =
-        (
-            next.effect ==
-                ambilight::
-                    ManualLightingEffect::
-                        Ambilight
-        ) !=
-        (
-            manualLightingState.effect ==
-                ambilight::
-                    ManualLightingEffect::
-                        Ambilight
-        );
+    const bool persisted =
+        runtimeSettings.setManualLightingState(
+            next);
 
-    manualLightingState =
-        next;
-
-    if (ownerChanged) {
-        renderer.
-            breakBlackFrameForensicsSequence();
-    }
-
+    manualLightingState = next;
     manualLightingDirty = true;
     nextManualLightingFrameUs = 0;
 
     Serial.printf(
-        "HA LIGHT effect=%s color=%u,%u,%u speed=%u intensity=%u.\n",
+        "LIGHT source=%s mode=%s fallback=%s color=%u,%u,%u speed=%u intensity=%u persisted=%s.\n",
+        source != nullptr
+            ? source
+            : "unknown",
         ambilight::ManualLighting::
             effectName(
                 manualLightingState.effect),
+        ambilight::ManualLighting::
+            effectName(
+                manualLightingState.fallbackEffect),
         static_cast<unsigned>(
             manualLightingState.color.r),
         static_cast<unsigned>(
@@ -2039,7 +2113,10 @@ bool applyWledManualLightingCommand(
         static_cast<unsigned>(
             manualLightingState.speed),
         static_cast<unsigned>(
-            manualLightingState.intensity));
+            manualLightingState.intensity),
+        persisted
+            ? "yes"
+            : "runtime-only");
 
     return true;
 }
@@ -2061,33 +2138,105 @@ bool applyWledOutputCommand(
                 command);
 
     if (parsed !=
-        ambilight::
-            WledStateParseResult::
-                Ok) {
+        ambilight::WledStateParseResult::Ok) {
 
         return false;
     }
+
+    const ambilight::ManualLightingState nextManual =
+        ambilight::WledCompat::
+            resolveManualLighting(
+                manualLightingState,
+                command);
+
+    const bool selectedDdpBank =
+        nextManual.effect ==
+            ambilight::ManualLightingEffect::Ambilight;
+
+    const std::uint8_t selectedBrightness =
+        selectedDdpBank
+            ? runtimeSettings.ddpBrightness()
+            : runtimeSettings.lightingBrightness();
 
     const auto resolved =
         ambilight::WledCompat::
             resolveOutputState(
                 runtimeSettings.outputEnabled(),
-                runtimeSettings.outputBrightness(),
+                selectedBrightness,
                 ambilight::config::
                     kDefaultOutputBrightness,
                 command);
 
-    applyWledManualLightingCommand(
-        command);
+    if (!applyManualLightingState(
+            nextManual,
+            "wled")) {
+
+        return false;
+    }
 
     if (command.hasOn ||
         command.hasBrightness) {
 
-        applyOutputState(
+        applyOutputBanks(
             resolved.enabled,
-            resolved.brightness,
+            selectedDdpBank
+                ? resolved.brightness
+                : runtimeSettings.ddpBrightness(),
+            selectedDdpBank
+                ? runtimeSettings.lightingBrightness()
+                : resolved.brightness,
             "wled");
     }
+
+    return true;
+}
+
+bool refreshLightingOwner(
+    std::uint64_t nowUs) {
+
+    const ambilight::LightingOwner wanted =
+        ambilight::LightingSourcePolicy::resolve(
+            manualLightingState,
+            nowUs,
+            ddp.lastCompleteFrameUs());
+
+    if (wanted ==
+        activeLightingOwner) {
+
+        return false;
+    }
+
+    activeLightingOwner = wanted;
+    renderer.breakBlackFrameForensicsSequence();
+    manualLightingDirty = true;
+    nextManualLightingFrameUs = 0;
+    applyEffectiveOutputBrightness();
+
+    if (activeLightingOwner ==
+        ambilight::LightingOwner::Ddp) {
+
+        refreshRgbCache();
+        if (rgbFrameValid) {
+            rgbDirty = true;
+        }
+    }
+
+    Serial.printf(
+        "LIGHT owner=%s reason=%s ddp_age_ms=%llu.\n",
+        activeLightingOwner ==
+                ambilight::LightingOwner::Ddp
+            ? "DDP"
+            : "LOCAL",
+        manualLightingState.effect ==
+                ambilight::ManualLightingEffect::Ambilight
+            ? "auto"
+            : "explicit-local",
+        ddp.lastCompleteFrameUs() != 0 &&
+                nowUs >= ddp.lastCompleteFrameUs()
+            ? static_cast<unsigned long long>(
+                  (nowUs - ddp.lastCompleteFrameUs()) /
+                  1000ULL)
+            : 0ULL);
 
     return true;
 }
@@ -2266,16 +2415,15 @@ void finishCommissioning(
     // physical output. If none exists, restore any older cached frame.
     refreshRgbCache();
 
-    if (manualLightingState.effect !=
-        ambilight::
-            ManualLightingEffect::
-                Ambilight) {
+    if (activeLightingOwner ==
+        ambilight::LightingOwner::Local) {
 
         // Commissioning temporarily owns the physical lanes. Restore the
-        // manual owner explicitly even for static effects, which otherwise
-        // have no animation tick that would overwrite the test pattern.
+        // actual local owner explicitly even when the selected mode is AUTO
+        // and DDP has fallen back to a static local preset. Static effects have
+        // no animation tick that would otherwise overwrite the test pattern.
         // Do not insert a black/DDP frame between the diagnostic pattern and
-        // the restored manual owner.
+        // the restored local owner.
         manualLightingDirty = true;
         nextManualLightingFrameUs = 0;
     } else if (rgbFrameValid) {
@@ -2860,42 +3008,18 @@ bool refreshTargetGainContext(
 bool serviceManualLighting(
     std::uint64_t nowUs) {
 
-    if (manualLightingState.effect ==
-        ambilight::
-            ManualLightingEffect::
-                Ambilight) {
-
-        if (manualLightingDirty) {
-            // Pull the newest frame only when manual mode releases output.
-            // DDP continues assembling in the background while effects own
-            // the LEDs, but it must not mutate physical output until now.
-            refreshRgbCache();
-
-            if (rgbFrameValid) {
-                rgbDirty = true;
-            } else {
-                renderSnapshot.clear();
-                renderSnapshot.receivedUs =
-                    nowUs;
-
-                const esp_err_t result =
-                    renderer.render(
-                        renderSnapshot,
-                        false);
-
-                if (result != ESP_OK) {
-                    fatal(
-                        "manual->Ambilight blackout failed",
-                        result);
-                }
-            }
-
-            manualLightingDirty = false;
-            nextManualLightingFrameUs = 0;
-        }
+    if (activeLightingOwner ==
+        ambilight::LightingOwner::Ddp) {
 
         return false;
     }
+
+    ambilight::ManualLightingState renderState =
+        manualLightingState;
+
+    renderState.effect =
+        ambilight::LightingSourcePolicy::localEffect(
+            manualLightingState);
 
     const bool outputOff =
         ledEngine.brightness() == 0;
@@ -2923,7 +3047,7 @@ bool serviceManualLighting(
         !outputOff &&
         ambilight::ManualLighting::
                 animated(
-                    manualLightingState.effect) &&
+                    renderState.effect) &&
         (
             nextManualLightingFrameUs == 0 ||
             nowUs >=
@@ -2958,7 +3082,7 @@ bool serviceManualLighting(
     }
 
     if (!ambilight::ManualLighting::render(
-            manualLightingState,
+            renderState,
             runtimeSettings.
                 ledMappingProfile(),
             nowUs,
@@ -3006,7 +3130,7 @@ bool serviceManualLighting(
         !outputOff &&
         ambilight::ManualLighting::
                 animated(
-                    manualLightingState.effect)
+                    renderState.effect)
             ? nowUs +
                 kManualLightingFrameIntervalUs
             : 0;
@@ -4135,14 +4259,33 @@ bool fillWebUiSnapshot(
     snapshot.outputEnabled =
         runtimeSettings.outputEnabled();
 
+    snapshot.ddpBrightness =
+        runtimeSettings.ddpBrightness();
+
+    snapshot.lightingBrightness =
+        runtimeSettings.lightingBrightness();
+
     snapshot.brightness =
-        runtimeSettings.outputBrightness();
+        manualLightingState.effect ==
+                ambilight::ManualLightingEffect::Ambilight
+            ? snapshot.ddpBrightness
+            : snapshot.lightingBrightness;
 
     snapshot.effectiveBrightness =
         ledEngine.brightness();
 
+    snapshot.outputDdpOwner =
+        activeLightingOwner ==
+            ambilight::LightingOwner::Ddp;
+
     snapshot.manualLighting =
         manualLightingState;
+
+    snapshot.activeLightingEffect =
+        snapshot.outputDdpOwner
+            ? ambilight::ManualLightingEffect::Ambilight
+            : ambilight::LightingSourcePolicy::localEffect(
+                  manualLightingState);
 
     snapshot.uptimeSeconds =
         millis() / 1000U;
@@ -4203,11 +4346,21 @@ bool fillWebUiSnapshot(
     snapshot.ddpHasFrame =
         lastCompleteFrameUs != 0;
 
-    if (snapshot.ddpHasFrame) {
-        const std::uint64_t ddpNowUs =
-            static_cast<std::uint64_t>(
-                esp_timer_get_time());
+    const std::uint64_t ddpNowUs =
+        static_cast<std::uint64_t>(
+            esp_timer_get_time());
 
+    snapshot.ddpFresh =
+        ambilight::LightingSourcePolicy::ddpFresh(
+            ddpNowUs,
+            lastCompleteFrameUs);
+
+    snapshot.outputFallbackActive =
+        manualLightingState.effect ==
+            ambilight::ManualLightingEffect::Ambilight &&
+        !snapshot.outputDdpOwner;
+
+    if (snapshot.ddpHasFrame) {
         snapshot.ddpFrameAgeMs =
             ddpNowUs >= lastCompleteFrameUs
                 ? (ddpNowUs - lastCompleteFrameUs) /
@@ -4215,13 +4368,44 @@ bool fillWebUiSnapshot(
                 : 0ULL;
 
         snapshot.outputFrameHeld =
-            manualLightingState.effect ==
-                    ambilight::
-                        ManualLightingEffect::
-                            Ambilight &&
+            snapshot.outputDdpOwner &&
             frameHoldActive(
                 ddpNowUs);
     }
+
+    snapshot.otaRunning =
+        ota.running();
+    snapshot.otaArmed =
+        ota.armed(ddpNowUs);
+    snapshot.otaInProgress =
+        ota.inProgress();
+    snapshot.otaRebootPending =
+        ota.rebootPending();
+    snapshot.otaLastSuccess =
+        ota.lastSuccess();
+    snapshot.otaPort =
+        ambilight::OtaUpdateService::kPort;
+    snapshot.otaReceivedBytes =
+        static_cast<std::uint32_t>(
+            std::min<std::size_t>(
+                ota.receivedBytes(),
+                UINT32_MAX));
+
+    if (snapshot.otaArmed &&
+        ota.armedUntilUs() >= ddpNowUs) {
+
+        snapshot.otaArmRemainingMs =
+            static_cast<std::uint32_t>(
+                (ota.armedUntilUs() - ddpNowUs) /
+                1000ULL);
+        copyWebText(
+            snapshot.otaToken,
+            ota.token());
+    }
+
+    copyWebText(
+        snapshot.otaMessage,
+        ota.lastMessage());
 
     snapshot.ddpCompleteFrames =
         ddp.stats().
@@ -4616,6 +4800,104 @@ void handleWebUiAction(
                 "Invalid brightness. Use 0..255.";
         }
 
+        break;
+    }
+
+    case ambilight::WebUiActionKind::
+        DdpBrightness: {
+
+        std::uint8_t value = 0;
+        const auto parsed =
+            ambilight::RuntimePayloadParser::parseBrightness(
+                event.text(),
+                value);
+
+        ok =
+            parsed ==
+            ambilight::RuntimePayloadParseResult::Ok;
+
+        if (ok) {
+            setDdpBrightness(value);
+            message = "DDP brightness applied.";
+        } else {
+            message = "Invalid DDP brightness. Use 0..255.";
+        }
+        break;
+    }
+
+    case ambilight::WebUiActionKind::
+        LightingBrightness: {
+
+        std::uint8_t value = 0;
+        const auto parsed =
+            ambilight::RuntimePayloadParser::parseBrightness(
+                event.text(),
+                value);
+
+        ok =
+            parsed ==
+            ambilight::RuntimePayloadParseResult::Ok;
+
+        if (ok) {
+            setLightingBrightness(value);
+            message = "Lighting brightness applied.";
+        } else {
+            message = "Invalid lighting brightness. Use 0..255.";
+        }
+        break;
+    }
+
+    case ambilight::WebUiActionKind::
+        Lighting: {
+
+        ambilight::ManualLightingState next =
+            manualLightingState;
+
+        ok =
+            ambilight::RuntimePayloadParser::parseManualLighting(
+                event.text(),
+                next) ==
+                ambilight::RuntimePayloadParseResult::Ok &&
+            applyManualLightingState(
+                next,
+                "web");
+
+        message =
+            ok
+                ? "Lighting mode applied."
+                : "Invalid lighting payload.";
+        break;
+    }
+
+    case ambilight::WebUiActionKind::
+        OtaArm: {
+
+        const std::uint64_t nowUs =
+            static_cast<std::uint64_t>(
+                esp_timer_get_time());
+
+        if (std::strcmp(
+                event.text(),
+                "arm") == 0) {
+
+            ok =
+                ensureOtaRunning() &&
+                ota.arm(nowUs);
+            message =
+                ok
+                    ? "OTA upload armed for 120 seconds."
+                    : "OTA arm refused.";
+        } else if (
+            std::strcmp(
+                event.text(),
+                "cancel") == 0) {
+
+            ota.disarm();
+            ok = true;
+            message = "OTA upload disarmed.";
+        } else {
+            message = "Invalid OTA action.";
+        }
         break;
     }
 
@@ -5969,6 +6251,17 @@ void setup() {
     correctionMode =
         runtimeSettings.correctionMode();
 
+    manualLightingState =
+        runtimeSettings.manualLightingState();
+
+    activeLightingOwner =
+        ambilight::LightingSourcePolicy::resolve(
+            manualLightingState,
+            0,
+            0);
+
+    manualLightingDirty = true;
+
     ledEngine.setBrightness(
         effectiveOutputBrightness());
 
@@ -6108,9 +6401,10 @@ void setup() {
         }
 
         ensureWebUiRunning();
+        ensureOtaRunning();
     } else {
         Serial.println(
-            "DDP/Web runtime inactive until the 60 s fallback AP starts. Serial provisioning remains available with wSSID|PASSWORD.");
+            "DDP/Web/OTA runtime inactive until the 60 s fallback AP starts. Serial provisioning remains available with wSSID|PASSWORD.");
     }
 
     if (!tof.begin()) {
@@ -6144,6 +6438,7 @@ void loop() {
 
         ensureDdpRunning();
         ensureWebUiRunning();
+        ensureOtaRunning();
     }
 
     compatibilityDiscovery.tick(
@@ -6154,8 +6449,55 @@ void loop() {
     serviceDebugCommands();
     serviceCalibrationCapture();
 
+    const std::uint64_t otaNowUs =
+        static_cast<std::uint64_t>(
+            esp_timer_get_time());
+
+    if (ota.running()) {
+        ota.tick(
+            otaNowUs);
+    }
+
+    const bool otaInProgress =
+        ota.inProgress();
+
+    if (otaInProgress &&
+        !otaWasInProgress) {
+
+        ledEngine.setBrightness(0);
+        brightnessDirty = true;
+        renderer.breakBlackFrameForensicsSequence();
+        Serial.println(
+            "OTA upload started: LED output blacked out until update completes or fails.");
+    } else if (!otaInProgress &&
+               otaWasInProgress &&
+               !ota.rebootPending()) {
+
+        applyEffectiveOutputBrightness();
+        manualLightingDirty = true;
+        rgbDirty = rgbFrameValid;
+        Serial.println(
+            "OTA upload ended without reboot: LED output restored.");
+    }
+
+    otaWasInProgress =
+        otaInProgress;
+
+    if (ota.rebootReady(
+            otaNowUs)) {
+
+        Serial.println(
+            "OTA update complete: rebooting into the new application slot.");
+        Serial.flush();
+        ESP.restart();
+        return;
+    }
+
     ambilight::DdpPollResult pollResult;
-    if (ddp.running()) {
+    if (ddp.running() &&
+        !otaInProgress &&
+        !ota.rebootPending()) {
+
         pollResult = ddp.poll();
     }
 
@@ -6185,10 +6527,18 @@ void loop() {
         }
     }
 
-    // No new complete DDP frame means no RGB mutation. The LED hardware keeps
+    // Resolve ownership only after DDP polling and control actions. AUTO mode
+    // therefore switches to a newly completed DDP frame in the same loop and
+    // falls back to local lighting after bounded input silence.
+    refreshLightingOwner(
+        nowUs);
+
+    // No new complete DDP frame means no RGB mutation while DDP owns output.
     // the last successfully shown physical state until a newer complete frame
     // or an explicit control action changes it.
-    if (!serviceCommissioning(
+    if (!ota.inProgress() &&
+        !ota.rebootPending() &&
+        !serviceCommissioning(
             nowUs)) {
 
         if (!serviceManualLighting(

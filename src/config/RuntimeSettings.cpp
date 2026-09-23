@@ -9,7 +9,7 @@
 namespace ambilight {
 namespace {
 
-struct OutputStateRecord {
+struct OutputStateRecordV1 {
     static constexpr std::uint16_t kSchemaVersion = 1;
 
     std::uint16_t schemaVersion =
@@ -22,8 +22,105 @@ struct OutputStateRecord {
 };
 
 static_assert(
-    sizeof(OutputStateRecord) == 4,
+    sizeof(OutputStateRecordV1) == 4,
+    "OutputStateRecordV1 persistence layout must stay stable");
+
+struct OutputStateRecord {
+    static constexpr std::uint16_t kSchemaVersion = 2;
+
+    std::uint16_t schemaVersion =
+        kSchemaVersion;
+
+    std::uint8_t ddpBrightness =
+        config::kDefaultOutputBrightness;
+
+    std::uint8_t lightingBrightness =
+        config::kDefaultOutputBrightness;
+
+    std::uint8_t enabled = 1;
+    std::uint8_t reserved = 0;
+};
+
+static_assert(
+    sizeof(OutputStateRecord) == 6,
     "OutputStateRecord persistence layout must stay stable");
+
+struct ManualLightingRecord {
+    static constexpr std::uint16_t kSchemaVersion = 1;
+
+    std::uint16_t schemaVersion =
+        kSchemaVersion;
+
+    std::uint8_t effect =
+        static_cast<std::uint8_t>(
+            ManualLightingEffect::Ambilight);
+
+    std::uint8_t fallbackEffect =
+        static_cast<std::uint8_t>(
+            ManualLightingEffect::BiasWhite);
+
+    std::uint8_t red = 255;
+    std::uint8_t green = 255;
+    std::uint8_t blue = 255;
+    std::uint8_t speed = 128;
+    std::uint8_t intensity = 128;
+    std::uint8_t reserved = 0;
+};
+
+static_assert(
+    sizeof(ManualLightingRecord) == 10,
+    "ManualLightingRecord persistence layout must stay stable");
+
+bool manualLightingRecordValid(
+    const ManualLightingRecord& record) {
+
+    return
+        record.schemaVersion ==
+            ManualLightingRecord::kSchemaVersion &&
+        ManualLighting::validEffect(
+            record.effect) &&
+        ManualLighting::validLocalEffect(
+            static_cast<ManualLightingEffect>(
+                record.fallbackEffect));
+}
+
+ManualLightingState decodeManualLightingRecord(
+    const ManualLightingRecord& record) {
+
+    ManualLightingState state;
+    state.effect =
+        static_cast<ManualLightingEffect>(
+            record.effect);
+    state.fallbackEffect =
+        static_cast<ManualLightingEffect>(
+            record.fallbackEffect);
+    state.color = {
+        record.red,
+        record.green,
+        record.blue
+    };
+    state.speed = record.speed;
+    state.intensity = record.intensity;
+    return state;
+}
+
+ManualLightingRecord encodeManualLightingRecord(
+    const ManualLightingState& state) {
+
+    ManualLightingRecord record;
+    record.effect =
+        static_cast<std::uint8_t>(
+            state.effect);
+    record.fallbackEffect =
+        static_cast<std::uint8_t>(
+            state.fallbackEffect);
+    record.red = state.color.r;
+    record.green = state.color.g;
+    record.blue = state.color.b;
+    record.speed = state.speed;
+    record.intensity = state.intensity;
+    return record;
+}
 
 template <std::size_t N>
 void copyText(
@@ -61,11 +158,17 @@ bool RuntimeSettings::begin() {
     correctionMode_ =
         CorrectionMode::Shadow;
 
-    outputBrightness_ =
+    ddpBrightness_ =
+        config::kDefaultOutputBrightness;
+
+    lightingBrightness_ =
         config::kDefaultOutputBrightness;
 
     outputEnabled_ = true;
     outputStatePersisted_ = false;
+
+    manualLightingState_ = {};
+    manualLightingStatePersisted_ = false;
 
     wifiSsid_.fill('\0');
     wifiPassword_.fill('\0');
@@ -130,12 +233,12 @@ bool RuntimeSettings::begin() {
 
     bool outputStateLoaded = false;
 
-    if (outputStateBytes != 0) {
+    if (outputStateBytes ==
+        sizeof(OutputStateRecord)) {
+
         OutputStateRecord stored{};
 
         const bool shapeValid =
-            outputStateBytes ==
-                sizeof(stored) &&
             preferences_.getBytes(
                 kOutputStateKey,
                 &stored,
@@ -150,28 +253,90 @@ bool RuntimeSettings::begin() {
             stored.enabled <= 1U;
 
         if (valueValid) {
-            outputBrightness_ =
-                stored.brightness;
-
+            ddpBrightness_ =
+                stored.ddpBrightness;
+            lightingBrightness_ =
+                stored.lightingBrightness;
             outputEnabled_ =
                 stored.enabled != 0U;
-
             outputStateLoaded = true;
             outputStatePersisted_ = true;
         } else {
             ++stats_.invalidStoredValues;
         }
+    } else if (outputStateBytes ==
+               sizeof(OutputStateRecordV1)) {
+
+        OutputStateRecordV1 stored{};
+
+        const bool valueValid =
+            preferences_.getBytes(
+                kOutputStateKey,
+                &stored,
+                sizeof(stored)) ==
+                    sizeof(stored) &&
+            stored.schemaVersion ==
+                OutputStateRecordV1::
+                    kSchemaVersion &&
+            stored.enabled <= 1U;
+
+        if (valueValid) {
+            // v1 had a single brightness bank. Copy it into both new banks so
+            // an upgrade is visually identical until the user changes them.
+            ddpBrightness_ =
+                stored.brightness;
+            lightingBrightness_ =
+                stored.brightness;
+            outputEnabled_ =
+                stored.enabled != 0U;
+            outputStateLoaded = true;
+
+            OutputStateRecord migrated{};
+            migrated.ddpBrightness =
+                ddpBrightness_;
+            migrated.lightingBrightness =
+                lightingBrightness_;
+            migrated.enabled =
+                outputEnabled_
+                    ? 1U
+                    : 0U;
+
+            const std::size_t written =
+                preferences_.putBytes(
+                    kOutputStateKey,
+                    &migrated,
+                    sizeof(migrated));
+
+            if (written == sizeof(migrated)) {
+                outputStatePersisted_ = true;
+                ++stats_.writes;
+            } else {
+                outputStatePersisted_ = false;
+                ++stats_.writeFailures;
+            }
+        } else {
+            // A same-sized future/corrupt record must not be overwritten by
+            // legacy migration. Keep the raw bytes for downgrade/recovery.
+            ++stats_.invalidStoredValues;
+        }
+    } else if (outputStateBytes != 0) {
+        // Unknown future shape. Never self-heal destructively on boot.
+        ++stats_.invalidStoredValues;
     }
 
     if (!outputStateLoaded &&
         outputStateBytes == 0) {
         // Migrate the pre-Stage-46 representation. Stage <=45 encoded power
         // only through brightness=0; early Stage 46 builds added output_on as
-        // a second key. The new record stores both values atomically.
-        outputBrightness_ =
+        // a second key. The new record stores power and both brightness banks
+        // atomically.
+        const std::uint8_t legacyBrightness =
             preferences_.getUChar(
                 kLegacyOutputBrightnessKey,
                 config::kDefaultOutputBrightness);
+
+        ddpBrightness_ = legacyBrightness;
+        lightingBrightness_ = legacyBrightness;
 
         const bool legacyEnabledStored =
             preferences_.isKey(
@@ -180,7 +345,7 @@ bool RuntimeSettings::begin() {
         const std::uint8_t legacyEnabled =
             preferences_.getUChar(
                 kLegacyOutputEnabledKey,
-                outputBrightness_ != 0
+                legacyBrightness != 0
                     ? 1U
                     : 0U);
 
@@ -194,11 +359,13 @@ bool RuntimeSettings::begin() {
             legacyEnabledStored &&
             legacyEnabled <= 1U
                 ? legacyEnabled != 0U
-                : outputBrightness_ != 0;
+                : legacyBrightness != 0;
 
         OutputStateRecord migrated{};
-        migrated.brightness =
-            outputBrightness_;
+        migrated.ddpBrightness =
+            ddpBrightness_;
+        migrated.lightingBrightness =
+            lightingBrightness_;
         migrated.enabled =
             outputEnabled_
                 ? 1U
@@ -214,16 +381,42 @@ bool RuntimeSettings::begin() {
             outputStatePersisted_ = true;
             ++stats_.writes;
 
-            // Legacy values are now inert. Remove them only after the new
-            // single-record commit succeeded so a failed migration remains
-            // recoverable on the next boot.
             preferences_.remove(
                 kLegacyOutputBrightnessKey);
-
             preferences_.remove(
                 kLegacyOutputEnabledKey);
         } else {
             ++stats_.writeFailures;
+        }
+    }
+
+    const std::size_t manualLightingBytes =
+        preferences_.getBytesLength(
+            kManualLightingKey);
+
+    if (manualLightingBytes != 0) {
+        ManualLightingRecord stored{};
+
+        const bool valid =
+            manualLightingBytes ==
+                sizeof(stored) &&
+            preferences_.getBytes(
+                kManualLightingKey,
+                &stored,
+                sizeof(stored)) ==
+                    sizeof(stored) &&
+            manualLightingRecordValid(
+                stored);
+
+        if (valid) {
+            manualLightingState_ =
+                decodeManualLightingRecord(
+                    stored);
+            manualLightingStatePersisted_ = true;
+        } else {
+            // Preserve unknown/corrupt records in NVS; use safe defaults only
+            // in the live view so downgrade/recovery remains possible.
+            ++stats_.invalidStoredValues;
         }
     }
 
@@ -500,11 +693,13 @@ bool RuntimeSettings::setCorrectionMode(
 
 bool RuntimeSettings::setOutputState(
     bool enabled,
-    std::uint8_t brightness) {
+    std::uint8_t ddpBrightness,
+    std::uint8_t lightingBrightness) {
 
     const bool stateChanged =
         outputEnabled_ != enabled ||
-        outputBrightness_ != brightness;
+        ddpBrightness_ != ddpBrightness ||
+        lightingBrightness_ != lightingBrightness;
 
     if (!stateChanged &&
         outputStatePersisted_) {
@@ -512,12 +707,9 @@ bool RuntimeSettings::setOutputState(
         return true;
     }
 
-    // Runtime control remains available even when NVS is unavailable or a
-    // write fails. Keep a separate persistence flag so a later identical
-    // request retries a previously failed durable commit instead of reporting
-    // a false success merely because Preferences is available.
     outputEnabled_ = enabled;
-    outputBrightness_ = brightness;
+    ddpBrightness_ = ddpBrightness;
+    lightingBrightness_ = lightingBrightness;
 
     if (!persistenceAvailable_) {
         outputStatePersisted_ = false;
@@ -526,9 +718,10 @@ bool RuntimeSettings::setOutputState(
     }
 
     OutputStateRecord record{};
-    record.brightness =
-        outputBrightness_;
-
+    record.ddpBrightness =
+        ddpBrightness_;
+    record.lightingBrightness =
+        lightingBrightness_;
     record.enabled =
         outputEnabled_
             ? 1U
@@ -551,12 +744,44 @@ bool RuntimeSettings::setOutputState(
     return true;
 }
 
+bool RuntimeSettings::setOutputState(
+    bool enabled,
+    std::uint8_t brightness) {
+
+    return
+        setOutputState(
+            enabled,
+            brightness,
+            brightness);
+}
+
 bool RuntimeSettings::setOutputBrightness(
     std::uint8_t brightness) {
 
     return
         setOutputState(
             outputEnabled_,
+            brightness,
+            brightness);
+}
+
+bool RuntimeSettings::setDdpBrightness(
+    std::uint8_t brightness) {
+
+    return
+        setOutputState(
+            outputEnabled_,
+            brightness,
+            lightingBrightness_);
+}
+
+bool RuntimeSettings::setLightingBrightness(
+    std::uint8_t brightness) {
+
+    return
+        setOutputState(
+            outputEnabled_,
+            ddpBrightness_,
             brightness);
 }
 
@@ -566,7 +791,63 @@ bool RuntimeSettings::setOutputEnabled(
     return
         setOutputState(
             enabled,
-            outputBrightness_);
+            ddpBrightness_,
+            lightingBrightness_);
+}
+
+bool RuntimeSettings::setManualLightingState(
+    const ManualLightingState& state) {
+
+    if (!ManualLighting::validEffect(
+            static_cast<std::uint8_t>(
+                state.effect)) ||
+        !ManualLighting::validLocalEffect(
+            state.fallbackEffect)) {
+
+        return false;
+    }
+
+    const bool changed =
+        manualLightingState_.effect != state.effect ||
+        manualLightingState_.fallbackEffect !=
+            state.fallbackEffect ||
+        !(manualLightingState_.color == state.color) ||
+        manualLightingState_.speed != state.speed ||
+        manualLightingState_.intensity != state.intensity;
+
+    if (!changed &&
+        manualLightingStatePersisted_) {
+
+        return true;
+    }
+
+    manualLightingState_ = state;
+
+    if (!persistenceAvailable_) {
+        manualLightingStatePersisted_ = false;
+        ++stats_.writeFailures;
+        return false;
+    }
+
+    const ManualLightingRecord record =
+        encodeManualLightingRecord(
+            manualLightingState_);
+
+    const std::size_t written =
+        preferences_.putBytes(
+            kManualLightingKey,
+            &record,
+            sizeof(record));
+
+    if (written != sizeof(record)) {
+        manualLightingStatePersisted_ = false;
+        ++stats_.writeFailures;
+        return false;
+    }
+
+    manualLightingStatePersisted_ = true;
+    ++stats_.writes;
+    return true;
 }
 
 
@@ -1163,11 +1444,17 @@ bool RuntimeSettings::factoryReset() {
     correctionMode_ =
         CorrectionMode::Shadow;
 
-    outputBrightness_ =
+    ddpBrightness_ =
+        config::kDefaultOutputBrightness;
+
+    lightingBrightness_ =
         config::kDefaultOutputBrightness;
 
     outputEnabled_ = true;
     outputStatePersisted_ = false;
+
+    manualLightingState_ = {};
+    manualLightingStatePersisted_ = false;
 
     wifiSsid_.fill('\0');
     wifiPassword_.fill('\0');

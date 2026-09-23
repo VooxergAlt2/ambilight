@@ -132,40 +132,17 @@ This avoids double scaling.
 The segment owns only manual visual controls:
 
     col -> RGB color
-    fx  -> Ambilight / Solid / Rainbow / Breathing
+    fx  -> Ambilight / Solid / Rainbow / Breathing / Warm White / Bias White / Sunset / Candle / Aurora / Twinkle
     sx  -> animation speed
     ix  -> animation intensity
 
-Master on/bri remain the sole physical power/brightness authority.
+Master `on` remains global power authority. Master `bri` updates the brightness bank of the mode selected by the same WLED command: Ambilight/DDP or local lighting.
 
 ## Output semantics
 
-Stage 46 separates output power from remembered brightness.
+Stage 47 keeps global power separate from two remembered brightness banks. WLED master brightness addresses the bank belonging to the selected effect in that command: `Ambilight` updates DDP brightness, while a local effect updates local-lighting brightness. The native Web UI exposes both banks independently. Legacy `/api/brightness` intentionally writes both banks for backward compatibility.
 
-Examples:
-
-    {"on":false}
-        -> off, remember previous brightness
-
-    {"on":true}
-        -> on, restore remembered brightness
-
-    {"bri":120}
-        -> brightness 120
-
-    {"bri":0}
-        -> off without creating a visible on-at-zero state
-
-If on=true is requested while remembered brightness is zero, firmware restores
-the conservative default brightness.
-
-The same WledCompat resolver is used for:
-
-1. the synchronous HTTP state response predicted before mutation
-2. the action later applied by the main runtime dispatcher
-
-The HTTP response and actual state transition therefore share one semantic
-implementation.
+`Ambilight` is AUTO ownership. DDP is visible while a complete frame is fresh; after 1.5 s of DDP silence the saved fallback local effect becomes visible. Fresh DDP automatically takes ownership back. Explicit local effects keep local ownership while DDP ingest continues.
 
 ## HTTP acknowledgement ordering
 
@@ -214,7 +191,7 @@ The facade advertises one segment with:
     info.leds.maxseg = 1
     info.leds.lc     = 1
     info.leds.seglc  = [1]
-    info.fxcount     = 4
+    info.fxcount     = 10
     info.palcount    = 1
     segment bri      = 255
 
@@ -225,10 +202,15 @@ picker. The effect list maps directly to stable IDs:
     1 Solid
     2 Rainbow
     3 Breathing
+    4 Warm White
+    5 Bias White
+    6 Sunset
+    7 Candle
+    8 Aurora
+    9 Twinkle
 
 Selecting an RGB color without an explicit effect enters Solid automatically.
-Selecting Ambilight releases manual ownership and restores the newest complete
-DDP frame.
+Selecting Ambilight enters AUTO ownership: fresh DDP is displayed, stale DDP falls back locally after 1.5 s, and fresh DDP takes ownership back automatically.
 
 ## Diagnostics ownership
 
@@ -277,18 +259,7 @@ use the existing DDP device path on UDP/4048.
 
 ## Persistence
 
-Output power and configured brightness are one atomic NVS record:
-
-    output_state
-
-Schema 1 stores:
-
-    schemaVersion
-    brightness
-    enabled
-
-Legacy Stage <=45 brightness and early Stage 46 output_on keys are migration
-inputs only. They are removed after a successful output_state commit.
+`output_state` schema 2 atomically stores global power plus DDP and local-lighting brightness. A known schema-1 record migrates by copying its single brightness into both banks. `manual_light` separately stores selected mode, fallback effect, RGB, speed and intensity. Unknown/future records retain the project-wide non-destructive boot behavior and are not erased merely because the running firmware cannot decode them.
 
 ## Home Assistant auxiliary entities
 

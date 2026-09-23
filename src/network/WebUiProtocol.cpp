@@ -418,6 +418,38 @@ WebUiRoute WebUiProtocol::routeForPath(
     if (spanEquals(
             path,
             length,
+            "/api/ddp-brightness")) {
+
+        return WebUiRoute::DdpBrightness;
+    }
+
+    if (spanEquals(
+            path,
+            length,
+            "/api/lighting-brightness")) {
+
+        return WebUiRoute::LightingBrightness;
+    }
+
+    if (spanEquals(
+            path,
+            length,
+            "/api/lighting")) {
+
+        return WebUiRoute::Lighting;
+    }
+
+    if (spanEquals(
+            path,
+            length,
+            "/api/ota-arm")) {
+
+        return WebUiRoute::OtaArm;
+    }
+
+    if (spanEquals(
+            path,
+            length,
             "/api/correction")) {
 
         return WebUiRoute::Correction;
@@ -518,6 +550,14 @@ WebUiActionKind WebUiProtocol::actionForRoute(
         return WebUiActionKind::Power;
     case WebUiRoute::Brightness:
         return WebUiActionKind::Brightness;
+    case WebUiRoute::DdpBrightness:
+        return WebUiActionKind::DdpBrightness;
+    case WebUiRoute::LightingBrightness:
+        return WebUiActionKind::LightingBrightness;
+    case WebUiRoute::Lighting:
+        return WebUiActionKind::Lighting;
+    case WebUiRoute::OtaArm:
+        return WebUiActionKind::OtaArm;
     case WebUiRoute::Correction:
         return WebUiActionKind::Correction;
     case WebUiRoute::Commissioning:

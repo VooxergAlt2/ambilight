@@ -2,22 +2,14 @@
 
 ## Purpose
 
-Stage 46 separates the remembered output brightness from the output power
-state.
+Stage 47 keeps physical output power global while separating the remembered
+brightness of the two normal LED sources:
 
-ToF correction answers:
+- **DDP brightness** for Ambilight/DDP ownership;
+- **lighting brightness** for explicit local effects and AUTO fallback.
 
-    how much should each LED be attenuated because of wall distance?
-
-Output brightness answers:
-
-    what global brightness ceiling should be used when output is enabled?
-
-Output power answers:
-
-    should the physical LED output currently be enabled at all?
-
-The three controls remain independent.
+ToF correction remains a separate per-pixel attenuation layer below source
+selection.
 
 ## Persistent representation
 
@@ -25,125 +17,89 @@ NVS namespace:
 
     ambilight
 
-Stage 46 stores power and brightness together in one versioned binary record:
+Power and both brightness banks are committed atomically in `output_state`
+schema 2:
 
-    output_state
+    schemaVersion      = 2
+    ddpBrightness      = 0..255
+    lightingBrightness = 0..255
+    enabled            = 0 | 1
+    reserved           = 0
 
-Record schema:
-
-    schemaVersion = 1
-    brightness    = 0..255
-    enabled       = 0 | 1
-
-The record is written in one Preferences::putBytes() operation. Power and
-brightness are therefore never persisted as two independently committed
-settings.
-
-Migration supports both older representations:
-
-    Stage <=45:
-        brightness
-
-    early Stage 46:
-        brightness
-        output_on
-
-Legacy keys are removed only after the new output_state record has been
-successfully written. A failed migration can therefore be retried on the next
-boot.
+A known schema-1 record is migrated by copying its single brightness into both
+new banks. Pre-Stage-46 `brightness` / `output_on` keys remain supported as
+migration inputs. Unknown/future records are not rewritten on boot.
 
 Default on first boot:
 
-    enabled    true
-    brightness 32/255
+    enabled            true
+    ddpBrightness      32/255
+    lightingBrightness 32/255
+
+The local lighting profile is a separate versioned `manual_light` record. It
+stores selected mode, AUTO fallback effect, RGB, speed and intensity.
 
 ## Runtime semantics
 
-The physical LiteLED brightness is:
+The physical LiteLED brightness is chosen from the active owner:
+
+    selectedBrightness =
+        owner == DDP ? ddpBrightness : lightingBrightness
 
     effectiveBrightness =
-        enabled ? configuredBrightness : 0
+        enabled ? selectedBrightness : 0
 
-Turning output off does not erase the remembered brightness.
+Owner changes therefore switch brightness banks without overwriting either
+stored value. Turning global power off preserves both banks.
 
 Example:
 
-    enabled=true,  brightness=120 -> physical 120
-    enabled=false, brightness=120 -> physical 0
-    enabled=true,  brightness=120 -> physical 120
+    ddp=180, lighting=42, AUTO + fresh DDP -> physical 180
+    ddp=180, lighting=42, AUTO + stale DDP -> physical 42
+    fresh DDP returns                         -> physical 180
 
-This matches WLED/Home Assistant on/off semantics.
+## Legacy brightness command
 
-## Historical brightness command
+The historical serial/native brightness command remains backward compatible:
 
-The serial brightness command remains backward compatible:
-
-    b0      -> output off, configured brightness becomes 0
-    b1..255 -> output on and set configured brightness
+    b0      -> output off and set both banks to 0
+    b1..255 -> output on and set both banks to the same value
     b       -> print current output state
 
-The Web UI brightness slider follows the same legacy behavior.
-
-The separate Web UI power control can switch output off while preserving the
-configured brightness.
+Likewise, legacy `POST /api/brightness` writes both banks. New Web UI controls
+use `/api/ddp-brightness` and `/api/lighting-brightness` independently.
 
 ## WLED / Home Assistant behavior
 
-The Stage 46 WLED compatibility facade exposes:
+WLED `state.on` remains global power. WLED master `bri` updates the brightness
+bank belonging to the effect selected by the same resolved command:
 
-    state.on
-    state.bri
+- `Ambilight` -> DDP brightness;
+- any local effect -> lighting brightness.
 
-Home Assistant may therefore switch the light off without destroying the last
-non-zero brightness.
-
-A WLED command:
-
-    {"on":false}
-
-turns output off and preserves brightness.
-
-A later:
-
-    {"on":true}
-
-restores that brightness. If the remembered value is zero, firmware restores
-the conservative firmware default instead of turning on at an invisible zero
-level.
-
-An explicit:
-
-    {"bri":0}
-
-is treated as an off request.
+A plain power-off request preserves both remembered banks. If power-on is
+requested when both banks are zero, firmware restores the conservative default
+for both banks rather than creating an invisible on-at-zero state.
 
 ## Render behavior
 
-Any effective output change marks render state dirty and re-renders the cached
-RGB frame. No PARLIO reinitialization is required.
+Changing the active owner's brightness marks render state dirty; owner
+transitions also apply the matching bank before the new source renders. No
+PARLIO reinitialization is required.
 
-Brightness remains a final global multiplier in all correction modes:
-
-    DISABLED
-    SHADOW
-    ACTIVE
-
-ACTIVE ToF gain and global brightness therefore remain independent attenuation
-layers.
+Brightness remains the final whole-output multiplier in DISABLED, SHADOW and
+ACTIVE correction modes. ACTIVE ToF gain and the selected brightness bank are
+independent attenuation layers.
 
 ## Failure behavior
 
-If NVS is unavailable or the output_state write fails, the requested runtime
-state still takes effect and the operation reports persistence failure.
-
-Because the durable state is one record, a reboot can only recover the last
-complete persisted output state. It cannot recover a new brightness paired
-with an old power flag, or the reverse.
+If NVS is unavailable or an `output_state` write fails, the requested runtime
+state still takes effect and persistence failure is reported. Because all three
+fields are one durable record, a reboot cannot recover a new brightness bank
+paired with an old power flag or vice versa.
 
 ## Safety
 
-The default 32/255 remains intentionally conservative until the actual strip,
-power supply and thermal behavior are validated.
-
-Factory recovery checks the effective physical brightness, not merely the
-remembered configured brightness.
+Both defaults remain 32/255 until the actual strip, power supply and thermal
+behavior are validated. Factory recovery checks effective physical brightness,
+not either remembered bank in isolation.

@@ -25,7 +25,7 @@ constexpr char kIndexResponse[] =
     "Cache-Control: no-store\r\n"
     "X-Content-Type-Options: nosniff\r\n"
     "Content-Security-Policy: default-src 'self'; "
-    "connect-src 'self'; img-src 'none'; "
+    "connect-src 'self' http://*:3232; img-src 'none'; "
     "style-src 'unsafe-inline'; script-src 'unsafe-inline'\r\n"
     "Connection: close\r\n"
     "\r\n"
@@ -90,18 +90,27 @@ button{cursor:pointer}button.primary{background:var(--primary);color:#fff;border
 <button id="power0" onclick="post('/api/power','0')">Выкл.</button>
 <button id="power1" onclick="post('/api/power','1')">Вкл.</button>
 </div>
-<div class="muted">Коррекция по расстоянию</div>
+<div class="cols" style="margin-top:12px">
+<div>
+<div class="field"><label>Режим вывода</label><select id="lightingEffect"><option value="0">AUTO · Ambilight</option><option value="1">Solid</option><option value="2">Rainbow</option><option value="3">Breathing</option><option value="4">Warm White</option><option value="5">Bias White</option><option value="6">Sunset</option><option value="7">Candle</option><option value="8">Aurora</option><option value="9">Twinkle</option></select></div>
+<div class="field" style="margin-top:8px"><label>Подсветка при пропадании DDP</label><select id="fallbackEffect"><option value="1">Solid</option><option value="2">Rainbow</option><option value="3">Breathing</option><option value="4">Warm White</option><option value="5">Bias White</option><option value="6">Sunset</option><option value="7">Candle</option><option value="8">Aurora</option><option value="9">Twinkle</option></select></div>
+<div class="row"><label>Цвет</label><input id="lightingColor" type="color" value="#ffffff"><button id="lightingApply" class="primary" onclick="applyLighting()">Применить режим</button></div>
+</div>
+<div>
+<div class="row"><label>Яркость DDP</label><input id="ddpBrightness" type="range" min="0" max="255" value="32"><span id="ddpBrightnessValue" class="mono">32</span></div>
+<div class="row"><label>Яркость подсветки</label><input id="lightingBrightness" type="range" min="0" max="255" value="32"><span id="lightingBrightnessValue" class="mono">32</span></div>
+<div class="row"><label>Скорость эффекта</label><input id="lightingSpeed" type="range" min="0" max="255" value="128"><span id="lightingSpeedValue" class="mono">128</span></div>
+<div class="row"><label>Интенсивность эффекта</label><input id="lightingIntensity" type="range" min="0" max="255" value="128"><span id="lightingIntensityValue" class="mono">128</span></div>
+</div>
+</div>
+<div class="muted">AUTO использует свежий DDP-поток, а через 1,5 с без полного кадра переключается на выбранную локальную подсветку. При возврате DDP Ambilight включается автоматически.</div>
+<div class="muted" style="margin-top:12px">Коррекция по расстоянию</div>
 <div class="row segmented">
 <button id="corr0" onclick="post('/api/correction','0')">Выкл.</button>
 <button id="corr1" onclick="post('/api/correction','1')">Наблюдение</button>
 <button id="corr2" onclick="post('/api/correction','2')">Включена</button>
 </div>
-<div class="row">
-<label>Яркость</label>
-<input id="brightness" type="range" min="0" max="255" value="32">
-<span id="brightnessValue" class="mono">32</span>
-</div>
-<div class="muted">Изменение яркости сохраняется при отпускании ползунка. Режим «Наблюдение» рассчитывает коррекцию, но не применяет её к LED.</div>
+<div class="muted">Режим «Наблюдение» рассчитывает коррекцию, но не применяет её к LED.</div>
 <div id="homeStatus" class="callout" style="margin-top:12px">Ожидание данных…</div>
 </div>
 </div>
@@ -259,6 +268,18 @@ button{cursor:pointer}button.primary{background:var(--primary);color:#fff;border
 </div>
 </details>
 <div class="panel" style="margin-top:10px">
+<h2>Обновление прошивки по Wi-Fi</h2>
+<div class="row">
+<input id="otaFile" type="file" accept="application/octet-stream,.bin">
+<button id="otaArm" onclick="armOta()">Разрешить OTA на 120 с</button>
+<button id="otaUpload" class="primary" onclick="uploadFirmware()" disabled>Загрузить firmware.bin</button>
+<button id="otaCancel" onclick="post('/api/ota-arm','cancel')" disabled>Отменить</button>
+</div>
+<progress id="otaProgress" max="100" value="0" style="width:min(520px,90vw)"></progress>
+<div id="otaState" class="muted">OTA заблокирован. Для обновления используйте только firmware.bin из релиза.</div>
+<div class="muted">Загрузка идёт в неактивный OTA-slot и сохраняет NVS. firmware.factory.bin, bootloader.bin и образы не для ESP32-C6 отклоняются до записи приложения. Web UI предназначен только для доверенной LAN.</div>
+</div>
+<div class="panel" style="margin-top:10px">
 <h2>Резервная копия</h2>
 <div class="row">
 <button class="primary" onclick="downloadConfigBackup()">Скачать backup</button>
@@ -310,6 +331,16 @@ const STATIC_EN={
 'Диагностика':'Diagnostics',
 'Система':'System',
 'Подсветка и коррекция':'Lighting and correction',
+'Режим вывода':'Output mode',
+'Подсветка при пропадании DDP':'Lighting when DDP stops',
+'Цвет':'Color',
+'Применить режим':'Apply mode',
+'Яркость DDP':'DDP brightness',
+'Яркость подсветки':'Lighting brightness',
+'Скорость эффекта':'Effect speed',
+'Интенсивность эффекта':'Effect intensity',
+'AUTO использует свежий DDP-поток, а через 1,5 с без полного кадра переключается на выбранную локальную подсветку. При возврате DDP Ambilight включается автоматически.':'AUTO uses fresh DDP input and switches to the selected local lighting after 1.5 s without a complete frame. Ambilight resumes automatically when DDP returns.',
+'Режим «Наблюдение» рассчитывает коррекцию, но не применяет её к LED.':'Shadow mode calculates correction but does not apply it to the LEDs.',
 'Питание подсветки':'Lighting power',
 'Вкл.':'On',
 'Коррекция по расстоянию':'Distance correction',
@@ -376,6 +407,12 @@ const STATIC_EN={
 'Сохранить и подключиться':'Save and connect',
 'Забыть сохранённую сеть':'Forget saved network',
 'Пароль никогда не возвращается браузеру. Пустое поле не означает «оставить прежний пароль»: для защищённой сети введите пароль заново; для сети без пароля явно отметьте «Открытая сеть». После смены сети эта страница может потерять соединение.':'The password is never returned to the browser. A blank field does not mean “keep the old password”: re-enter the password for a protected network, or explicitly select “Open network”. This page may disconnect after changing networks.',
+'Обновление прошивки по Wi-Fi':'Wi-Fi firmware update',
+'Разрешить OTA на 120 с':'Arm OTA for 120 s',
+'Загрузить firmware.bin':'Upload firmware.bin',
+'Отменить':'Cancel',
+'OTA заблокирован. Для обновления используйте только firmware.bin из релиза.':'OTA is locked. Use firmware.bin from a release for updates.',
+'Загрузка идёт в неактивный OTA-slot и сохраняет NVS. firmware.factory.bin, bootloader.bin и образы не для ESP32-C6 отклоняются до записи приложения. Web UI предназначен только для доверенной LAN.':'The upload is written to the inactive OTA slot and preserves NVS. firmware.factory.bin, bootloader.bin and non-ESP32-C6 images are rejected before application writing. The Web UI is intended for trusted LAN use only.',
 'Резервная копия':'Configuration backup',
 'Скачать backup':'Download backup',
 'Восстановить из файла':'Restore from file',
@@ -393,10 +430,10 @@ const STATIC_EN={
 };
 function tr(ru,en){return locale==='en'?en:ru}
 const DYNAMIC_TEXT_IDS=new Set([
-'fw','action','stCorr','stBright','stDdp','stTof','brightnessValue',
+'fw','action','stCorr','stBright','stDdp','stTof','ddpBrightnessValue','lightingBrightnessValue','lightingSpeedValue','lightingIntensityValue',
 'homeStatus','testState','tvTop','tvRight','tvBottom','tvLeft',
 'tvSummary','topologyInfo','maskSource','tofZoneDetail','tofDebugState',
-'spSource','curveSource','tofDetail','calDetail','wifiState','backupState','diag','probeStart',
+'spSource','curveSource','tofDetail','calDetail','wifiState','backupState','otaState','diag','probeStart',
 'maskLimit0','maskLimit1','maskLimit2','maskLimit3'
 ]);
 function dynamicUiElement(el){
@@ -441,7 +478,7 @@ function setLocale(value){
   if(lastStatus)render(lastStatus);
 }
 function corrName(index){return [tr('ВЫКЛ.','OFF'),tr('НАБЛЮДЕНИЕ','SHADOW'),tr('ВКЛЮЧЕНА','ACTIVE')][index]||'?'}
-function manualEffectName(index){return ['Ambilight','Solid','Rainbow','Breathing'][index]||'?'}
+function manualEffectName(index){return ['Ambilight','Solid','Rainbow','Breathing','Warm White','Bias White','Sunset','Candle','Aurora','Twinkle'][index]||'?'}
 const ACTION_RU={
 'WLED state applied.':'WLED-состояние применено.',
 'Invalid WLED state payload.':'Некорректный WLED state payload.',
@@ -449,6 +486,16 @@ const ACTION_RU={
 'Invalid output power.':'Некорректное значение питания подсветки.',
 'Brightness applied.':'Яркость применена.',
 'Invalid brightness. Use 0..255.':'Некорректная яркость. Допустимо 0..255.',
+'DDP brightness applied.':'Яркость DDP применена.',
+'Invalid DDP brightness. Use 0..255.':'Некорректная яркость DDP. Допустимо 0..255.',
+'Lighting brightness applied.':'Яркость локальной подсветки применена.',
+'Invalid lighting brightness. Use 0..255.':'Некорректная яркость локальной подсветки. Допустимо 0..255.',
+'Lighting mode applied.':'Режим подсветки применён.',
+'Invalid lighting payload.':'Некорректные параметры подсветки.',
+'OTA upload armed for 120 seconds.':'OTA разрешён на 120 секунд.',
+'OTA arm refused.':'Не удалось разрешить OTA.',
+'OTA upload disarmed.':'OTA заблокирован.',
+'Invalid OTA action.':'Некорректная команда OTA.',
 'Correction mode applied.':'Режим коррекции применён.',
 'Invalid correction mode.':'Некорректный режим коррекции.',
 'LED test stopped.':'LED-тест остановлен.',
@@ -523,8 +570,8 @@ function fieldState(id){const e=$(id);if(!e)return '';return e.type==='checkbox'
 function cleanPendingIfUnchanged(){pendingDirtyIds.forEach(id=>{if(fieldState(id)===pendingFieldState[id])clean([id])})}
 function markDirty(){document.querySelectorAll('input,select,textarea').forEach(e=>{if(e.dataset.bound)return;e.dataset.bound='1';e.addEventListener('input',()=>e.dataset.dirty='1')})}
 function actionError(message){txt('action',message);$('action').className='bad';return false}
-function syncActionLock(){$('brightness').disabled=posting||!!pendingActionId}
-function rollbackAutosaveDrafts(){if(pendingDirtyIds.includes('brightness'))clean(['brightness'])}
+function syncActionLock(){const locked=posting||!!pendingActionId;['ddpBrightness','lightingBrightness','lightingApply'].forEach(id=>{const e=$(id);if(e)e.disabled=locked})}
+function rollbackAutosaveDrafts(){['ddpBrightness','lightingBrightness'].forEach(id=>{if(pendingDirtyIds.includes(id))clean([id])})}
 function clearPendingAction(){pendingActionId=0;pendingActionStartedMs=0;pendingDirtyIds=[];pendingFieldState={};syncActionLock()}
 function actionSequenceAfter(current,expected){
   const a=Number(current)>>>0,b=Number(expected)>>>0;
@@ -546,6 +593,28 @@ async function post(path,body,dirtyIds=[]){
     return true;
   }catch(e){actionError(e.message);return false}
   finally{posting=false;syncActionLock()}
+}
+function hexRgb(value){const m=/^#([0-9a-f]{6})$/i.exec(String(value||''));if(!m)return null;const n=parseInt(m[1],16);return [(n>>16)&255,(n>>8)&255,n&255]}
+function rgbHex(rgb){return '#'+(rgb||[255,255,255]).map(v=>Math.max(0,Math.min(255,Number(v)||0)).toString(16).padStart(2,'0')).join('')}
+function lightingFieldIds(){return ['lightingEffect','fallbackEffect','lightingColor','lightingSpeed','lightingIntensity']}
+function applyLighting(){
+  const effect=Number($('lightingEffect').value),fallback=Number($('fallbackEffect').value),rgb=hexRgb($('lightingColor').value),speed=Number($('lightingSpeed').value),intensity=Number($('lightingIntensity').value);
+  if(!Number.isInteger(effect)||effect<0||effect>9||!Number.isInteger(fallback)||fallback<1||fallback>9||!rgb||!Number.isInteger(speed)||speed<0||speed>255||!Number.isInteger(intensity)||intensity<0||intensity>255)return actionError(tr('Некорректные параметры подсветки.','Invalid lighting parameters.'));
+  post('/api/lighting',[effect,fallback,...rgb,speed,intensity].join(','),lightingFieldIds())
+}
+function armOta(){if(!confirm(tr('Разрешить загрузку новой прошивки на 120 секунд? Текущая конфигурация NVS сохранится.','Allow firmware upload for 120 seconds? Current NVS configuration will be preserved.')))return;post('/api/ota-arm','arm')}
+function uploadFirmware(){
+  const input=$('otaFile'),file=input.files&&input.files[0],o=lastStatus&&lastStatus.ota;
+  if(!file)return actionError(tr('Выберите firmware.bin.','Select firmware.bin.'));
+  if(/factory|bootloader|partition/i.test(file.name))return actionError(tr('Для OTA нужен только firmware.bin, не factory/bootloader/partitions.','OTA requires firmware.bin only, not factory/bootloader/partitions.'));
+  if(!o||!o.armed||!o.token)return actionError(tr('Сначала разрешите OTA и дождитесь одноразового токена.','Arm OTA first and wait for the one-time token.'));
+  if(!confirm(tr('Начать OTA? Во время записи LED погаснут, после успешной проверки контроллер перезагрузится.','Start OTA? LEDs will turn off during flash writing and the controller will reboot after successful validation.')))return;
+  const xhr=new XMLHttpRequest(),form=new FormData();form.append('update',file,file.name);$('otaUpload').disabled=true;$('otaArm').disabled=true;$('otaProgress').value=0;txt('otaState',tr('Загрузка прошивки…','Uploading firmware…'));
+  xhr.open('POST','http://'+location.hostname+':'+o.port+'/update?token='+encodeURIComponent(o.token));
+  xhr.upload.onprogress=e=>{if(e.lengthComputable){$('otaProgress').value=Math.round(e.loaded*100/e.total);txt('otaState',tr('Загрузка ','Uploading ')+$('otaProgress').value+'%')}};
+  xhr.onload=()=>{let j={};try{j=JSON.parse(xhr.responseText||'{}')}catch(e){};if(xhr.status>=200&&xhr.status<300&&j.ok){$('otaProgress').value=100;txt('otaState',tr('Прошивка принята. Контроллер перезагружается…','Firmware accepted. Controller is rebooting…'));setTimeout(refresh,2500)}else{actionError(j.message||('OTA HTTP '+xhr.status));setTimeout(refresh,500)}};
+  xhr.onerror=()=>{actionError(tr('Ошибка соединения при OTA. Если запись уже завершилась, контроллер мог уйти в перезагрузку.','OTA connection error. If writing had completed, the controller may already be rebooting.'));setTimeout(refresh,1200)};
+  xhr.send(form)
 }
 function mapFieldIds(){return [...Array(4)].flatMap((_,i)=>['count'+i,'gpio'+i,'rev'+i])}
 function validateMap(){
@@ -625,8 +694,9 @@ function makeConfigBackup(){
   const s=lastStatus;
   if(!s)return null;
   return {
-    format:'ambilight-settings',version:1,firmware:s.fw.version,saved_at:new Date().toISOString(),
-    output:{enabled:!!s.output.enabled,brightness:Number(s.output.brightness),correction:Number(s.output.correction)},
+    format:'ambilight-settings',version:2,firmware:s.fw.version,saved_at:new Date().toISOString(),
+    output:{enabled:!!s.output.enabled,ddp_brightness:Number(s.output.ddp_brightness),lighting_brightness:Number(s.output.lighting_brightness),correction:Number(s.output.correction)},
+    lighting:{effect:Number(s.output.effect),fallback_effect:Number(s.output.fallback_effect),rgb:s.output.rgb.map(Number),speed:Number(s.output.speed),intensity:Number(s.output.intensity)},
     wifi:{ssid:String(s.wifi.ssid||''),password_included:false},
     map:{source:String(s.map.source||'DEFAULT'),segments:s.map.segments.map(x=>[Number(x[0]),Number(x[1]),Number(x[2])])},
     pixel_mask:{source:String(s.pixel_mask.source||'DEFAULT'),offsets:s.pixel_mask.offsets.map(Number)},
@@ -644,8 +714,15 @@ function downloadConfigBackup(){
 }
 function backupSourceValid(v){return v==='DEFAULT'||v==='CUSTOM_NVS'||v==='CUSTOM_RUNTIME'}
 function validateConfigBackup(b){
-  if(!b||b.format!=='ambilight-settings'||b.version!==1)return false;
-  if(!b.output||![0,1,2].includes(Number(b.output.correction))||!Number.isInteger(Number(b.output.brightness))||Number(b.output.brightness)<0||Number(b.output.brightness)>255||typeof b.output.enabled!=='boolean')return false;
+  if(!b||b.format!=='ambilight-settings'||![1,2].includes(Number(b.version)))return false;
+  if(!b.output||![0,1,2].includes(Number(b.output.correction))||typeof b.output.enabled!=='boolean')return false;
+  if(Number(b.version)===1){if(!Number.isInteger(Number(b.output.brightness))||Number(b.output.brightness)<0||Number(b.output.brightness)>255)return false}
+  else{
+    for(const k of ['ddp_brightness','lighting_brightness'])if(!Number.isInteger(Number(b.output[k]))||Number(b.output[k])<0||Number(b.output[k])>255)return false;
+    const l=b.lighting;if(!l||!Number.isInteger(Number(l.effect))||l.effect<0||l.effect>9||!Number.isInteger(Number(l.fallback_effect))||l.fallback_effect<1||l.fallback_effect>9||!Array.isArray(l.rgb)||l.rgb.length!==3)return false;
+    for(const v of l.rgb)if(!Number.isInteger(Number(v))||Number(v)<0||Number(v)>255)return false;
+    if(!Number.isInteger(Number(l.speed))||l.speed<0||l.speed>255||!Number.isInteger(Number(l.intensity))||l.intensity<0||l.intensity>255)return false;
+  }
   if(!b.map||!backupSourceValid(b.map.source)||!Array.isArray(b.map.segments)||b.map.segments.length!==4)return false;
   const gpios=[];for(const x of b.map.segments){if(!Array.isArray(x)||x.length!==3)return false;const c=Number(x[0]),g=Number(x[1]),r=Number(x[2]);if(!Number.isInteger(c)||c<1||c>ledLaneFormatMax||![18,19,20,21].includes(g)||![0,1].includes(r)||gpios.includes(g))return false;gpios.push(g)}
   if(!b.pixel_mask||!backupSourceValid(b.pixel_mask.source)||!Array.isArray(b.pixel_mask.offsets)||b.pixel_mask.offsets.length!==4)return false;
@@ -690,7 +767,10 @@ async function restoreConfigBackup(){
     await step(tr('Восстановление: геометрия ToF…','Restore: ToF geometry…'),'/api/spatial',spBody);
     const customCurve=b.curve.source!=='DEFAULT',curveBody=customCurve?b.curve.points.map(x=>x[0]+':'+x[1]).join(','):'reset';
     await step(tr('Восстановление: кривая коррекции…','Restore: correction curve…'),'/api/curve',curveBody);
-    await step(tr('Восстановление: яркость…','Restore: brightness…'),'/api/brightness',String(b.output.brightness));
+    const legacyBrightness=Number(b.version)===1?Number(b.output.brightness):null,ddpBrightness=legacyBrightness===null?Number(b.output.ddp_brightness):legacyBrightness,lightingBrightness=legacyBrightness===null?Number(b.output.lighting_brightness):legacyBrightness;
+    await step(tr('Восстановление: яркость DDP…','Restore: DDP brightness…'),'/api/ddp-brightness',String(ddpBrightness));
+    await step(tr('Восстановление: яркость подсветки…','Restore: lighting brightness…'),'/api/lighting-brightness',String(lightingBrightness));
+    if(Number(b.version)>=2){const l=b.lighting;await step(tr('Восстановление: режим подсветки…','Restore: lighting mode…'),'/api/lighting',[l.effect,l.fallback_effect,...l.rgb,l.speed,l.intensity].join(','));}
     await step(tr('Восстановление: режим коррекции…','Restore: correction mode…'),'/api/correction',String(b.output.correction));
     await step(tr('Восстановление: питание…','Restore: output power…'),'/api/power',b.output.enabled?'1':'0');
     if(b.wifi.ssid){setv('ssid',b.wifi.ssid);$('ssid').dataset.dirty='1'}
@@ -808,22 +888,23 @@ function render(s){
   }
   txt('fw',s.fw.version+' · Stage '+s.fw.stage+' · '+s.fw.target);
   txt('stCorr',corrName(s.output.correction));
-  txt('stBright',(s.output.enabled?'':tr('ВЫКЛ. · ','OFF · '))+Math.round(s.output.brightness*100/255)+'%');
-  const manualOwner=s.output.owner==='HA';
-  const signalFresh=!manualOwner&&s.ddp.has_frame&&s.ddp.frame_age_ms<=1000;
-  txt('stDdp',manualOwner?tr('HA РУЧНОЙ','HA MANUAL'):(!s.ddp.running?tr('ВЫКЛ.','OFF'):(signalFresh?tr('ПОЛУЧАЕМ','RECEIVING'):(s.output.frame_held?tr('УДЕРЖАНИЕ','HOLDING'):tr('ОЖИДАНИЕ','WAITING')))));
+  txt('stBright',(s.output.enabled?'':tr('ВЫКЛ. · ','OFF · '))+Math.round(s.output.effective_brightness*100/255)+'%');
+  const ownerDdp=s.output.owner==='DDP',signalFresh=!!s.output.ddp_fresh,fallbackActive=!!s.output.fallback_active;
+  txt('stDdp',!s.ddp.running?tr('ВЫКЛ.','OFF'):(ownerDdp?(signalFresh?tr('ПОЛУЧАЕМ','RECEIVING'):tr('УДЕРЖАНИЕ','HOLDING')):(fallbackActive?tr('FALLBACK','FALLBACK'):tr('ЛОКАЛЬНО','LOCAL'))));
   txt('stTof',tofOperationalStatus(s.tof));
   $('power0').classList.toggle('primary',!s.output.enabled);
   $('power1').classList.toggle('primary',!!s.output.enabled);
   [0,1,2].forEach(i=>$('corr'+i).classList.toggle('primary',s.output.correction===i));
-  setv('brightness',s.output.brightness);txt('brightnessValue',brightnessLabel(s.output.brightness));
+  setv('ddpBrightness',s.output.ddp_brightness);txt('ddpBrightnessValue',brightnessLabel(s.output.ddp_brightness));
+  setv('lightingBrightness',s.output.lighting_brightness);txt('lightingBrightnessValue',brightnessLabel(s.output.lighting_brightness));
+  setv('lightingEffect',s.output.effect);setv('fallbackEffect',s.output.fallback_effect);setv('lightingColor',rgbHex(s.output.rgb));setv('lightingSpeed',s.output.speed);setv('lightingIntensity',s.output.intensity);
+  txt('lightingSpeedValue',String(s.output.speed));txt('lightingIntensityValue',String(s.output.intensity));
   let home=tr('Подсветка ','Lighting ')+(!s.output.enabled||s.output.effective_brightness===0?tr('выключена','off'):tr('готова','ready'))+'. ';
   if(s.commissioning.pattern)home+=tr('Пусконаладочный тест: ','Commissioning test: ')+commissioningText(s.commissioning)+'. ';
-  else if(manualOwner)home+=tr('Выводом управляет Home Assistant: ','Home Assistant owns output: ')+manualEffectName(s.output.effect)+' · RGB '+s.output.rgb.join(',')+'. ';
-  else if(signalFresh)home+=tr('Сигнал ПК поступает, последний кадр ','PC signal is active; last frame ')+s.ddp.frame_age_ms+tr(' мс назад. ',' ms ago. ');
-  else if(s.output.frame_held)home+=tr('Новых кадров нет, удерживается последний успешно показанный кадр (','No new frames; holding the last successfully shown frame (')+s.ddp.frame_age_ms+' ms). ';
-  else home+=tr('Ожидаем первый кадр от ПК. ','Waiting for the first PC frame. ');
-  home+=tr('Коррекция: ','Correction: ')+corrName(s.output.correction)+'.';
+  else if(ownerDdp)home+=tr('AUTO · DDP активен: последний полный кадр ','AUTO · DDP active: last complete frame ')+s.ddp.frame_age_ms+tr(' мс назад. ',' ms ago. ');
+  else if(fallbackActive)home+=tr('AUTO · DDP пропал, активен fallback: ','AUTO · DDP is stale, fallback active: ')+manualEffectName(s.output.active_effect)+'. ';
+  else home+=tr('Локальная подсветка: ','Local lighting: ')+manualEffectName(s.output.active_effect)+' · RGB '+s.output.rgb.join(',')+'. ';
+  home+=tr('DDP яркость: ','DDP brightness: ')+brightnessLabel(s.output.ddp_brightness)+tr(' · подсветка: ',' · lighting: ')+brightnessLabel(s.output.lighting_brightness)+'. '+tr('Коррекция: ','Correction: ')+corrName(s.output.correction)+'.';
   txt('homeStatus',home);
   txt('testState',commissioningText(s.commissioning));
   const testMax=Number(s.commissioning.max_brightness||0);
@@ -856,8 +937,14 @@ function render(s){
   const wifiAddress=s.wifi.connected?(s.wifi.ip||tr('без IP','no IP')):(s.wifi.ap_active?(s.wifi.ap_ip+' · '+s.wifi.ap_ssid):(s.wifi.ssid||tr('SSID не задан','SSID not set')));
   txt('wifiState',wifiMode+' · '+wifiAddress+wifiRssi+(s.wifi.connected?(' · '+(s.wifi.ssid||tr('SSID не задан','SSID not set'))):''));
   setv('ssid',s.wifi.ssid||'');
-  txt('diag',`output: enabled=${s.output.enabled} configured=${s.output.brightness} effective=${s.output.effective_brightness} owner=${s.output.owner} effect=${manualEffectName(s.output.effect)} rgb=${s.output.rgb.join(',')}\nDDP: running=${s.ddp.running} frames=${s.ddp.frames} publications=${s.ddp.publications}\nlast frame: ${s.ddp.has_frame?s.ddp.frame_age_ms+' ms':'none'} · frame hold=${s.output.frame_held}\nsender: ${s.ddp.sender_locked?(s.ddp.sender_ip+':'+s.ddp.sender_port):'none'}\nToF: state=${s.tof.state} age=${s.tof.age_ms} ms valid=${s.tof.valid_zones}/64 plane=${s.tof.plane_valid}\npersistence: ${s.persistence?'available':'unavailable'}\nheap free/min: ${s.heap.free}/${s.heap.min} B\nweb requests/actions/dropped/bad: ${s.web.requests}/${s.web.actions}/${s.web.dropped}/${s.web.bad}`);
-  $('factory').disabled=s.output.effective_brightness!==0;
+  txt('diag',`output: enabled=${s.output.enabled} owner=${s.output.owner} mode=${manualEffectName(s.output.effect)} fallback=${manualEffectName(s.output.fallback_effect)} active=${manualEffectName(s.output.active_effect)}\nbrightness: ddp=${s.output.ddp_brightness} lighting=${s.output.lighting_brightness} effective=${s.output.effective_brightness}\nDDP: running=${s.ddp.running} fresh=${s.output.ddp_fresh} fallback_active=${s.output.fallback_active} frames=${s.ddp.frames} publications=${s.ddp.publications}\nlast frame: ${s.ddp.has_frame?s.ddp.frame_age_ms+' ms':'none'} · frame hold=${s.output.frame_held}\nsender: ${s.ddp.sender_locked?(s.ddp.sender_ip+':'+s.ddp.sender_port):'none'}\nOTA: running=${s.ota.running} armed=${s.ota.armed} progress=${s.ota.in_progress} bytes=${s.ota.bytes} reboot=${s.ota.reboot_pending}\nToF: state=${s.tof.state} age=${s.tof.age_ms} ms valid=${s.tof.valid_zones}/64 plane=${s.tof.plane_valid}\npersistence: ${s.persistence?'available':'unavailable'}\nheap free/min: ${s.heap.free}/${s.heap.min} B\nweb requests/actions/dropped/bad: ${s.web.requests}/${s.web.actions}/${s.web.dropped}/${s.web.bad}`);
+  const o=s.ota||{};const otaBusy=!!o.in_progress||!!o.reboot_pending;const otaReady=!!o.running&&!!o.armed&&!!o.token&&!otaBusy;
+  $('otaArm').disabled=otaBusy||!o.running;$('otaUpload').disabled=!otaReady;$('otaCancel').disabled=!o.armed||otaBusy;$('otaFile').disabled=otaBusy;
+  if(o.in_progress)txt('otaState',tr('Запись прошивки… ','Writing firmware… ')+Number(o.bytes||0)+tr(' байт',' bytes'));
+  else if(o.reboot_pending)txt('otaState',tr('Прошивка принята. Ожидание перезагрузки…','Firmware accepted. Waiting for reboot…'));
+  else if(o.armed)txt('otaState',tr('OTA разрешён ещё на ','OTA armed for ')+Math.ceil(Number(o.arm_remaining_ms||0)/1000)+tr(' с. Выберите firmware.bin и загрузите.',' s. Select firmware.bin and upload it.'));
+  else txt('otaState',o.message||tr('OTA заблокирован. Для обновления используйте только firmware.bin из релиза.','OTA locked. Use firmware.bin from a release for updates.'));
+  $('factory').disabled=s.output.effective_brightness!==0||otaBusy;
   translateStatic();
 }
 async function refresh(){
@@ -870,8 +957,12 @@ async function refresh(){
   catch(e){offlineBanner=true;txt('action','offline: '+e.message);$('action').className='bad'}
   finally{refreshing=false}
 }
-$('brightness').addEventListener('input',e=>txt('brightnessValue',brightnessLabel(e.target.value)));
-$('brightness').addEventListener('change',async e=>{if(!await post('/api/brightness',e.target.value,['brightness'])){clean(['brightness']);refresh()}});
+$('ddpBrightness').addEventListener('input',e=>txt('ddpBrightnessValue',brightnessLabel(e.target.value)));
+$('ddpBrightness').addEventListener('change',async e=>{if(!await post('/api/ddp-brightness',e.target.value,['ddpBrightness'])){clean(['ddpBrightness']);refresh()}});
+$('lightingBrightness').addEventListener('input',e=>txt('lightingBrightnessValue',brightnessLabel(e.target.value)));
+$('lightingBrightness').addEventListener('change',async e=>{if(!await post('/api/lighting-brightness',e.target.value,['lightingBrightness'])){clean(['lightingBrightness']);refresh()}});
+$('lightingSpeed').addEventListener('input',e=>txt('lightingSpeedValue',e.target.value));
+$('lightingIntensity').addEventListener('input',e=>txt('lightingIntensityValue',e.target.value));
 $('wifiOpen').addEventListener('change',e=>{if(e.target.checked){$('wifiPass').value='';delete $('wifiPass').dataset.dirty}$('wifiPass').disabled=e.target.checked});
 $('localeSelect').addEventListener('change',e=>setLocale(e.target.value));
 setLocale(locale);
@@ -1139,6 +1230,10 @@ WledCompatSnapshot wledCompatSnapshot(
 
     result.brightness =
         snapshot.brightness;
+    result.ddpBrightness =
+        snapshot.ddpBrightness;
+    result.lightingBrightness =
+        snapshot.lightingBrightness;
 
     result.defaultBrightness =
         config::kDefaultOutputBrightness;
@@ -1170,12 +1265,9 @@ WledCompatSnapshot wledCompatSnapshot(
         snapshot.freeHeapBytes;
 
     result.ddpLive =
-        snapshot.manualLighting.effect ==
-            ManualLightingEffect::Ambilight &&
+        snapshot.outputDdpOwner &&
         snapshot.ddpRunning &&
-        snapshot.ddpHasFrame &&
-        snapshot.ddpFrameAgeMs <=
-            1000ULL;
+        snapshot.ddpFresh;
 
     result.senderLocked =
         snapshot.senderLocked;
@@ -1569,11 +1661,17 @@ bool WebUiService::buildStatusResponse(
     writer.appendf(
         "\"enabled\":%s,"
         "\"brightness\":%u,"
+        "\"ddp_brightness\":%u,"
+        "\"lighting_brightness\":%u,"
         "\"effective_brightness\":%u,"
         "\"correction\":%u,"
         "\"frame_held\":%s,"
         "\"owner\":\"%s\","
+        "\"ddp_fresh\":%s,"
+        "\"fallback_active\":%s,"
         "\"effect\":%u,"
+        "\"fallback_effect\":%u,"
+        "\"active_effect\":%u,"
         "\"rgb\":[%u,%u,%u],"
         "\"speed\":%u,"
         "\"intensity\":%u",
@@ -1582,17 +1680,26 @@ bool WebUiService::buildStatusResponse(
         static_cast<unsigned>(
             snapshot.brightness),
         static_cast<unsigned>(
+            snapshot.ddpBrightness),
+        static_cast<unsigned>(
+            snapshot.lightingBrightness),
+        static_cast<unsigned>(
             snapshot.effectiveBrightness),
         static_cast<unsigned>(
             snapshot.correctionMode),
         boolJson(
             snapshot.outputFrameHeld),
-        snapshot.manualLighting.effect ==
-                ManualLightingEffect::Ambilight
+        snapshot.outputDdpOwner
             ? "DDP"
-            : "HA",
+            : "LOCAL",
+        boolJson(snapshot.ddpFresh),
+        boolJson(snapshot.outputFallbackActive),
         static_cast<unsigned>(
             snapshot.manualLighting.effect),
+        static_cast<unsigned>(
+            snapshot.manualLighting.fallbackEffect),
+        static_cast<unsigned>(
+            snapshot.activeLightingEffect),
         static_cast<unsigned>(
             snapshot.manualLighting.color.r),
         static_cast<unsigned>(
@@ -1603,6 +1710,37 @@ bool WebUiService::buildStatusResponse(
             snapshot.manualLighting.speed),
         static_cast<unsigned>(
             snapshot.manualLighting.intensity));
+
+    writer.append(
+        "},\"ota\":{");
+
+    writer.appendf(
+        "\"running\":%s,"
+        "\"port\":%u,"
+        "\"armed\":%s,"
+        "\"arm_remaining_ms\":%lu,"
+        "\"in_progress\":%s,"
+        "\"reboot_pending\":%s,"
+        "\"bytes\":%lu,"
+        "\"last_success\":%s,"
+        "\"token\":",
+        boolJson(snapshot.otaRunning),
+        static_cast<unsigned>(snapshot.otaPort),
+        boolJson(snapshot.otaArmed),
+        static_cast<unsigned long>(snapshot.otaArmRemainingMs),
+        boolJson(snapshot.otaInProgress),
+        boolJson(snapshot.otaRebootPending),
+        static_cast<unsigned long>(snapshot.otaReceivedBytes),
+        boolJson(snapshot.otaLastSuccess));
+
+    writer.appendJsonString(
+        snapshot.otaToken.data());
+
+    writer.append(
+        ",\"message\":");
+
+    writer.appendJsonString(
+        snapshot.otaMessage.data());
 
     writer.append(
         "},\"wifi\":{");

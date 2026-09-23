@@ -87,7 +87,11 @@ Read-only:
 Native runtime actions:
 
     POST /api/power
-    POST /api/brightness
+    POST /api/brightness              legacy: set both brightness banks
+    POST /api/ddp-brightness
+    POST /api/lighting-brightness
+    POST /api/lighting
+    POST /api/ota-arm
     POST /api/correction
     POST /api/test
     POST /api/led-map
@@ -114,7 +118,11 @@ commands.
 
 Examples:
 
-    /api/brightness   32
+    /api/brightness            32
+    /api/ddp-brightness        180
+    /api/lighting-brightness   48
+    /api/lighting              effect,fallback,r,g,b,speed,intensity
+    /api/ota-arm               arm | cancel
     /api/correction   0 | 1 | 2
     /api/test         0 | 1 | 2
     /api/test         side:2:100:10
@@ -335,7 +343,7 @@ Starting a second capture while one is already active is refused.
 The compact status endpoint includes:
 
 - firmware version/stage
-- correction mode and brightness
+- correction mode, DDP/local brightness banks, selected/active lighting owner and AUTO fallback state
 - Wi-Fi state, SSID, IP and RSSI
 - DDP state, active sender and age of the most recent complete frame
 - frame-hold state when input silence is being bridged by the last successfully shown frame
@@ -367,17 +375,15 @@ the selected language.
 
 ## Operational-state hardening
 
-Stage 44.1 treats controller state as authoritative rather than trusting the last click. The brightness slider is locked while an action is in flight and rolls back to controller state after an immediate/confirmed failure. Temporary status-poll failures clear after communication recovers. ToF summary cards distinguish startup/error/fail-open states, and an old 8x8 snapshot is visually marked as stale whenever the sensor is not actively ranging.
+Stage 44.1 treats controller state as authoritative rather than trusting the last click. The DDP/local brightness controls are locked while an action is in flight and roll back to controller state after an immediate/confirmed failure. Temporary status-poll failures clear after communication recovers. ToF summary cards distinguish startup/error/fail-open states, and an old 8x8 snapshot is visually marked as stale whenever the sensor is not actively ranging.
 
-## DDP transport-gap hold
+## DDP transport gaps and AUTO fallback
 
-The renderer only receives new RGB when DDP publishes a complete frame.
+The DDP assembler still publishes only complete frames. Partial/dropped packets never synthesize a replacement black frame, and a real complete all-black frame remains authoritative.
 
-Stage 45 removes the former 1-second idle-blackout mutation. If an input frame is partial, dropped, delayed or otherwise never completes, no replacement black frame is generated. The physical LED driver therefore keeps the previous successfully shown state until the next complete DDP frame arrives.
+While AUTO owns DDP, the physical driver holds the last complete frame through short gaps. Stage 47 adds a bounded source policy above that transport behavior: after **1.5 s without a complete DDP frame**, AUTO switches visible output to the configured local fallback effect. DDP continues receiving in the background. The next complete frame makes DDP fresh and ownership returns automatically.
 
-The `frame_held` status flag becomes true after the last complete frame is older than 1 second. It is diagnostic only; it does not trigger a render and it does not impose a later blackout timeout.
-
-A complete all-black DDP frame remains authoritative source data and is rendered normally. Explicit output controls, topology safety blackout, commissioning and factory recovery are unaffected.
+`frame_held` remains a short-gap diagnostic only while DDP is still the active owner. `fallback_active` explicitly reports the later local-fallback state.
 
 ## LED colour order scope
 

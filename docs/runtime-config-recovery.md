@@ -136,7 +136,7 @@ before doing that.
 
 ### Update image versus factory image
 
-Use the application image (`firmware.bin`) or a future OTA app-slot update when
+Use the application image (`firmware.bin`) or the Stage 47 Web UI OTA app-slot update when
 updating an already configured controller. Those paths replace application code
 without intentionally erasing the dedicated NVS partition.
 
@@ -145,6 +145,12 @@ flash offset 0 and includes padding across the early data-partition area. Do
 **not** flash that combined image over an existing configured controller when
 you want to preserve NVS. Treat it as a blank-device provisioning image.
 
+### Stage 47 Web OTA
+
+The native Web UI can arm OTA for 120 seconds and then upload `firmware.bin` to HTTP/3232 with a one-time random token. Upload bytes are streamed directly to the inactive application slot; the entire image is never buffered in RAM. Before `Update.begin()` the service validates ESP image magic, ESP32-C6 chip ID, first-segment size, and the `esp_app_desc_t` magic. This rejects the combined factory image and bootloader before application flash writing starts.
+
+During an authorized upload physical LED brightness is forced to zero and DDP rendering pauses. A failed upload restores the selected source/brightness. A successful upload leaves output black and reboots after the response has had time to leave the socket. NVS is outside both app slots and is not erased. The OTA endpoint is a trusted-LAN interface, not an Internet-facing update service.
+
 ## Configuration backup
 
 The Web UI System page can download a versioned JSON backup and restore it
@@ -152,7 +158,7 @@ later.
 
 The backup contains:
 
-- output power and brightness
+- output power, separate DDP/local brightness banks, and local lighting/fallback state
 - correction mode
 - LED COUNT/GPIO/REV topology
 - disabled-pixel mask

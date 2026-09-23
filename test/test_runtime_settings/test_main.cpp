@@ -990,6 +990,141 @@ void test_complete_current_configuration_survives_reopen() {
         restored.tofGainPoints()[1].gainQ12);
 }
 
+
+void test_output_state_v1_migrates_brightness_into_both_banks() {
+    struct LegacyOutputStateRecord {
+        std::uint16_t schemaVersion;
+        std::uint8_t brightness;
+        std::uint8_t enabled;
+    };
+    static_assert(sizeof(LegacyOutputStateRecord) == 4);
+
+    Preferences stored;
+    TEST_ASSERT_TRUE(stored.begin("ambilight"));
+
+    const LegacyOutputStateRecord legacy{1, 77, 1};
+    TEST_ASSERT_EQUAL_UINT16(
+        sizeof(legacy),
+        stored.putBytes(
+            "output_state",
+            &legacy,
+            sizeof(legacy)));
+    stored.end();
+
+    RuntimeSettings settings;
+    TEST_ASSERT_TRUE(settings.begin());
+    TEST_ASSERT_TRUE(settings.outputEnabled());
+    TEST_ASSERT_EQUAL_UINT8(77, settings.ddpBrightness());
+    TEST_ASSERT_EQUAL_UINT8(77, settings.lightingBrightness());
+
+    Preferences verify;
+    TEST_ASSERT_TRUE(verify.begin("ambilight"));
+    TEST_ASSERT_EQUAL_UINT16(
+        6,
+        verify.getBytesLength("output_state"));
+}
+
+void test_split_brightness_banks_survive_reopen() {
+    {
+        RuntimeSettings settings;
+        TEST_ASSERT_TRUE(settings.begin());
+        TEST_ASSERT_TRUE(
+            settings.setOutputState(
+                true,
+                210,
+                43));
+        TEST_ASSERT_EQUAL_UINT8(210, settings.ddpBrightness());
+        TEST_ASSERT_EQUAL_UINT8(43, settings.lightingBrightness());
+    }
+
+    RuntimeSettings restored;
+    TEST_ASSERT_TRUE(restored.begin());
+    TEST_ASSERT_TRUE(restored.outputEnabled());
+    TEST_ASSERT_EQUAL_UINT8(210, restored.ddpBrightness());
+    TEST_ASSERT_EQUAL_UINT8(43, restored.lightingBrightness());
+}
+
+void test_legacy_brightness_setter_updates_both_banks_atomically() {
+    RuntimeSettings settings;
+    TEST_ASSERT_TRUE(settings.begin());
+    TEST_ASSERT_TRUE(settings.setOutputBrightness(91));
+    TEST_ASSERT_EQUAL_UINT8(91, settings.ddpBrightness());
+    TEST_ASSERT_EQUAL_UINT8(91, settings.lightingBrightness());
+}
+
+void test_manual_lighting_state_survives_reopen() {
+    {
+        RuntimeSettings settings;
+        TEST_ASSERT_TRUE(settings.begin());
+
+        ambilight::ManualLightingState state;
+        state.effect = ambilight::ManualLightingEffect::Aurora;
+        state.fallbackEffect = ambilight::ManualLightingEffect::Aurora;
+        state.color = {12, 34, 56};
+        state.speed = 201;
+        state.intensity = 77;
+
+        TEST_ASSERT_TRUE(
+            settings.setManualLightingState(
+                state));
+    }
+
+    RuntimeSettings restored;
+    TEST_ASSERT_TRUE(restored.begin());
+    const auto& state = restored.manualLightingState();
+    TEST_ASSERT_EQUAL_UINT8(
+        static_cast<std::uint8_t>(
+            ambilight::ManualLightingEffect::Aurora),
+        static_cast<std::uint8_t>(state.effect));
+    TEST_ASSERT_EQUAL_UINT8(
+        static_cast<std::uint8_t>(
+            ambilight::ManualLightingEffect::Aurora),
+        static_cast<std::uint8_t>(state.fallbackEffect));
+    TEST_ASSERT_EQUAL_UINT8(12, state.color.r);
+    TEST_ASSERT_EQUAL_UINT8(34, state.color.g);
+    TEST_ASSERT_EQUAL_UINT8(56, state.color.b);
+    TEST_ASSERT_EQUAL_UINT8(201, state.speed);
+    TEST_ASSERT_EQUAL_UINT8(77, state.intensity);
+}
+
+void test_future_manual_lighting_record_is_preserved() {
+    Preferences stored;
+    TEST_ASSERT_TRUE(stored.begin("ambilight"));
+
+    const std::uint8_t futureRecord[10] = {
+        99, 0, 8, 8, 1, 2, 3, 4, 5, 0
+    };
+
+    TEST_ASSERT_EQUAL_UINT16(
+        sizeof(futureRecord),
+        stored.putBytes(
+            "manual_light",
+            futureRecord,
+            sizeof(futureRecord)));
+    stored.end();
+
+    RuntimeSettings settings;
+    TEST_ASSERT_TRUE(settings.begin());
+
+    TEST_ASSERT_EQUAL_UINT8(
+        static_cast<std::uint8_t>(
+            ambilight::ManualLightingEffect::Ambilight),
+        static_cast<std::uint8_t>(
+            settings.manualLightingState().effect));
+
+    TEST_ASSERT_EQUAL_UINT8(
+        static_cast<std::uint8_t>(
+            ambilight::ManualLightingEffect::BiasWhite),
+        static_cast<std::uint8_t>(
+            settings.manualLightingState().fallbackEffect));
+
+    Preferences verify;
+    TEST_ASSERT_TRUE(verify.begin("ambilight"));
+    TEST_ASSERT_EQUAL_UINT16(
+        sizeof(futureRecord),
+        verify.getBytesLength("manual_light"));
+}
+
 int main(int, char**) {
     UNITY_BEGIN();
 
@@ -1049,6 +1184,12 @@ int main(int, char**) {
 
     RUN_TEST(
         test_identical_output_state_retries_failed_persistence);
+
+    RUN_TEST(test_output_state_v1_migrates_brightness_into_both_banks);
+    RUN_TEST(test_split_brightness_banks_survive_reopen);
+    RUN_TEST(test_legacy_brightness_setter_updates_both_banks_atomically);
+    RUN_TEST(test_manual_lighting_state_survives_reopen);
+    RUN_TEST(test_future_manual_lighting_record_is_preserved);
 
     RUN_TEST(
         test_wifi_clear_ssid_failure_keeps_live_credentials);

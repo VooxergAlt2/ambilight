@@ -22,12 +22,12 @@ This project grew out of a real TV installation rather than a generic LED-contro
 - supports an optional **VL53L5CX 8x8 ToF sensor** for wall-plane and per-pixel distance correction
 - provides DISABLED / SHADOW / ACTIVE correction modes with fail-open behavior
 - exposes a lightweight embedded Web UI for normal setup and diagnostics
-- exposes power, brightness, RGB, and a small manual effect set to **Home Assistant** through WLED-compatible discovery/API
+- exposes power, source-aware brightness, RGB, and native lighting effects to **Home Assistant** through WLED-compatible discovery/API
 - stores runtime settings in NVS
 - preserves unknown settings records across firmware upgrade/downgrade boots
 - exports/restores a versioned JSON configuration backup from the Web UI
 - opens a recovery Wi-Fi AP after 60 seconds without a station connection
-- reserves two 7 MiB application slots in a 16 MiB flash layout for future OTA work
+- supports guarded **Wi-Fi OTA** of `firmware.bin` into the inactive 7 MiB application slot while preserving NVS
 
 HyperHDR remains independent from the WLED compatibility layer. Realtime video always uses DDP.
 
@@ -41,7 +41,7 @@ HyperHDR
 ESP32-C6
    +--> frame assembly / sender isolation
    +--> optional ToF correction
-   +--> brightness / manual owner arbitration
+   +--> AUTO DDP/local owner arbitration + separate brightness banks
    +--> physical pixel mask
    +--> PARLIO x4
    v
@@ -163,8 +163,7 @@ Serial monitor:
 pio device monitor -b 115200
 ```
 
-**Update warning:** use the application `firmware.bin` (or a future OTA app-slot
-update) for an already configured controller. The generated
+**Update warning:** use the application `firmware.bin` for an already configured controller, either through the Web UI OTA flow or at flash offset `0x10000`. The generated
 `firmware.factory.bin` is a combined blank-device image and must not be used as
 a normal update image if you want to keep NVS settings. A whole-chip erase has
 the same destructive effect.
@@ -217,7 +216,7 @@ LEDs:     sum of the four active side counts
 
 The active RGB payload is always `totalLedCount * 3` bytes.
 
-The firmware holds the last complete DDP frame through short transport gaps. Partial or missing packets are never converted into an artificial black frame. A real complete black frame from HyperHDR still renders as black.
+The firmware holds the last complete DDP frame through short transport gaps. In `Ambilight` AUTO mode, DDP remains visible while the stream is fresh; after **1.5 s without a complete frame** output switches to the configured local fallback effect. A fresh DDP frame automatically returns ownership to Ambilight. Partial packets never synthesize a black frame, while a real complete black frame remains authoritative.
 
 Do **not** configure this firmware as a WLED realtime device or HyperHDR Hyperk device.
 
@@ -233,12 +232,11 @@ The light entity exposes:
 - on/off
 - brightness
 - RGB color
-- `Ambilight`
-- `Solid`
-- `Rainbow`
-- `Breathing`
+- `Ambilight` AUTO mode
+- `Solid`, `Rainbow`, `Breathing`
+- `Warm White`, `Bias White`, `Sunset`, `Candle`, `Aurora`, `Twinkle`
 
-Selecting `Ambilight` returns visible output ownership to DDP. Manual effects are local firmware modes. DDP reception continues in the background, so returning to Ambilight does not require restarting HyperHDR.
+`Ambilight` is now AUTO ownership: fresh DDP owns the LEDs, stale DDP falls back to the remembered local effect after 1.5 s, and the next fresh DDP frame takes ownership back automatically. Explicit local effects override DDP while still allowing DDP reception in the background.
 
 This is a compatibility facade, not a WLED fork. Unsupported WLED features are documented in [docs/wled-ha-compat.md](docs/wled-ha-compat.md).
 
@@ -252,11 +250,11 @@ http://<controller-ip>/
 
 The UI includes:
 
-- **Home** - power, brightness, correction state, DDP and ToF summary
+- **Home** - power, separate DDP/local brightness, AUTO/fallback lighting, effects, correction, DDP and ToF summary
 - **LED** - side topology, GPIO identification, direction/range tests, disabled-pixel mask
 - **ToF** - 8x8 live matrix, geometry, gain curve, calibration
 - **Diagnostics** - transport, heap, ToF, and renderer counters
-- **System** - Wi-Fi provisioning, configuration backup/restore, and guarded factory reset
+- **System** - Wi-Fi provisioning, guarded Wi-Fi OTA, configuration backup/restore, and factory reset
 
 The UI is intentionally lightweight: no external assets, no WebSocket, and no web framework.
 
@@ -265,9 +263,7 @@ There is currently no Web UI authentication. Treat it as a trusted-LAN interface
 ### Configuration backup and firmware updates
 
 The System page can download a versioned JSON backup of the current runtime
-configuration and restore it later. The file includes output state, correction
-mode, LED topology, disabled-pixel mask, ToF geometry, gain curve, and the Wi-Fi
-SSID. The saved Wi-Fi password is deliberately excluded and must be entered
+configuration and restore it later. Backup v2 includes output power, separate DDP/local brightness, the local lighting/fallback profile, correction mode, LED topology, disabled-pixel mask, ToF geometry, gain curve, and the Wi-Fi SSID. Backup v1 remains accepted. The saved Wi-Fi password is deliberately excluded and must be entered
 again if the restored setup uses a different network.
 
 Normal application updates preserve the dedicated NVS settings partition. The
@@ -276,9 +272,9 @@ unknown schema are left intact instead of being deleted merely because the
 running firmware cannot understand them. This keeps downgrade/recovery and
 future migrations possible.
 
-A deliberate whole-chip erase or flashing the combined factory image over an
-existing device still removes NVS. Download a backup first if you plan to do
-either.
+For Wi-Fi OTA, arm the update from **System**, select the release `firmware.bin`, and upload it within the 120-second one-time-token window. The controller validates an ESP32-C6 application header before writing the inactive OTA slot, blacks the LEDs while flash is being written, then reboots on success. `firmware.factory.bin`, bootloader images, and non-C6 applications are rejected by the OTA path.
+
+A deliberate whole-chip erase or flashing the combined factory image over an existing device still removes NVS. Download a backup first if you plan to do either. See [Wi-Fi OTA](docs/wifi-ota.md).
 
 ## ToF distance correction
 
@@ -340,6 +336,7 @@ Start here:
 - [Runtime LED mapping](docs/runtime-led-mapping.md)
 - [Runtime configuration recovery](docs/runtime-config-recovery.md)
 - [Windows / HyperHDR installation](docs/windows-hyperhdr.md)
+- [Wi-Fi OTA](docs/wifi-ota.md)
 - [ToF processing](docs/tof-processing.md)
 
 The `docs/` directory also keeps stage-specific engineering notes. Those files are useful historical context, but this README and the current code are authoritative for the present firmware.

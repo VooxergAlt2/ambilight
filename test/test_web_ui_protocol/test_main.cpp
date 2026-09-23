@@ -110,6 +110,10 @@ void test_all_runtime_action_routes_map_to_expected_kind() {
     const Case cases[] = {
         {"/api/power", WebUiActionKind::Power},
         {"/api/brightness", WebUiActionKind::Brightness},
+        {"/api/ddp-brightness", WebUiActionKind::DdpBrightness},
+        {"/api/lighting-brightness", WebUiActionKind::LightingBrightness},
+        {"/api/lighting", WebUiActionKind::Lighting},
+        {"/api/ota-arm", WebUiActionKind::OtaArm},
         {"/api/correction", WebUiActionKind::Correction},
         {"/api/test", WebUiActionKind::Commissioning},
         {"/api/led-map", WebUiActionKind::LedMap},

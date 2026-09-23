@@ -6,6 +6,7 @@
 
 #include "led/LedMappingProfile.h"
 #include "led/LedPixelMaskProfile.h"
+#include "render/ManualLighting.h"
 #include "tof/TofGainModel.h"
 #include "tof/TofSpatialProfile.h"
 
@@ -37,6 +38,10 @@ public:
     static RuntimePayloadParseResult parseBrightness(
         const char* text,
         std::uint8_t& brightness);
+
+    static RuntimePayloadParseResult parseManualLighting(
+        const char* text,
+        ManualLightingState& state);
 
     static RuntimePayloadParseResult parseCommissioningRange(
         const char* text,

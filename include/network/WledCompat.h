@@ -59,6 +59,8 @@ enum class WledJsonDocument : std::uint8_t {
 struct WledCompatSnapshot {
     bool outputEnabled = true;
     std::uint8_t brightness = 1;
+    std::uint8_t ddpBrightness = 1;
+    std::uint8_t lightingBrightness = 1;
     std::uint8_t defaultBrightness = 1;
     std::uint32_t ledCount = 0;
 

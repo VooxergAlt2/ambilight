@@ -52,10 +52,30 @@ struct WebUiSnapshot {
         CorrectionMode::Shadow;
 
     bool outputEnabled = true;
+    // Compatibility projection for WLED/older UI consumers: brightness of the
+    // selected mode, not necessarily the currently active AUTO fallback owner.
     std::uint8_t brightness = 0;
+    std::uint8_t ddpBrightness = 0;
+    std::uint8_t lightingBrightness = 0;
     std::uint8_t effectiveBrightness = 0;
+    bool outputDdpOwner = false;
+    bool ddpFresh = false;
+    bool outputFallbackActive = false;
     bool outputFrameHeld = false;
+    ManualLightingEffect activeLightingEffect =
+        ManualLightingEffect::BiasWhite;
     ManualLightingState manualLighting{};
+
+    bool otaRunning = false;
+    bool otaArmed = false;
+    bool otaInProgress = false;
+    bool otaRebootPending = false;
+    bool otaLastSuccess = false;
+    std::uint16_t otaPort = 0;
+    std::uint32_t otaArmRemainingMs = 0;
+    std::uint32_t otaReceivedBytes = 0;
+    std::array<char, 33> otaToken{};
+    std::array<char, 128> otaMessage{};
 
     bool wifiEnabled = false;
     bool wifiConnected = false;

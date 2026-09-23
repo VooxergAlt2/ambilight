@@ -569,11 +569,93 @@ void test_gain_curve_rejects_more_than_eight_points() {
         count);
 }
 
+
+void test_manual_lighting_parses_mode_fallback_and_controls() {
+    ambilight::ManualLightingState state;
+
+    const auto result =
+        RuntimePayloadParser::parseManualLighting(
+            "0,8,12,34,56,201,77",
+            state);
+
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(RuntimePayloadParseResult::Ok),
+        static_cast<int>(result));
+    TEST_ASSERT_EQUAL_UINT8(0, static_cast<std::uint8_t>(state.effect));
+    TEST_ASSERT_EQUAL_UINT8(8, static_cast<std::uint8_t>(state.fallbackEffect));
+    TEST_ASSERT_EQUAL_UINT8(12, state.color.r);
+    TEST_ASSERT_EQUAL_UINT8(34, state.color.g);
+    TEST_ASSERT_EQUAL_UINT8(56, state.color.b);
+    TEST_ASSERT_EQUAL_UINT8(201, state.speed);
+    TEST_ASSERT_EQUAL_UINT8(77, state.intensity);
+}
+
+void test_manual_lighting_rejects_ambilight_as_fallback_and_range_errors() {
+    ambilight::ManualLightingState state;
+
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(RuntimePayloadParseResult::OutOfRange),
+        static_cast<int>(
+            RuntimePayloadParser::parseManualLighting(
+                "0,0,12,34,56,201,77",
+                state)));
+
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(RuntimePayloadParseResult::OutOfRange),
+        static_cast<int>(
+            RuntimePayloadParser::parseManualLighting(
+                "10,5,12,34,56,201,77",
+                state)));
+
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(RuntimePayloadParseResult::OutOfRange),
+        static_cast<int>(
+            RuntimePayloadParser::parseManualLighting(
+                "256,5,12,34,56,201,77",
+                state)));
+
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(RuntimePayloadParseResult::OutOfRange),
+        static_cast<int>(
+            RuntimePayloadParser::parseManualLighting(
+                "0,257,12,34,56,201,77",
+                state)));
+
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(RuntimePayloadParseResult::OutOfRange),
+        static_cast<int>(
+            RuntimePayloadParser::parseManualLighting(
+                "0,5,256,34,56,201,77",
+                state)));
+}
+
+void test_manual_lighting_rejects_malformed_payload_without_mutating_state() {
+    ambilight::ManualLightingState state;
+    state.effect = ambilight::ManualLightingEffect::Candle;
+    state.fallbackEffect = ambilight::ManualLightingEffect::Candle;
+    state.color = {1, 2, 3};
+
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(RuntimePayloadParseResult::InvalidFormat),
+        static_cast<int>(
+            RuntimePayloadParser::parseManualLighting(
+                "0,5,12,34,56,201",
+                state)));
+
+    TEST_ASSERT_EQUAL_UINT8(
+        static_cast<std::uint8_t>(ambilight::ManualLightingEffect::Candle),
+        static_cast<std::uint8_t>(state.effect));
+    TEST_ASSERT_EQUAL_UINT8(1, state.color.r);
+}
+
 int main(int, char**) {
     UNITY_BEGIN();
 
     RUN_TEST(test_brightness_parses_valid_values);
     RUN_TEST(test_brightness_distinguishes_empty_format_and_range);
+    RUN_TEST(test_manual_lighting_parses_mode_fallback_and_controls);
+    RUN_TEST(test_manual_lighting_rejects_ambilight_as_fallback_and_range_errors);
+    RUN_TEST(test_manual_lighting_rejects_malformed_payload_without_mutating_state);
     RUN_TEST(test_led_mapping_parses_count_gpio_and_reversal);
     RUN_TEST(test_led_mapping_accepts_large_total_but_rejects_duplicate_gpio);
     RUN_TEST(test_led_mapping_rejects_bad_syntax);

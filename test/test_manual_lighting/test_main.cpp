@@ -33,6 +33,36 @@ void test_effect_ids_and_names_are_stable_for_wled() {
         static_cast<std::uint8_t>(
             ManualLightingEffect::Breathing));
 
+    TEST_ASSERT_EQUAL_UINT8(
+        4,
+        static_cast<std::uint8_t>(
+            ManualLightingEffect::WarmWhite));
+
+    TEST_ASSERT_EQUAL_UINT8(
+        5,
+        static_cast<std::uint8_t>(
+            ManualLightingEffect::BiasWhite));
+
+    TEST_ASSERT_EQUAL_UINT8(
+        6,
+        static_cast<std::uint8_t>(
+            ManualLightingEffect::Sunset));
+
+    TEST_ASSERT_EQUAL_UINT8(
+        7,
+        static_cast<std::uint8_t>(
+            ManualLightingEffect::Candle));
+
+    TEST_ASSERT_EQUAL_UINT8(
+        8,
+        static_cast<std::uint8_t>(
+            ManualLightingEffect::Aurora));
+
+    TEST_ASSERT_EQUAL_UINT8(
+        9,
+        static_cast<std::uint8_t>(
+            ManualLightingEffect::Twinkle));
+
     TEST_ASSERT_EQUAL_STRING(
         "Ambilight",
         ManualLighting::effectName(
@@ -193,6 +223,134 @@ void test_breathing_uses_selected_color_and_intensity() {
         low.pixels[0].b);
 }
 
+
+void test_static_presets_fill_expected_colors() {
+    LedMappingProfile topology;
+    ManualLightingState state;
+    RgbFrame frame;
+
+    state.effect = ManualLightingEffect::WarmWhite;
+    TEST_ASSERT_TRUE(
+        ManualLighting::render(
+            state,
+            topology,
+            0,
+            frame));
+    TEST_ASSERT_EQUAL_UINT8(255, frame.pixels[0].r);
+    TEST_ASSERT_EQUAL_UINT8(172, frame.pixels[0].g);
+    TEST_ASSERT_EQUAL_UINT8(92, frame.pixels[0].b);
+
+    state.effect = ManualLightingEffect::BiasWhite;
+    TEST_ASSERT_TRUE(
+        ManualLighting::render(
+            state,
+            topology,
+            0,
+            frame));
+    TEST_ASSERT_EQUAL_UINT8(255, frame.pixels[0].r);
+    TEST_ASSERT_EQUAL_UINT8(249, frame.pixels[0].g);
+    TEST_ASSERT_EQUAL_UINT8(253, frame.pixels[0].b);
+}
+
+void test_sunset_has_spatial_gradient() {
+    ManualLightingState state;
+    state.effect = ManualLightingEffect::Sunset;
+    RgbFrame frame;
+
+    TEST_ASSERT_TRUE(
+        ManualLighting::render(
+            state,
+            LedMappingProfile{},
+            0,
+            frame));
+
+    TEST_ASSERT_FALSE(
+        frame.pixels[0] ==
+        frame.pixels[frame.pixelCount - 1]);
+}
+
+void test_new_animated_presets_change_over_time() {
+    for (auto effect : {
+             ManualLightingEffect::Candle,
+             ManualLightingEffect::Aurora,
+             ManualLightingEffect::Twinkle}) {
+
+        ManualLightingState state;
+        state.effect = effect;
+        state.speed = 255;
+        state.intensity = 255;
+        state.color = Rgb8{120, 180, 240};
+
+        RgbFrame first;
+        RgbFrame second;
+
+        TEST_ASSERT_TRUE(
+            ManualLighting::render(
+                state,
+                LedMappingProfile{},
+                0,
+                first));
+
+        TEST_ASSERT_TRUE(
+            ManualLighting::render(
+                state,
+                LedMappingProfile{},
+                1000000ULL,
+                second));
+
+        bool changed = false;
+        for (std::size_t index = 0;
+             index < first.pixelCount;
+             ++index) {
+
+            if (!(first.pixels[index] ==
+                  second.pixels[index])) {
+                changed = true;
+                break;
+            }
+        }
+
+        TEST_ASSERT_TRUE(changed);
+        TEST_ASSERT_TRUE(
+            ManualLighting::animated(effect));
+    }
+}
+
+void test_manual_render_does_not_wrap_large_aggregate_topology() {
+    LedMappingProfile topology;
+    for (auto& segment : topology.segment) {
+        segment.logicalLength = 20000;
+    }
+
+    TEST_ASSERT_TRUE(topology.valid());
+    TEST_ASSERT_EQUAL_UINT32(
+        80000U,
+        topology.totalLedCount());
+
+    ManualLightingState state;
+    state.effect = ManualLightingEffect::BiasWhite;
+
+    RgbFrame frame;
+    TEST_ASSERT_TRUE(
+        frame.resizePixels(
+            topology.totalLedCount()));
+
+    TEST_ASSERT_TRUE(
+        ManualLighting::render(
+            state,
+            topology,
+            0,
+            frame));
+
+    TEST_ASSERT_EQUAL_UINT32(
+        80000U,
+        frame.pixelCount);
+
+    TEST_ASSERT_EQUAL_UINT8(
+        253,
+        frame.pixels[79999].b);
+}
+
 int main(int, char**) {
     UNITY_BEGIN();
 
@@ -210,6 +368,11 @@ int main(int, char**) {
 
     RUN_TEST(
         test_breathing_uses_selected_color_and_intensity);
+
+    RUN_TEST(test_static_presets_fill_expected_colors);
+    RUN_TEST(test_sunset_has_spatial_gradient);
+    RUN_TEST(test_new_animated_presets_change_over_time);
+    RUN_TEST(test_manual_render_does_not_wrap_large_aggregate_topology);
 
     return UNITY_END();
 }

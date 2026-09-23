@@ -1150,29 +1150,6 @@ bool appendEffectsJson(
     return writer.append("]");
 }
 
-WledResolvedOutputState projectedOutputState(
-    const WledCompatSnapshot& snapshot,
-    const WledStateCommand* overlay) {
-
-    if (overlay == nullptr) {
-        WledResolvedOutputState output;
-        output.enabled =
-            snapshot.outputEnabled;
-
-        output.brightness =
-            snapshot.brightness;
-
-        return output;
-    }
-
-    return
-        WledCompat::resolveOutputState(
-            snapshot.outputEnabled,
-            snapshot.brightness,
-            snapshot.defaultBrightness,
-            *overlay);
-}
-
 ManualLightingState projectedManualLighting(
     const WledCompatSnapshot& snapshot,
     const WledStateCommand* overlay) {
@@ -1184,6 +1161,38 @@ ManualLightingState projectedManualLighting(
                   resolveManualLighting(
                       snapshot.manualLighting,
                       *overlay);
+}
+
+WledResolvedOutputState projectedOutputState(
+    const WledCompatSnapshot& snapshot,
+    const WledStateCommand* overlay) {
+
+    const ManualLightingState manual =
+        projectedManualLighting(
+            snapshot,
+            overlay);
+
+    const std::uint8_t selectedBrightness =
+        manual.effect ==
+                ManualLightingEffect::Ambilight
+            ? snapshot.ddpBrightness
+            : snapshot.lightingBrightness;
+
+    if (overlay == nullptr) {
+        WledResolvedOutputState output;
+        output.enabled =
+            snapshot.outputEnabled;
+        output.brightness =
+            selectedBrightness;
+        return output;
+    }
+
+    return
+        WledCompat::resolveOutputState(
+            snapshot.outputEnabled,
+            selectedBrightness,
+            snapshot.defaultBrightness,
+            *overlay);
 }
 
 bool appendStateJson(
@@ -1592,6 +1601,13 @@ ManualLightingState WledCompat::resolveManualLighting(
     if (command.hasEffect) {
         state.effect =
             command.effect;
+
+        if (ManualLighting::validLocalEffect(
+                state.effect)) {
+
+            state.fallbackEffect =
+                state.effect;
+        }
     }
 
     if (command.hasSpeed) {

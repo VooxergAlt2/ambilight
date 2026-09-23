@@ -9,6 +9,7 @@
 #include "led/LedMappingProfile.h"
 #include "led/LedPixelMaskProfile.h"
 #include "render/CorrectionMode.h"
+#include "render/ManualLighting.h"
 #include "tof/TofGainModel.h"
 #include "tof/TofSpatialProfile.h"
 
@@ -36,8 +37,22 @@ public:
         return correctionMode_;
     }
 
+    // Compatibility alias for pre-split callers. New code should select the
+    // brightness bank explicitly from the active/selected source.
     std::uint8_t outputBrightness() const {
-        return outputBrightness_;
+        return ddpBrightness_;
+    }
+
+    std::uint8_t ddpBrightness() const {
+        return ddpBrightness_;
+    }
+
+    std::uint8_t lightingBrightness() const {
+        return lightingBrightness_;
+    }
+
+    const ManualLightingState& manualLightingState() const {
+        return manualLightingState_;
     }
 
     bool outputEnabled() const {
@@ -124,13 +139,30 @@ public:
 
     bool setOutputState(
         bool enabled,
+        std::uint8_t ddpBrightness,
+        std::uint8_t lightingBrightness);
+
+    // Compatibility transaction: applies one value to both banks.
+    bool setOutputState(
+        bool enabled,
         std::uint8_t brightness);
 
+    // Compatibility setter used by the legacy serial/API surface. It updates
+    // both banks atomically so old clients preserve their historical meaning.
     bool setOutputBrightness(
+        std::uint8_t brightness);
+
+    bool setDdpBrightness(
+        std::uint8_t brightness);
+
+    bool setLightingBrightness(
         std::uint8_t brightness);
 
     bool setOutputEnabled(
         bool enabled);
+
+    bool setManualLightingState(
+        const ManualLightingState& state);
 
     bool setWifiCredentials(
         const char* ssid,
@@ -180,6 +212,8 @@ private:
         "corr_mode";
     static constexpr const char* kOutputStateKey =
         "output_state";
+    static constexpr const char* kManualLightingKey =
+        "manual_light";
 
     // Migration-only keys from Stage <=45 and early Stage 46 builds.
     static constexpr const char* kLegacyOutputBrightnessKey =
@@ -212,9 +246,13 @@ private:
     CorrectionMode correctionMode_ =
         CorrectionMode::Shadow;
 
-    std::uint8_t outputBrightness_ = 32;
+    std::uint8_t ddpBrightness_ = 32;
+    std::uint8_t lightingBrightness_ = 32;
     bool outputEnabled_ = true;
     bool outputStatePersisted_ = false;
+
+    ManualLightingState manualLightingState_{};
+    bool manualLightingStatePersisted_ = false;
 
     std::array<
         char,

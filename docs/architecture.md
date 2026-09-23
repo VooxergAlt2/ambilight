@@ -10,9 +10,10 @@ The major concerns remain intentionally orthogonal:
 
 - disabled-pixel masking is enforced as a physical lane invariant immediately
   before every PARLIO encode;
-- Home Assistant may temporarily own visible RGB/effects, while HyperHDR DDP
-  continues receiving in the background and regains output through the
-  `Ambilight` effect;
+- `Ambilight` is an AUTO source mode: fresh HyperHDR DDP owns visible output,
+  stale DDP falls back to remembered local lighting, and fresh DDP automatically
+  takes ownership back; explicit local effects still override AUTO while DDP
+  continues receiving in the background;
 - Wi-Fi recovery may expose a fallback AP after a 60-second STA outage without
   becoming part of the realtime render path.
 
@@ -28,7 +29,7 @@ The active firmware now combines:
 - exact active-perimeter distance/gain field
 - runtime ToF spatial and photometric calibration
 - DISABLED / SHADOW / ACTIVE correction modes
-- atomic runtime output power + remembered brightness
+- atomic runtime output power + separate DDP/local brightness banks
 - commissioning patterns
 - guarded NVS factory recovery
 - generic non-RGB render-state scheduling
@@ -42,9 +43,9 @@ The active firmware now combines:
 - logical-side and raw-GPIO LED range probes
 - transient normalized 8x8 ToF live-debug mode
 
-USB/AWA work remains preserved separately in:
+USB/AWA work remains preserved separately in the archival tag:
 
-    stage/07-usb-awa
+    archive-usb-awa-wip-20260905
 
 ## RGB transport path
 
@@ -94,8 +95,9 @@ Realtime RGB remains independent:
       -> DDP UDP/4048
 
 No WLED realtime UDP or HyperHDR Hyperk control transport is implemented.
-This separation prevents an external WLED-style power-on request from
-overriding the controller's configured global brightness.
+This separation prevents WLED compatibility traffic from becoming a realtime
+transport. WLED power remains global, while WLED brightness is resolved against
+the selected DDP/local brightness bank.
 
 The native web layer does not emulate serial bytes and does not duplicate
 domain validation.
@@ -285,7 +287,7 @@ Non-RGB state-dirty sources currently include:
 
 - ToF gain target/slew
 - correction mode
-- global brightness
+- owner-selected DDP/local whole-output brightness
 - LED mapping changes
 - disabled-pixel mask changes
 
@@ -326,15 +328,12 @@ The compiled default curve remains neutral until real photometric commissioning.
 
 ## Output brightness
 
-Global LiteLED brightness:
+Output power is global, but Stage 47 stores two independent LiteLED brightness banks:
 
-    0..255
+- `ddpBrightness` for Ambilight/DDP ownership;
+- `lightingBrightness` for local effects and AUTO fallback.
 
-Default:
-
-    32
-
-It is a final multiplier independent from ToF gain.
+Each bank is `0..255`; default is `32`. Owner transitions atomically select the matching bank without changing the other value. The pre-Stage-47 single brightness is migrated into both banks so an upgrade is visually unchanged until the user edits them. ToF gain remains an independent per-pixel multiplier below source selection.
 
 ## Disabled pixel mask
 
@@ -395,17 +394,14 @@ processor/plane input.
 
 Physical LED output has one explicit priority order:
 
-    commissioning diagnostic
-        > Home Assistant manual effect
-        > Ambilight / DDP
+    OTA safety blackout
+        > commissioning diagnostic
+        > explicit local effect
+        > Ambilight AUTO source policy
 
-DDP reception continues while a manual effect owns the LEDs, but does not
-mutate physical output. Selecting the WLED-compatible `Ambilight` effect
-releases manual ownership and immediately renders the newest complete DDP
-frame.
+`Ambilight` is an AUTO source mode rather than a renderer. `LightingSourcePolicy` keeps DDP ownership while the last complete frame is at most 1.5 s old. Once that deadline is exceeded, the remembered local fallback effect owns output. Any newly completed DDP frame immediately makes DDP fresh again and AUTO returns ownership in the same main-loop iteration.
 
-The disabled-pixel mask is enforced below all three owners in
-`LedEngine::show()`, immediately before physical encoding.
+DDP ingest continues during explicit local effects and AUTO fallback, so transport state is ready when ownership returns. The disabled-pixel mask is enforced below every source in `LedEngine::show()`.
 
 ## Commissioning patterns
 
@@ -433,7 +429,8 @@ NVS namespace:
 Runtime configuration includes:
 
 - correction mode
-- atomic output_state (power + remembered brightness)
+- atomic `output_state` schema 2 (global power + DDP brightness + local-lighting brightness)
+- versioned `manual_light` state (selected mode, AUTO fallback, RGB, speed, intensity)
 - Wi-Fi credentials
 - ToF gain curve
 - ToF spatial profile

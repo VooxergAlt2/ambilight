@@ -31,7 +31,7 @@ bool buildJson(
     std::string& json,
     const WledStateCommand* overlay = nullptr) {
 
-    char buffer[2048] = {};
+    char buffer[4096] = {};
     std::size_t length = 0;
 
     if (!WledCompat::buildJson(
@@ -236,7 +236,7 @@ void test_segment_visual_ranges_are_bounded() {
             WledStateParseResult::OutOfRange),
         static_cast<int>(
             parse(
-                "{\"seg\":[{\"id\":0,\"fx\":4}]}",
+                "{\"seg\":[{\"id\":0,\"fx\":10}]}",
                 command)));
 
     TEST_ASSERT_EQUAL_INT(
@@ -594,6 +594,8 @@ void test_wled_state_json_uses_master_brightness_and_fixed_segment_brightness() 
     ambilight::WledCompatSnapshot snapshot;
     snapshot.outputEnabled = true;
     snapshot.brightness = 91;
+    snapshot.ddpBrightness = 91;
+    snapshot.lightingBrightness = 91;
     snapshot.defaultBrightness = 32;
     snapshot.ledCount = 780;
 
@@ -637,6 +639,8 @@ void test_wled_state_json_reports_rgb_and_manual_effect() {
     ambilight::WledCompatSnapshot snapshot;
     snapshot.outputEnabled = true;
     snapshot.brightness = 80;
+    snapshot.ddpBrightness = 80;
+    snapshot.lightingBrightness = 80;
     snapshot.defaultBrightness = 32;
     snapshot.ledCount = 632;
     snapshot.manualLighting.effect =
@@ -682,6 +686,8 @@ void test_wled_state_overlay_projects_color_to_solid_unless_effect_is_explicit()
     ambilight::WledCompatSnapshot snapshot;
     snapshot.outputEnabled = true;
     snapshot.brightness = 80;
+    snapshot.ddpBrightness = 80;
+    snapshot.lightingBrightness = 80;
     snapshot.defaultBrightness = 32;
     snapshot.ledCount = 632;
     snapshot.manualLighting.effect =
@@ -744,6 +750,8 @@ void test_wled_state_json_overlay_matches_resolver_prediction() {
     ambilight::WledCompatSnapshot snapshot;
     snapshot.outputEnabled = true;
     snapshot.brightness = 140;
+    snapshot.ddpBrightness = 140;
+    snapshot.lightingBrightness = 140;
     snapshot.defaultBrightness = 32;
     snapshot.ledCount = 780;
 
@@ -808,7 +816,7 @@ void test_wled_info_json_matches_current_ha_contract() {
         "\"ver\":\"0.15.3\"",
         "\"vid\":\"2609210\"",
         "\"arch\":\"ESP32-C6\"",
-        "\"fxcount\":4",
+        "\"fxcount\":10",
         "\"palcount\":1",
         "\"mac\":\"a1b2c3d4e5f6\"",
         "\"ip\":\"192.168.1.55\"",
@@ -837,6 +845,8 @@ void test_wled_combined_and_auxiliary_documents_are_self_contained() {
     ambilight::WledCompatSnapshot snapshot;
     snapshot.outputEnabled = true;
     snapshot.brightness = 32;
+    snapshot.ddpBrightness = 32;
+    snapshot.lightingBrightness = 32;
     snapshot.defaultBrightness = 32;
     snapshot.ledCount = 780;
 
@@ -863,7 +873,7 @@ void test_wled_combined_and_auxiliary_documents_are_self_contained() {
     TEST_ASSERT_NOT_NULL(
         std::strstr(
             combined.c_str(),
-            "\"effects\":[\"Ambilight\",\"Solid\",\"Rainbow\",\"Breathing\"]"));
+            "\"effects\":[\"Ambilight\",\"Solid\",\"Rainbow\",\"Breathing\",\"Warm White\",\"Bias White\",\"Sunset\",\"Candle\",\"Aurora\",\"Twinkle\"]"));
 
     TEST_ASSERT_NOT_NULL(
         std::strstr(
@@ -925,6 +935,102 @@ void test_wled_json_builder_fails_closed_on_overflow_and_wrong_overlay_document(
             length));
 }
 
+
+
+void test_effect_only_overlay_projects_brightness_from_new_owner_bank() {
+    ambilight::WledCompatSnapshot snapshot;
+    snapshot.outputEnabled = true;
+    snapshot.brightness = 180;
+    snapshot.ddpBrightness = 180;
+    snapshot.lightingBrightness = 42;
+    snapshot.defaultBrightness = 32;
+    snapshot.ledCount = 780;
+    snapshot.manualLighting.effect =
+        ambilight::ManualLightingEffect::Ambilight;
+
+    WledStateCommand command;
+    command.hasEffect = true;
+    command.effect =
+        ambilight::ManualLightingEffect::Aurora;
+
+    std::string json;
+    TEST_ASSERT_TRUE(
+        buildJson(
+            ambilight::WledJsonDocument::State,
+            snapshot,
+            json,
+            &command));
+
+    TEST_ASSERT_NOT_NULL(
+        std::strstr(
+            json.c_str(),
+            "\"bri\":42"));
+    TEST_ASSERT_NOT_NULL(
+        std::strstr(
+            json.c_str(),
+            "\"fx\":8"));
+
+    snapshot.manualLighting.effect =
+        ambilight::ManualLightingEffect::Aurora;
+    command.effect =
+        ambilight::ManualLightingEffect::Ambilight;
+
+    TEST_ASSERT_TRUE(
+        buildJson(
+            ambilight::WledJsonDocument::State,
+            snapshot,
+            json,
+            &command));
+
+    TEST_ASSERT_NOT_NULL(
+        std::strstr(
+            json.c_str(),
+            "\"bri\":180"));
+    TEST_ASSERT_NOT_NULL(
+        std::strstr(
+            json.c_str(),
+            "\"fx\":0"));
+}
+
+void test_explicit_effect_becomes_auto_fallback() {
+    ambilight::ManualLightingState current;
+    current.effect = ambilight::ManualLightingEffect::Ambilight;
+    current.fallbackEffect = ambilight::ManualLightingEffect::BiasWhite;
+
+    WledStateCommand command;
+    command.hasEffect = true;
+    command.effect = ambilight::ManualLightingEffect::Aurora;
+
+    const auto local =
+        WledCompat::resolveManualLighting(
+            current,
+            command);
+
+    TEST_ASSERT_EQUAL_UINT8(
+        static_cast<std::uint8_t>(
+            ambilight::ManualLightingEffect::Aurora),
+        static_cast<std::uint8_t>(local.effect));
+    TEST_ASSERT_EQUAL_UINT8(
+        static_cast<std::uint8_t>(
+            ambilight::ManualLightingEffect::Aurora),
+        static_cast<std::uint8_t>(local.fallbackEffect));
+
+    command.effect = ambilight::ManualLightingEffect::Ambilight;
+    const auto automatic =
+        WledCompat::resolveManualLighting(
+            local,
+            command);
+
+    TEST_ASSERT_EQUAL_UINT8(
+        static_cast<std::uint8_t>(
+            ambilight::ManualLightingEffect::Ambilight),
+        static_cast<std::uint8_t>(automatic.effect));
+    TEST_ASSERT_EQUAL_UINT8(
+        static_cast<std::uint8_t>(
+            ambilight::ManualLightingEffect::Aurora),
+        static_cast<std::uint8_t>(automatic.fallbackEffect));
+}
+
 int main(int, char**) {
     UNITY_BEGIN();
 
@@ -960,6 +1066,8 @@ int main(int, char**) {
         test_home_assistant_one_segment_sequence_has_no_preflight_flash);
     RUN_TEST(
         test_home_assistant_rgb_then_master_sequence_keeps_manual_owner);
+    RUN_TEST(test_effect_only_overlay_projects_brightness_from_new_owner_bank);
+    RUN_TEST(test_explicit_effect_becomes_auto_fallback);
     RUN_TEST(
         test_reported_brightness_and_signal_are_wled_safe);
 
