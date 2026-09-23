@@ -20,6 +20,10 @@ public:
     explicit LedRenderer(LedEngine& engine)
         : engine_(engine) {}
 
+    bool setOutputProfile(
+        const LedMappingProfile& profile,
+        const LedPixelMaskProfile& mask);
+
     bool setMappingProfile(
         const LedMappingProfile& profile);
 

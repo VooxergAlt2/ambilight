@@ -22,9 +22,17 @@ struct WledStateCommand {
     bool hasBrightness = false;
     std::uint8_t brightness = 0;
 
-    // The single segment is a structural Home Assistant shim for power /
-    // brightness, but it owns manual visual controls (RGB/effect/speed/
-    // intensity). Master on/bri remain the sole output power controls.
+    // Home Assistant exposes WLED segments as light entities and therefore
+    // sends power/brightness both at master and segment scope. This facade has
+    // exactly one segment, so segment 0 is a more-specific alias of the same
+    // physical output state. When both are present, segment values win.
+    bool hasSegmentOn = false;
+    bool segmentOn = false;
+
+    bool hasSegmentBrightness = false;
+    std::uint8_t segmentBrightness = 0;
+
+    // Segment visual controls map to the persistent local-lighting profile.
     bool hasColor = false;
     Rgb8 color{255, 255, 255};
 

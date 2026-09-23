@@ -227,14 +227,15 @@ commands, see [Windows: HyperHDR integration and firmware installation](docs/win
 
 The controller advertises `_wled._tcp.local.` and implements the subset of WLED JSON needed for the Home Assistant WLED integration.
 
-The light entity exposes:
+The WLED-compatible Home Assistant surface supports:
 
-- on/off
-- brightness
-- RGB color
-- `Ambilight` AUTO mode
-- `Solid`, `Rainbow`, `Breathing`
-- `Warm White`, `Bias White`, `Sunset`, `Candle`, `Aurora`, `Twinkle`
+- on/off;
+- brightness from both master and segment-0 commands;
+- RGB color;
+- `Ambilight` AUTO mode;
+- `Solid`, `Rainbow`, `Breathing`;
+- `Warm White`, `Bias White`, `Sunset`, `Candle`, `Aurora`, `Twinkle`;
+- effect speed (`sx`) and intensity (`ix`).
 
 `Ambilight` is now AUTO ownership: fresh DDP owns the LEDs, stale DDP falls back to the remembered local effect after 1.5 s, and the next fresh DDP frame takes ownership back automatically. Explicit local effects override DDP while still allowing DDP reception in the background.
 
@@ -304,7 +305,7 @@ The project includes tools specifically for wiring a real TV without recompiling
 - raw GPIO probes identify which strip is physically connected to GPIO 18/19/20/21
 - logical-side probes verify side mapping and REV/FWD
 - topology can be edited as COUNT/GPIO/REV
-- one physical LED per side can be masked black without shifting neighboring logical addresses
+- one service/disabled physical LED per side can be inserted as a black wire-address hole; logical pixels shift around it without changing DDP/ToF logical counts
 - the ToF page shows the normalized 8x8 grid relative to the TV
 
 Commissioning patterns are brightness-limited in firmware.

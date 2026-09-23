@@ -260,68 +260,35 @@ void test_topology_blob_write_failure_does_not_apply_candidate_live() {
             logicalLength);
 
     TEST_ASSERT_TRUE(
-        settings.
-            ledMappingProfileCustomized());
+        settings.ledMappingProfileCustomized());
+    TEST_ASSERT_TRUE(
+        settings.ledMappingProfilePersisted());
+    TEST_ASSERT_TRUE(Preferences::testHasKey("led_map"));
+    TEST_ASSERT_TRUE(Preferences::testHasKey("led_map_ver"));
 
-    TEST_ASSERT_FALSE(
-        settings.
-            ledMappingProfilePersisted());
-
-    TEST_ASSERT_FALSE(
-        Preferences::testHasKey(
-            "led_map"));
-
-    TEST_ASSERT_FALSE(
-        Preferences::testHasKey(
-            "led_map_ver"));
+    RuntimeSettings reopened;
+    TEST_ASSERT_TRUE(reopened.begin());
+    TEST_ASSERT_EQUAL_UINT16(
+        220,
+        reopened.ledMappingProfile().segment[0].logicalLength);
 }
 
-void test_topology_version_write_failure_does_not_apply_candidate_live() {
+void test_first_topology_version_write_failure_does_not_commit_candidate() {
     RuntimeSettings settings;
     TEST_ASSERT_TRUE(settings.begin());
 
-    LedMappingProfile previous;
-    previous.segment[1].logicalLength = 150;
+    LedMappingProfile candidate;
+    candidate.segment[1].logicalLength = 140;
 
-    TEST_ASSERT_TRUE(
-        settings.setLedMappingProfile(
-            previous));
-
-    LedMappingProfile candidate =
-        previous;
-
-    candidate.segment[1].logicalLength =
-        140;
-
-    Preferences::testFailPut(
-        "led_map_ver");
+    Preferences::testFailPut("led_map_ver");
 
     TEST_ASSERT_FALSE(
-        settings.setLedMappingProfile(
-            candidate));
+        settings.setLedMappingProfile(candidate));
 
-    TEST_ASSERT_EQUAL_UINT16(
-        150,
-        settings.
-            ledMappingProfile().
-            segment[1].
-            logicalLength);
-
-    TEST_ASSERT_TRUE(
-        settings.
-            ledMappingProfileCustomized());
-
-    TEST_ASSERT_FALSE(
-        settings.
-            ledMappingProfilePersisted());
-
-    TEST_ASSERT_FALSE(
-        Preferences::testHasKey(
-            "led_map"));
-
-    TEST_ASSERT_FALSE(
-        Preferences::testHasKey(
-            "led_map_ver"));
+    TEST_ASSERT_FALSE(settings.ledMappingProfileCustomized());
+    TEST_ASSERT_FALSE(settings.ledMappingProfilePersisted());
+    TEST_ASSERT_FALSE(Preferences::testHasKey("led_map"));
+    TEST_ASSERT_FALSE(Preferences::testHasKey("led_map_ver"));
 }
 
 void test_topology_reset_marker_failure_keeps_live_custom_state() {
@@ -474,6 +441,113 @@ void test_pixel_mask_reset_marker_failure_keeps_live_mask() {
         settings.
             ledPixelMaskProfile().
             disabledOffset[0]);
+}
+
+
+void test_pixel_mask_update_blob_failure_keeps_previous_live_and_durable_profile() {
+    RuntimeSettings settings;
+    TEST_ASSERT_TRUE(settings.begin());
+
+    LedPixelMaskProfile previous;
+    previous.disabledOffset[0] = 3;
+    TEST_ASSERT_TRUE(
+        settings.setLedPixelMaskProfile(
+            previous));
+
+    LedPixelMaskProfile candidate = previous;
+    candidate.disabledOffset[0] = 7;
+
+    Preferences::testFailPut(
+        "pixel_mask");
+
+    TEST_ASSERT_FALSE(
+        settings.setLedPixelMaskProfile(
+            candidate));
+
+    TEST_ASSERT_EQUAL_UINT16(
+        3,
+        settings.ledPixelMaskProfile().disabledOffset[0]);
+    TEST_ASSERT_TRUE(
+        settings.ledPixelMaskProfilePersisted());
+
+    RuntimeSettings reopened;
+    TEST_ASSERT_TRUE(reopened.begin());
+    TEST_ASSERT_EQUAL_UINT16(
+        3,
+        reopened.ledPixelMaskProfile().disabledOffset[0]);
+}
+
+void test_first_pixel_mask_version_failure_does_not_commit_live_or_orphan_blob() {
+    RuntimeSettings settings;
+    TEST_ASSERT_TRUE(settings.begin());
+
+    LedPixelMaskProfile candidate;
+    candidate.disabledOffset[0] = 0;
+
+    Preferences::testFailPut(
+        "pixel_mask_ver");
+
+    TEST_ASSERT_FALSE(
+        settings.setLedPixelMaskProfile(
+            candidate));
+
+    TEST_ASSERT_EQUAL_UINT16(
+        LedPixelMaskProfile::kNone,
+        settings.ledPixelMaskProfile().disabledOffset[0]);
+    TEST_ASSERT_FALSE(
+        settings.ledPixelMaskProfilePersisted());
+    TEST_ASSERT_FALSE(
+        Preferences::testHasKey("pixel_mask"));
+    TEST_ASSERT_FALSE(
+        Preferences::testHasKey("pixel_mask_ver"));
+}
+
+void test_schema2_pixel_mask_offset_is_preserved_with_physical_hole_semantics() {
+    {
+        RuntimeSettings settings;
+        TEST_ASSERT_TRUE(settings.begin());
+
+        LedPixelMaskProfile mask;
+        mask.disabledOffset[0] = 0;
+        TEST_ASSERT_TRUE(
+            settings.setLedPixelMaskProfile(
+                mask));
+    }
+
+    RuntimeSettings reopened;
+    TEST_ASSERT_TRUE(reopened.begin());
+    TEST_ASSERT_EQUAL_UINT16(
+        2,
+        LedPixelMaskProfile::kSchemaVersion);
+    TEST_ASSERT_EQUAL_UINT16(
+        0,
+        reopened.ledPixelMaskProfile().disabledOffset[0]);
+    TEST_ASSERT_TRUE(
+        reopened.ledPixelMaskProfile().validFor(
+            reopened.ledMappingProfile()));
+    TEST_ASSERT_EQUAL_UINT32(
+        231,
+        reopened.ledPixelMaskProfile().maxPhysicalLaneLength(
+            reopened.ledMappingProfile()));
+}
+
+
+void test_runtime_only_mask_adoption_tracks_already_applied_safe_geometry() {
+    RuntimeSettings settings;
+    TEST_ASSERT_TRUE(settings.begin());
+
+    LedPixelMaskProfile runtimeOnly;
+    runtimeOnly.disabledOffset[0] = 0;
+
+    TEST_ASSERT_TRUE(
+        settings.adoptLedPixelMaskProfileRuntime(
+            runtimeOnly));
+
+    TEST_ASSERT_EQUAL_UINT16(
+        0,
+        settings.ledPixelMaskProfile().disabledOffset[0]);
+    TEST_ASSERT_TRUE(settings.ledPixelMaskProfileCustomized());
+    TEST_ASSERT_FALSE(settings.ledPixelMaskProfilePersisted());
 }
 
 void test_gain_curve_reset_count_failure_keeps_custom_curve() {
@@ -1144,7 +1218,7 @@ int main(int, char**) {
         test_topology_blob_write_failure_does_not_apply_candidate_live);
 
     RUN_TEST(
-        test_topology_version_write_failure_does_not_apply_candidate_live);
+        test_first_topology_version_write_failure_does_not_commit_candidate);
 
     RUN_TEST(
         test_topology_reset_marker_failure_keeps_live_custom_state);
@@ -1157,6 +1231,10 @@ int main(int, char**) {
 
     RUN_TEST(
         test_pixel_mask_reset_marker_failure_keeps_live_mask);
+    RUN_TEST(test_pixel_mask_update_blob_failure_keeps_previous_live_and_durable_profile);
+    RUN_TEST(test_first_pixel_mask_version_failure_does_not_commit_live_or_orphan_blob);
+    RUN_TEST(test_schema2_pixel_mask_offset_is_preserved_with_physical_hole_semantics);
+    RUN_TEST(test_runtime_only_mask_adoption_tracks_already_applied_safe_geometry);
 
     RUN_TEST(
         test_gain_curve_reset_count_failure_keeps_custom_curve);

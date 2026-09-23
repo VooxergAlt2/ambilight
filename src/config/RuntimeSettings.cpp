@@ -1223,20 +1223,23 @@ bool RuntimeSettings::setLedMappingProfile(
     }
 
     if (!persistenceAvailable_) {
-        // Preserve the existing runtime-only capability when NVS is
-        // unavailable, but never claim durable persistence.
         ledMappingProfile_ = profile;
         ledMappingProfileCustomized_ = true;
         ledMappingProfilePersisted_ = false;
-
         ++stats_.writeFailures;
         return false;
     }
 
-    // With NVS available, persistence is the commit point. Do not mutate the
-    // live RuntimeSettings profile until both blob and schema marker are
-    // durably written, otherwise a failed save leaves RAM and reboot state
-    // disagreeing.
+    const bool alreadyCommitted =
+        ledMappingProfilePersisted_ &&
+        preferences_.getUShort(
+            kLedMappingVersionKey,
+            0) ==
+            LedMappingProfile::kSchemaVersion;
+
+    // For an existing current-schema record, the version marker is already a
+    // valid commit marker. Update only the blob so a rejected write preserves
+    // the previous durable topology instead of deleting it.
     const std::size_t profileBytes =
         preferences_.putBytes(
             kLedMappingProfileKey,
@@ -1245,39 +1248,30 @@ bool RuntimeSettings::setLedMappingProfile(
 
     if (profileBytes != sizeof(profile)) {
         ++stats_.writeFailures;
-
-        preferences_.remove(
-            kLedMappingProfileKey);
-
-        preferences_.remove(
-            kLedMappingVersionKey);
-
-        ledMappingProfilePersisted_ = false;
         return false;
     }
 
-    const std::size_t versionBytes =
-        preferences_.putUShort(
-            kLedMappingVersionKey,
-            LedMappingProfile::kSchemaVersion);
+    if (!alreadyCommitted) {
+        const std::size_t versionBytes =
+            preferences_.putUShort(
+                kLedMappingVersionKey,
+                LedMappingProfile::kSchemaVersion);
 
-    if (versionBytes != sizeof(std::uint16_t)) {
-        ++stats_.writeFailures;
+        if (versionBytes != sizeof(std::uint16_t)) {
+            ++stats_.writeFailures;
 
-        preferences_.remove(
-            kLedMappingProfileKey);
-
-        preferences_.remove(
-            kLedMappingVersionKey);
-
-        ledMappingProfilePersisted_ = false;
-        return false;
+            // No valid current-schema marker existed before this transaction.
+            // Remove only the newly written blob; unknown/future version state
+            // remains untouched for downgrade/recovery.
+            preferences_.remove(
+                kLedMappingProfileKey);
+            return false;
+        }
     }
 
     ledMappingProfile_ = profile;
     ledMappingProfileCustomized_ = true;
     ledMappingProfilePersisted_ = true;
-
     ++stats_.writes;
     return true;
 }
@@ -1337,42 +1331,73 @@ bool RuntimeSettings::setLedPixelMaskProfile(
         return false;
     }
 
-    ledPixelMaskProfile_ = profile;
-    ledPixelMaskProfileCustomized_ = true;
-    ledPixelMaskProfilePersisted_ = false;
-
     if (!persistenceAvailable_) {
+        // Preserve runtime-only commissioning when NVS itself is unavailable.
+        ledPixelMaskProfile_ = profile;
+        ledPixelMaskProfileCustomized_ = true;
+        ledPixelMaskProfilePersisted_ = false;
         ++stats_.writeFailures;
         return false;
     }
 
+    const bool alreadyCommitted =
+        ledPixelMaskProfilePersisted_ &&
+        preferences_.getUShort(
+            kLedPixelMaskVersionKey,
+            0) ==
+            LedPixelMaskProfile::kSchemaVersion;
+
+    // With an already committed schema marker the blob is the only mutable
+    // part. Avoid rewriting the marker: a redundant marker failure after a
+    // successful blob write would make rollback semantics ambiguous.
     const std::size_t profileBytes =
         preferences_.putBytes(
             kLedPixelMaskProfileKey,
             &profile,
             sizeof(profile));
 
-    const std::size_t versionBytes =
-        preferences_.putUShort(
-            kLedPixelMaskVersionKey,
-            LedPixelMaskProfile::kSchemaVersion);
-
-    if (profileBytes != sizeof(profile) ||
-        versionBytes != sizeof(std::uint16_t)) {
-
+    if (profileBytes != sizeof(profile)) {
         ++stats_.writeFailures;
+        return false;
+    }
 
-        preferences_.remove(
-            kLedPixelMaskProfileKey);
+    if (!alreadyCommitted) {
+        const std::size_t versionBytes =
+            preferences_.putUShort(
+                kLedPixelMaskVersionKey,
+                LedPixelMaskProfile::kSchemaVersion);
 
-        preferences_.remove(
-            kLedPixelMaskVersionKey);
+        if (versionBytes != sizeof(std::uint16_t)) {
+            ++stats_.writeFailures;
+
+            // No valid current-version commit marker existed before this
+            // transaction. Remove the newly written blob so boot cannot later
+            // pair it with a partially-created marker.
+            preferences_.remove(
+                kLedPixelMaskProfileKey);
+            return false;
+        }
+    }
+
+    ledPixelMaskProfile_ = profile;
+    ledPixelMaskProfileCustomized_ = true;
+    ledPixelMaskProfilePersisted_ = true;
+    ++stats_.writes;
+    return true;
+}
+
+bool RuntimeSettings::adoptLedPixelMaskProfileRuntime(
+    const LedPixelMaskProfile& profile) {
+
+    if (!profile.validFor(
+            ledMappingProfile_)) {
 
         return false;
     }
 
-    ledPixelMaskProfilePersisted_ = true;
-    ++stats_.writes;
+    ledPixelMaskProfile_ = profile;
+    ledPixelMaskProfileCustomized_ = true;
+    ledPixelMaskProfilePersisted_ = false;
     return true;
 }
 

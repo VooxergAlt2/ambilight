@@ -31,28 +31,35 @@ struct LedPixelMaskProfile {
         return true;
     }
 
+    // A configured physical offset is a real hole in the serialized LED
+    // chain, not a logical pixel painted black. The side therefore contains
+    // logicalLength + 1 physical addresses and the disabled offset may be any
+    // position in [0, logicalLength]. logicalLength==65535 cannot grow by one
+    // because the driver/write-view representation is uint16_t.
     constexpr bool validFor(
         const LedMappingProfile& topology) const {
 
-        if (!valid() ||
-            !topology.valid()) {
-
+        if (!topology.valid()) {
             return false;
         }
 
         for (std::size_t index = 0;
-             index <
-                disabledOffset.size();
+             index < disabledOffset.size();
              ++index) {
 
             const std::uint16_t value =
                 disabledOffset[index];
 
-            if (value != kNone &&
-                value >=
-                    topology
-                        .segment[index]
-                        .logicalLength) {
+            if (value == kNone) {
+                continue;
+            }
+
+            const std::uint16_t logicalLength =
+                topology.segment[index].logicalLength;
+
+            if (logicalLength >=
+                    config::kMaxRepresentablePhysicalLaneLength ||
+                value > logicalLength) {
 
                 return false;
             }
@@ -61,89 +68,111 @@ struct LedPixelMaskProfile {
         return true;
     }
 
-    void sanitizeFor(
+    constexpr void sanitizeFor(
         const LedMappingProfile& topology) {
 
+        if (!topology.valid()) {
+            *this = {};
+            return;
+        }
+
         for (std::size_t index = 0;
-             index <
-                disabledOffset.size();
+             index < disabledOffset.size();
              ++index) {
 
-            if (disabledOffset[index] !=
-                    kNone &&
-                disabledOffset[index] >=
-                    topology
-                        .segment[index]
-                        .logicalLength) {
+            if (disabledOffset[index] == kNone) {
+                continue;
+            }
 
-                disabledOffset[index] =
-                    kNone;
+            const std::uint16_t logicalLength =
+                topology.segment[index].logicalLength;
+
+            if (logicalLength >=
+                    config::kMaxRepresentablePhysicalLaneLength ||
+                disabledOffset[index] > logicalLength) {
+
+                disabledOffset[index] = kNone;
             }
         }
     }
 
-    // Persisted offsets are PHYSICAL strip indices counted from the
-    // controller/data-input end of each lane. Offset 0 therefore always means
-    // the first physical LED on the wire, independent of logical REV/FWD.
+    // Persisted offsets are PHYSICAL strip addresses counted from the
+    // controller/data-input end. Offset 0 is always the first physical LED on
+    // the wire, independent of logical REV/FWD.
     constexpr bool disabledPhysical(
         SegmentId segment,
         std::uint16_t physicalOffset) const {
 
         const std::size_t index =
-            static_cast<std::size_t>(
-                segment);
-
-        if (index >=
-            disabledOffset.size()) {
-
-            return false;
-        }
+            static_cast<std::size_t>(segment);
 
         return
-            disabledOffset[index] !=
-                kNone &&
-            disabledOffset[index] ==
-                physicalOffset;
+            index < disabledOffset.size() &&
+            disabledOffset[index] != kNone &&
+            disabledOffset[index] == physicalOffset;
     }
 
-    constexpr bool disabledLogical(
+    constexpr bool hasHole(
+        SegmentId segment) const {
+
+        const std::size_t index =
+            static_cast<std::size_t>(segment);
+
+        return
+            index < disabledOffset.size() &&
+            disabledOffset[index] != kNone;
+    }
+
+    constexpr std::uint16_t physicalLengthForSegment(
         SegmentId segment,
-        std::uint16_t logicalOffset,
         const LedMappingProfile& topology) const {
 
         const std::size_t index =
-            static_cast<std::size_t>(
-                segment);
+            static_cast<std::size_t>(segment);
 
-        if (index >=
-                disabledOffset.size() ||
-            index >=
-                topology.segment.size()) {
-
-            return false;
+        if (index >= topology.segment.size()) {
+            return 0;
         }
 
-        const auto& mapping =
-            topology.segment[index];
-
-        if (logicalOffset >=
-            mapping.logicalLength) {
-
-            return false;
-        }
-
-        const std::uint16_t physicalOffset =
-            mapping.reversed != 0
-                ? static_cast<std::uint16_t>(
-                      mapping.logicalLength -
-                      1U -
-                      logicalOffset)
-                : logicalOffset;
+        const std::uint16_t logicalLength =
+            topology.segment[index].logicalLength;
 
         return
-            disabledPhysical(
-                segment,
-                physicalOffset);
+            hasHole(segment) &&
+                    logicalLength <
+                        config::kMaxRepresentablePhysicalLaneLength
+                ? static_cast<std::uint16_t>(
+                      logicalLength + 1U)
+                : logicalLength;
+    }
+
+    constexpr std::size_t maxPhysicalLaneLength(
+        const LedMappingProfile& topology) const {
+
+        if (!validFor(topology)) {
+            return 0;
+        }
+
+        std::size_t maximum = 0;
+
+        for (std::size_t index = 0;
+             index < disabledOffset.size();
+             ++index) {
+
+            const auto id =
+                static_cast<SegmentId>(index);
+
+            const std::size_t length =
+                physicalLengthForSegment(
+                    id,
+                    topology);
+
+            if (length > maximum) {
+                maximum = length;
+            }
+        }
+
+        return maximum;
     }
 
     constexpr std::uint16_t forSegment(

@@ -265,7 +265,7 @@ void test_led_pixel_mask_parses_none_and_physical_offsets() {
             13));
 }
 
-void test_led_pixel_mask_physical_zero_respects_reversal() {
+void test_led_pixel_mask_physical_zero_is_data_side_independent_of_reversal() {
     LedPixelMaskProfile profile;
     LedMappingProfile topology;
 
@@ -277,53 +277,62 @@ void test_led_pixel_mask_physical_zero_respects_reversal() {
         static_cast<std::size_t>(
             ambilight::SegmentId::Left)] = 0;
 
-    // TOP is REV by default: physical LED 0 is logical offset 229.
-    TEST_ASSERT_FALSE(
-        profile.disabledLogical(
-            ambilight::SegmentId::Top,
-            0,
-            topology));
-
+    TEST_ASSERT_TRUE(profile.validFor(topology));
     TEST_ASSERT_TRUE(
-        profile.disabledLogical(
+        profile.disabledPhysical(
             ambilight::SegmentId::Top,
-            229,
-            topology));
-
-    // LEFT is FWD by default: physical LED 0 is logical offset 0.
+            0));
     TEST_ASSERT_TRUE(
-        profile.disabledLogical(
+        profile.disabledPhysical(
             ambilight::SegmentId::Left,
-            0,
-            topology));
+            0));
 
-    TEST_ASSERT_FALSE(
-        profile.disabledLogical(
+    TEST_ASSERT_EQUAL_UINT16(
+        231,
+        profile.physicalLengthForSegment(
+            ambilight::SegmentId::Top,
+            topology));
+    TEST_ASSERT_EQUAL_UINT16(
+        161,
+        profile.physicalLengthForSegment(
             ambilight::SegmentId::Left,
-            1,
             topology));
 }
 
-void test_led_pixel_mask_enforces_segment_lengths() {
-    LedPixelMaskProfile profile;
 
+void test_led_pixel_mask_enforces_physical_hole_bounds() {
+    LedPixelMaskProfile profile;
+    const LedMappingProfile topology;
+
+    // Last logical wire address is still valid.
     TEST_ASSERT_EQUAL_INT(
         static_cast<int>(RuntimePayloadParseResult::Ok),
         static_cast<int>(
             RuntimePayloadParser::parseLedPixelMask(
                 "229,159,229,159",
                 profile)));
+    TEST_ASSERT_TRUE(profile.validFor(topology));
 
+    // One extra physical address is the appended service LED and is valid.
     TEST_ASSERT_EQUAL_INT(
         static_cast<int>(RuntimePayloadParseResult::Ok),
         static_cast<int>(
             RuntimePayloadParser::parseLedPixelMask(
-                "230,-,-,-",
+                "230,160,230,160",
                 profile)));
+    TEST_ASSERT_TRUE(profile.validFor(topology));
+    TEST_ASSERT_EQUAL_UINT32(
+        231,
+        profile.maxPhysicalLaneLength(topology));
 
-    TEST_ASSERT_FALSE(
-        profile.validFor(
-            LedMappingProfile{}));
+    // Anything beyond logicalLength+1 physical slots is invalid for topology.
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(RuntimePayloadParseResult::Ok),
+        static_cast<int>(
+            RuntimePayloadParser::parseLedPixelMask(
+                "231,-,-,-",
+                profile)));
+    TEST_ASSERT_FALSE(profile.validFor(topology));
 
     TEST_ASSERT_EQUAL_INT(
         static_cast<int>(RuntimePayloadParseResult::Ok),
@@ -331,22 +340,9 @@ void test_led_pixel_mask_enforces_segment_lengths() {
             RuntimePayloadParser::parseLedPixelMask(
                 "920,-,-,-",
                 profile)));
-
-    TEST_ASSERT_FALSE(
-        profile.validFor(
-            LedMappingProfile{}));
-
-    TEST_ASSERT_EQUAL_INT(
-        static_cast<int>(RuntimePayloadParseResult::Ok),
-        static_cast<int>(
-            RuntimePayloadParser::parseLedPixelMask(
-                "-,160,-,-",
-                profile)));
-
-    TEST_ASSERT_FALSE(
-        profile.validFor(
-            LedMappingProfile{}));
+    TEST_ASSERT_FALSE(profile.validFor(topology));
 }
+
 
 void test_led_pixel_mask_rejects_bad_syntax_without_mutating_output() {
     LedPixelMaskProfile profile;
@@ -662,8 +658,8 @@ int main(int, char**) {
     RUN_TEST(test_commissioning_range_parses_side_and_gpio_targets);
     RUN_TEST(test_commissioning_range_rejects_unknown_gpio_but_accepts_large_uint16_range);
     RUN_TEST(test_led_pixel_mask_parses_none_and_physical_offsets);
-    RUN_TEST(test_led_pixel_mask_physical_zero_respects_reversal);
-    RUN_TEST(test_led_pixel_mask_enforces_segment_lengths);
+    RUN_TEST(test_led_pixel_mask_physical_zero_is_data_side_independent_of_reversal);
+    RUN_TEST(test_led_pixel_mask_enforces_physical_hole_bounds);
     RUN_TEST(test_led_pixel_mask_rejects_bad_syntax_without_mutating_output);
     RUN_TEST(test_spatial_profile_parses_fixed_point_and_negative_offsets);
     RUN_TEST(test_spatial_profile_rejects_more_than_one_decimal_place);

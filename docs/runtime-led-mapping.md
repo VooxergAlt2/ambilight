@@ -88,11 +88,11 @@ The transaction is:
 
 1. pre-allocate RGB frames for the requested aggregate topology;
 2. cancel active commissioning and enter a physical blackout;
-3. resize PARLIO lanes to the longest requested side;
+3. sanitize the physical service-LED hole for the requested topology, then resize PARLIO lanes to the longest resulting **physical** side (`logicalLength + 1` on a side with a hole);
 4. queue the topology to ToF;
 5. resize DDP staging/coverage to `totalLedCount * 3` and reset the sender epoch;
 6. switch renderer logical-to-physical mapping;
-7. sanitize the disabled-pixel mask for any shortened side;
+7. commit the sanitized physical-hole profile for any side whose new topology can no longer represent its stored offset;
 8. persist/reset topology in NVS;
 9. install the pre-allocated runtime RGB frames and reset RGB generation state;
 10. reset dynamic gain storage; if optional ToF gain storage cannot be allocated,

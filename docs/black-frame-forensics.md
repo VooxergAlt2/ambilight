@@ -20,7 +20,6 @@ A complete black-output transition is classified as one of:
 - `SOURCE_BLACK`: the DDP RGB frame itself is completely black;
 - `ACTIVE_GAIN`: source RGB is non-zero but ACTIVE gain reduces every output pixel to zero;
 - `BRIGHTNESS_ZERO`: global LED brightness is explicitly zero;
-- `PIXEL_MASK`: non-zero post-gain data exists but the configured disabled-pixel mask removes all remaining lit pixels;
 - `UNKNOWN`: defensive fallback for an unclassified complete-black result.
 
 `scale8_video()` in LiteLED guarantees that a non-zero prepared RGB channel remains non-zero for any non-zero effective whole-output brightness. Therefore exact complete-black classification before the PARLIO brightness scaler is valid as long as brightness itself is handled separately, which the tracker does.
@@ -41,4 +40,4 @@ The in-memory `BlackFrameForensicsStats` remains accessible through:
 
 The latest black sample is retained until another black sample replaces it or the controller reboots.
 
-The tracker is diagnostic only. It does not reject legitimate black movie frames and does not hold, alter or synthesize RGB data.
+The tracker is diagnostic only. It does not reject legitimate black movie frames and does not hold, alter or synthesize RGB data. A service-LED hole is intentionally absent from black-frame classification: it does not remove any logical pixel and exists only below this diagnostic layer in logical-to-physical mapping.

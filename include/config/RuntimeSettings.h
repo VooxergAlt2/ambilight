@@ -191,6 +191,13 @@ public:
     bool setLedPixelMaskProfile(
         const LedPixelMaskProfile& profile);
 
+    // Adopt a mask that has already been applied safely to the live renderer
+    // but could not be committed to NVS. This is intentionally separate from
+    // the normal transactional setter and is used only by topology-driven
+    // sanitization so RuntimeSettings cannot disagree with active hardware.
+    bool adoptLedPixelMaskProfileRuntime(
+        const LedPixelMaskProfile& profile);
+
     bool resetLedPixelMaskProfile();
 
     // Clear the complete ambilight NVS namespace and restore the in-memory

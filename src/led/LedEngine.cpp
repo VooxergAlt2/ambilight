@@ -92,8 +92,8 @@ esp_err_t LedEngine::initializeGroup(
     clear();
 
     // The startup/reconfiguration blackout must not be rejected merely
-    // because a mask from the previous topology lies beyond a newly-shortened
-    // lane. Preserve the mask logically, but emit this one black frame with an
+    // because a physical hole from the previous topology lies beyond a newly-shortened
+    // lane. Preserve the configured mask state, but emit this one black frame with an
     // empty physical mask. The renderer reprojects the mask immediately after
     // a successful topology transaction.
     const LedPhysicalPixelMask savedMask =

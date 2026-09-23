@@ -95,10 +95,6 @@ public:
                 plan.segment[
                     segmentIndex];
 
-            const std::uint16_t disabledOffset =
-                mask.disabledOffset[
-                    segmentIndex];
-
             for (std::uint16_t offset = 0;
                  offset <
                     segment.logicalLength;
@@ -151,14 +147,6 @@ public:
                             CorrectionMode::Active
                         ? preview.wouldOutput
                         : original;
-
-                if (disabledOffset !=
-                        LedPixelMaskProfile::kNone &&
-                    disabledOffset ==
-                        offset) {
-
-                    physical = {};
-                }
 
                 if (physical.r != original.r ||
                     physical.g != original.g ||

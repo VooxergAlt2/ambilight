@@ -302,60 +302,126 @@ void test_invalid_profile_does_not_build_plan() {
         plan.totalLedCount);
 }
 
-void test_disabled_pixel_uses_physical_offset_under_reversal() {
+void test_disabled_pixel_is_a_physical_hole_under_reversal() {
     LedMappingProfile profile;
 
     profile.segment[
         static_cast<std::size_t>(
-            SegmentId::Top)].
-        reversed = 1;
+            SegmentId::Top)].reversed = 1;
 
     LedPixelMaskProfile mask;
-
     mask.disabledOffset[
         static_cast<std::size_t>(
             SegmentId::Top)] = 7;
 
-    TEST_ASSERT_TRUE(
-        mask.validFor(
-            profile));
+    TEST_ASSERT_TRUE(mask.validFor(profile));
 
     LedRenderPlan plan;
-
     TEST_ASSERT_TRUE(
         LedRenderPlan::build(
             profile,
+            mask,
             plan));
 
     const auto& top =
-        segment(
-            plan,
-            SegmentId::Top);
+        segment(plan, SegmentId::Top);
 
-    TEST_ASSERT_EQUAL_UINT16(
-        222,
-        top.physicalIndex(7));
+    TEST_ASSERT_EQUAL_UINT16(231, top.physicalLength);
+    TEST_ASSERT_EQUAL_UINT16(223, top.physicalIndex(7));
+    TEST_ASSERT_EQUAL_UINT16(8, top.physicalIndex(222));
+    TEST_ASSERT_EQUAL_UINT16(6, top.physicalIndex(223));
+    TEST_ASSERT_TRUE(mask.disabledPhysical(SegmentId::Top, 7));
 
-    TEST_ASSERT_FALSE(
-        mask.disabledLogical(
-            SegmentId::Top,
+    // No logical LED is ever mapped onto the disabled physical address.
+    for (std::uint16_t logical = 0;
+         logical < top.logicalLength;
+         ++logical) {
+
+        TEST_ASSERT_NOT_EQUAL(
             7,
-            profile));
+            top.physicalIndex(logical));
+    }
+}
 
-    TEST_ASSERT_EQUAL_UINT16(
-        7,
-        top.physicalIndex(222));
 
-    TEST_ASSERT_TRUE(
-        mask.disabledLogical(
-            SegmentId::Top,
-            222,
-            profile));
+void test_physical_hole_shifts_forward_mapping_without_losing_logical_pixel() {
+    LedMappingProfile profile;
+    profile.segment[0].logicalLength = 3;
+    profile.segment[0].reversed = 0;
 
-    TEST_ASSERT_TRUE(
-        mask.disabledPhysical(
-            SegmentId::Top,
-            7));
+    LedPixelMaskProfile mask;
+    mask.disabledOffset[0] = 0;
+
+    LedRenderPlan plan;
+    TEST_ASSERT_TRUE(LedRenderPlan::build(profile, mask, plan));
+
+    const auto& top = plan.segment[0];
+    TEST_ASSERT_EQUAL_UINT16(4, top.physicalLength);
+    TEST_ASSERT_EQUAL_UINT16(0, top.disabledPhysicalOffset);
+    TEST_ASSERT_EQUAL_UINT16(1, top.physicalIndex(0));
+    TEST_ASSERT_EQUAL_UINT16(2, top.physicalIndex(1));
+    TEST_ASSERT_EQUAL_UINT16(3, top.physicalIndex(2));
+}
+
+void test_physical_hole_shifts_reversed_mapping_around_data_side_pixel() {
+    LedMappingProfile profile;
+    profile.segment[0].logicalLength = 3;
+    profile.segment[0].reversed = 1;
+
+    LedPixelMaskProfile mask;
+    mask.disabledOffset[0] = 0;
+
+    LedRenderPlan plan;
+    TEST_ASSERT_TRUE(LedRenderPlan::build(profile, mask, plan));
+
+    const auto& top = plan.segment[0];
+    TEST_ASSERT_EQUAL_UINT16(4, top.physicalLength);
+    TEST_ASSERT_EQUAL_UINT16(3, top.physicalIndex(0));
+    TEST_ASSERT_EQUAL_UINT16(2, top.physicalIndex(1));
+    TEST_ASSERT_EQUAL_UINT16(1, top.physicalIndex(2));
+}
+
+void test_physical_hole_can_be_inside_or_after_logical_pixels() {
+    LedMappingProfile profile;
+    profile.segment[0].logicalLength = 3;
+    profile.segment[0].reversed = 0;
+
+    LedPixelMaskProfile mask;
+    mask.disabledOffset[0] = 1;
+
+    LedRenderPlan plan;
+    TEST_ASSERT_TRUE(LedRenderPlan::build(profile, mask, plan));
+    TEST_ASSERT_EQUAL_UINT16(0, plan.segment[0].physicalIndex(0));
+    TEST_ASSERT_EQUAL_UINT16(2, plan.segment[0].physicalIndex(1));
+    TEST_ASSERT_EQUAL_UINT16(3, plan.segment[0].physicalIndex(2));
+
+    mask.disabledOffset[0] = 3;
+    TEST_ASSERT_TRUE(mask.validFor(profile));
+    TEST_ASSERT_TRUE(LedRenderPlan::build(profile, mask, plan));
+    TEST_ASSERT_EQUAL_UINT16(4, plan.segment[0].physicalLength);
+    TEST_ASSERT_EQUAL_UINT16(0, plan.segment[0].physicalIndex(0));
+    TEST_ASSERT_EQUAL_UINT16(1, plan.segment[0].physicalIndex(1));
+    TEST_ASSERT_EQUAL_UINT16(2, plan.segment[0].physicalIndex(2));
+}
+
+void test_mask_grows_max_physical_lane_and_rejects_uint16_overflow() {
+    LedMappingProfile profile;
+    profile.segment[0].logicalLength = 230;
+    profile.segment[1].logicalLength = 160;
+    profile.segment[2].logicalLength = 230;
+    profile.segment[3].logicalLength = 160;
+
+    LedPixelMaskProfile mask;
+    mask.disabledOffset[0] = 0;
+
+    TEST_ASSERT_TRUE(mask.validFor(profile));
+    TEST_ASSERT_EQUAL_UINT32(231, mask.maxPhysicalLaneLength(profile));
+
+    profile.segment[0].logicalLength = 65535;
+    TEST_ASSERT_FALSE(mask.validFor(profile));
+    TEST_ASSERT_EQUAL_UINT32(
+        0,
+        mask.maxPhysicalLaneLength(profile));
 }
 
 int main(int, char**) {
@@ -383,7 +449,12 @@ int main(int, char**) {
         test_invalid_profile_does_not_build_plan);
 
     RUN_TEST(
-        test_disabled_pixel_uses_physical_offset_under_reversal);
+        test_disabled_pixel_is_a_physical_hole_under_reversal);
+
+    RUN_TEST(test_physical_hole_shifts_forward_mapping_without_losing_logical_pixel);
+    RUN_TEST(test_physical_hole_shifts_reversed_mapping_around_data_side_pixel);
+    RUN_TEST(test_physical_hole_can_be_inside_or_after_logical_pixels);
+    RUN_TEST(test_mask_grows_max_physical_lane_and_rejects_uint16_overflow);
 
     return UNITY_END();
 }

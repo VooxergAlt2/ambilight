@@ -192,7 +192,7 @@ void test_brightness_zero_is_an_explicit_black_reason() {
             tracker.stats().lastBlack.reason));
 }
 
-void test_pixel_mask_reason_is_detected_when_it_removes_only_lit_pixel() {
+void test_physical_hole_does_not_remove_lit_logical_pixel() {
     const LedMappingProfile topology;
     LedPixelMaskProfile mask;
 
@@ -205,8 +205,6 @@ void test_pixel_mask_reason_is_detected_when_it_removes_only_lit_pixel() {
         topology.segmentConfig(
             SegmentId::Top);
 
-    // TOP is reversed in the measured default topology. Physical LED 0
-    // therefore corresponds to the last logical offset of the segment.
     frame.pixels[
         top.logicalStart +
         top.logicalLength -
@@ -228,12 +226,16 @@ void test_pixel_mask_reason_is_detected_when_it_removes_only_lit_pixel() {
             nullptr,
             4000000));
 
+    TEST_ASSERT_FALSE(
+        tracker.stats().latest.outputBlack);
+    TEST_ASSERT_EQUAL_UINT32(
+        1,
+        tracker.stats().latest.outputNonZeroPixels);
     TEST_ASSERT_EQUAL_INT(
-        static_cast<int>(
-            BlackFrameReason::PixelMask),
-        static_cast<int>(
-            tracker.stats().lastBlack.reason));
+        static_cast<int>(BlackFrameReason::None),
+        static_cast<int>(tracker.stats().latest.reason));
 }
+
 
 void test_black_events_count_transitions_not_every_black_frame() {
     const LedMappingProfile topology;
@@ -467,7 +469,7 @@ int main(int, char**) {
         test_brightness_zero_is_an_explicit_black_reason);
 
     RUN_TEST(
-        test_pixel_mask_reason_is_detected_when_it_removes_only_lit_pixel);
+        test_physical_hole_does_not_remove_lit_logical_pixel);
 
     RUN_TEST(
         test_black_events_count_transitions_not_every_black_frame);

@@ -699,8 +699,10 @@ void restoreLedOutputAfterTopologyChange(
 
     const std::size_t expectedLaneLength =
         runtimeSettings.
-            ledMappingProfile().
-            maxSegmentLength();
+            ledPixelMaskProfile().
+            maxPhysicalLaneLength(
+                runtimeSettings.
+                    ledMappingProfile());
 
     if (ledEngine.physicalLaneLength() !=
         expectedLaneLength) {
@@ -846,11 +848,29 @@ bool activateLedMappingProfileWhileBlack(
         runtimeSettings.
             ledMappingProfile();
 
+    const ambilight::LedPixelMaskProfile previousMask =
+        runtimeSettings.
+            ledPixelMaskProfile();
+
+    effectiveMask =
+        previousMask;
+
+    const auto originalMask =
+        effectiveMask.disabledOffset;
+
+    effectiveMask.sanitizeFor(
+        profile);
+
+    maskChanged =
+        effectiveMask.disabledOffset !=
+        originalMask;
+
     const std::size_t previousLaneLength =
         ledEngine.physicalLaneLength();
 
     const std::size_t requestedLaneLength =
-        profile.maxSegmentLength();
+        effectiveMask.maxPhysicalLaneLength(
+            profile);
 
     auto rollbackLaneLength = [&]() {
         if (ledEngine.physicalLaneLength() ==
@@ -916,75 +936,40 @@ bool activateLedMappingProfileWhileBlack(
         return false;
     }
 
-    if (!renderer.setMappingProfile(
-            profile)) {
-
-        ddp.setLogicalLedCount(
-            previous.totalLedCount());
-
-        tof.setLedTopology(
-            previous);
-
-        Serial.println(
-            "LED TOPOLOGY change refused: renderer rejected profile; DDP/ToF rollback requested.");
-        rollbackLaneLength();
-        return false;
-    }
-
-    // LedRenderer clears every physical PARLIO lane buffer whenever mapping
-    // actually changes. That makes capacity outside a shortened/remapped side
-    // deterministically black before brightness can be restored.
-
-    effectiveMask =
-        runtimeSettings.
-            ledPixelMaskProfile();
-
-    const auto originalMask =
-        effectiveMask.disabledOffset;
-
-    effectiveMask.sanitizeFor(
-        profile);
-
-    maskChanged =
-        effectiveMask.disabledOffset !=
-        originalMask;
-
-    if (!renderer.setPixelMaskProfile(
+    if (!renderer.setOutputProfile(
+            profile,
             effectiveMask)) {
 
-        // This should be unreachable after sanitizeFor(profile), but preserve
-        // the old live topology if the renderer contract changes later. Restore
-        // the old PARLIO length first so a longer previous mapping can never
-        // coexist with shorter physical buffers, even while output is black.
-        rollbackLaneLength();
-
-        renderer.setMappingProfile(
-            previous);
-
         ddp.setLogicalLedCount(
             previous.totalLedCount());
 
         tof.setLedTopology(
             previous);
 
-        renderer.setPixelMaskProfile(
-            runtimeSettings.
-                ledPixelMaskProfile());
+        rollbackLaneLength();
+        renderer.setOutputProfile(
+            previous,
+            previousMask);
 
         Serial.println(
-            "LED TOPOLOGY change refused: effective pixel mask was rejected; rollback requested.");
+            "LED TOPOLOGY change refused: renderer rejected topology/mask plan; rollback requested.");
         return false;
     }
+
+    // LedRenderer clears every physical PARLIO lane buffer whenever either
+    // topology or the physical-hole plan changes. Capacity outside a
+    // shortened/remapped side is therefore deterministic black before output
+    // brightness can be restored.
 
     return true;
 }
 
-void commitSanitizedMaskAfterTopology(
+bool commitSanitizedMaskAfterTopology(
     const ambilight::LedPixelMaskProfile& mask,
     bool maskChanged) {
 
     if (!maskChanged) {
-        return;
+        return true;
     }
 
     const bool maskPersisted =
@@ -992,13 +977,25 @@ void commitSanitizedMaskAfterTopology(
             setLedPixelMaskProfile(
                 mask);
 
+    if (!maskPersisted &&
+        runtimeSettings.persistenceAvailable() &&
+        !runtimeSettings.adoptLedPixelMaskProfileRuntime(
+            mask)) {
+
+        Serial.println(
+            "LED TOPOLOGY mask runtime adoption failed; output must remain black.");
+        return false;
+    }
+
     ledPixelMaskDirty = true;
 
     Serial.printf(
-        "LED TOPOLOGY shortened a side; out-of-range disabled-pixel entries were cleared (%s).\n",
+        "LED TOPOLOGY shortened a side; out-of-range physical-hole entries were cleared (%s).\n",
         maskPersisted
             ? "persisted"
             : "runtime-only");
+
+    return true;
 }
 
 bool applyLedMappingProfile(
@@ -1098,15 +1095,22 @@ bool applyLedMappingProfile(
         return false;
     }
 
-    commitSanitizedMaskAfterTopology(
-        effectiveMask,
-        maskChanged);
+    bool postCommitOk = true;
+
+    if (!commitSanitizedMaskAfterTopology(
+            effectiveMask,
+            maskChanged)) {
+
+        outputGuard.restoreBrightness = 0;
+        postCommitOk = false;
+    }
 
     if (!invalidateRuntimeAfterTopologyChange(
             profile,
             &preparedFrames)) {
 
         outputGuard.restoreBrightness = 0;
+        postCommitOk = false;
     }
 
     restoreLedOutputAfterTopologyChange(
@@ -1114,23 +1118,30 @@ bool applyLedMappingProfile(
 
     haveLastCalibrationSummary = false;
 
-    Serial.printf(
-        "LED TOPOLOGY applied; total=%u ddp_bytes=%u persisted=%s. Safety blackout completed automatically; brightness restored to %u. DDP sender lease reset; HyperHDR must use the same LED count.\n",
-        static_cast<unsigned>(
-            profile.totalLedCount()),
-        static_cast<unsigned>(
-            profile.totalLedCount() *
-            sizeof(ambilight::Rgb8)),
-        persisted ? "yes" : "no",
-        static_cast<unsigned>(
-            ledEngine.brightness()));
+    if (postCommitOk) {
+        Serial.printf(
+            "LED TOPOLOGY applied; total=%u ddp_bytes=%u persisted=%s. Safety blackout completed automatically; brightness restored to %u. DDP sender lease reset; HyperHDR must use the same LED count.\n",
+            static_cast<unsigned>(
+                profile.totalLedCount()),
+            static_cast<unsigned>(
+                profile.totalLedCount() *
+                sizeof(ambilight::Rgb8)),
+            persisted ? "yes" : "no",
+            static_cast<unsigned>(
+                ledEngine.brightness()));
+    } else {
+        Serial.println(
+            "LED TOPOLOGY committed but post-commit runtime synchronization failed; output remains black and reboot is required.");
+    }
 
     printLedMappingProfile();
 
     // If NVS itself is unavailable, retain the long-standing runtime-only
     // commissioning capability. With NVS available, the failure path above is
-    // transactional and has already rolled the live topology back.
-    return true;
+    // transactional and has already rolled the live topology back. A rare
+    // post-commit runtime failure deliberately leaves output black and must be
+    // visible to the caller instead of being acknowledged as success.
+    return postCommitOk;
 }
 
 bool resetLedMappingProfile() {
@@ -1215,10 +1226,6 @@ bool resetLedMappingProfile() {
             return false;
         }
 
-        renderer.setPixelMaskProfile(
-            runtimeSettings.
-                ledPixelMaskProfile());
-
         if (!invalidateRuntimeAfterTopologyChange(
                 previous)) {
 
@@ -1234,15 +1241,22 @@ bool resetLedMappingProfile() {
         return false;
     }
 
-    commitSanitizedMaskAfterTopology(
-        effectiveMask,
-        maskChanged);
+    bool postCommitOk = true;
+
+    if (!commitSanitizedMaskAfterTopology(
+            effectiveMask,
+            maskChanged)) {
+
+        outputGuard.restoreBrightness = 0;
+        postCommitOk = false;
+    }
 
     if (!invalidateRuntimeAfterTopologyChange(
             profile,
             &preparedFrames)) {
 
         outputGuard.restoreBrightness = 0;
+        postCommitOk = false;
     }
 
     restoreLedOutputAfterTopologyChange(
@@ -1250,14 +1264,19 @@ bool resetLedMappingProfile() {
 
     haveLastCalibrationSummary = false;
 
-    Serial.printf(
-        "LED TOPOLOGY reset to measured default; persisted=%s; brightness restored to %u.\n",
-        persisted ? "yes" : "runtime-only",
-        static_cast<unsigned>(
-            ledEngine.brightness()));
+    if (postCommitOk) {
+        Serial.printf(
+            "LED TOPOLOGY reset to measured default; persisted=%s; brightness restored to %u.\n",
+            persisted ? "yes" : "runtime-only",
+            static_cast<unsigned>(
+                ledEngine.brightness()));
+    } else {
+        Serial.println(
+            "LED TOPOLOGY reset committed but post-commit runtime synchronization failed; output remains black and reboot is required.");
+    }
 
     printLedMappingProfile();
-    return true;
+    return postCommitOk;
 }
 
 void handleLedMapCommand(
@@ -1346,21 +1365,123 @@ void printLedPixelMaskProfile() {
     Serial.println();
 }
 
+bool activateLedPixelMaskProfileWhileBlack(
+    const ambilight::LedPixelMaskProfile& profile) {
+
+    if (ledEngine.brightness() != 0) {
+        Serial.println(
+            "LED PIXEL MASK internal safety contract violated: output is not black.");
+        return false;
+    }
+
+    const auto& topology =
+        runtimeSettings.ledMappingProfile();
+
+    if (!profile.validFor(topology)) {
+        return false;
+    }
+
+    const ambilight::LedPixelMaskProfile previous =
+        renderer.pixelMaskProfile();
+
+    const std::size_t previousLaneLength =
+        ledEngine.physicalLaneLength();
+
+    const std::size_t requestedLaneLength =
+        profile.maxPhysicalLaneLength(
+            topology);
+
+    if (requestedLaneLength == 0) {
+        return false;
+    }
+
+    if (requestedLaneLength !=
+        previousLaneLength) {
+
+        const esp_err_t resize =
+            ledEngine.reconfigurePhysicalLaneLength(
+                requestedLaneLength);
+
+        if (resize != ESP_OK) {
+            Serial.printf(
+                "LED PIXEL MASK change refused: PARLIO lane resize %u -> %u failed (%s).\n",
+                static_cast<unsigned>(previousLaneLength),
+                static_cast<unsigned>(requestedLaneLength),
+                esp_err_to_name(resize));
+            return false;
+        }
+    }
+
+    if (renderer.setOutputProfile(
+            topology,
+            profile)) {
+
+        return true;
+    }
+
+    // Restore physical capacity before restoring the previous render plan.
+    // If the low-level rollback fails, keep output black and let the caller
+    // require reboot rather than pairing a wider plan with shorter buffers.
+    if (ledEngine.physicalLaneLength() !=
+        previousLaneLength) {
+
+        const esp_err_t rollback =
+            ledEngine.reconfigurePhysicalLaneLength(
+                previousLaneLength);
+
+        if (rollback != ESP_OK) {
+            Serial.printf(
+                "LED PIXEL MASK rollback failed: %s; output must remain black.\n",
+                esp_err_to_name(rollback));
+            return false;
+        }
+    }
+
+    renderer.setOutputProfile(
+        topology,
+        previous);
+
+    return false;
+}
+
 bool applyLedPixelMaskProfile(
     const ambilight::LedPixelMaskProfile& profile) {
 
-    if (!profile.validFor(
-            runtimeSettings.
-                ledMappingProfile())) {
+    const auto& topology =
+        runtimeSettings.ledMappingProfile();
 
+    if (!profile.validFor(topology)) {
         Serial.println(
             "LED PIXEL MASK profile is invalid for the active side lengths.");
         return false;
     }
 
-    if (!renderer.setPixelMaskProfile(
+    const ambilight::LedPixelMaskProfile previous =
+        runtimeSettings.ledPixelMaskProfile();
+
+    if (commissioningPattern !=
+        ambilight::LedCommissioningPattern::None) {
+
+        finishCommissioning(
+            static_cast<std::uint64_t>(
+                esp_timer_get_time()),
+            true,
+            "pixel-mask change");
+    }
+
+    LedTopologyOutputGuard outputGuard;
+
+    if (!quiesceLedOutputForTopologyChange(
+            outputGuard)) {
+
+        return false;
+    }
+
+    if (!activateLedPixelMaskProfileWhileBlack(
             profile)) {
 
+        restoreLedOutputAfterTopologyChange(
+            outputGuard);
         Serial.println(
             "LED PIXEL MASK could not be applied.");
         return false;
@@ -1370,40 +1491,102 @@ bool applyLedPixelMaskProfile(
         runtimeSettings.setLedPixelMaskProfile(
             profile);
 
+    if (!persisted &&
+        runtimeSettings.persistenceAvailable()) {
+
+        if (!activateLedPixelMaskProfileWhileBlack(
+                previous)) {
+
+            outputGuard.restoreBrightness = 0;
+            Serial.println(
+                "LED PIXEL MASK save failed and live rollback failed; output remains black until reboot.");
+        }
+
+        restoreLedOutputAfterTopologyChange(
+            outputGuard);
+        Serial.println(
+            "LED PIXEL MASK save failed; live physical mapping rolled back.");
+        return false;
+    }
+
     ledPixelMaskDirty = true;
+    renderer.breakBlackFrameForensicsSequence();
+    restoreLedOutputAfterTopologyChange(
+        outputGuard);
 
     Serial.printf(
-        "LED PIXEL MASK applied; persisted=%s.\n",
-        persisted ? "yes" : "no");
+        "LED PIXEL MASK applied as physical hole; lane_length=%u persisted=%s.\n",
+        static_cast<unsigned>(
+            ledEngine.physicalLaneLength()),
+        persisted ? "yes" : "runtime-only");
 
     printLedPixelMaskProfile();
     return true;
 }
 
 bool resetLedPixelMaskProfile() {
+    const ambilight::LedPixelMaskProfile previous =
+        runtimeSettings.ledPixelMaskProfile();
+    const ambilight::LedPixelMaskProfile profile;
+
+    if (commissioningPattern !=
+        ambilight::LedCommissioningPattern::None) {
+
+        finishCommissioning(
+            static_cast<std::uint64_t>(
+                esp_timer_get_time()),
+            true,
+            "pixel-mask reset");
+    }
+
+    LedTopologyOutputGuard outputGuard;
+
+    if (!quiesceLedOutputForTopologyChange(
+            outputGuard)) {
+
+        return false;
+    }
+
+    if (!activateLedPixelMaskProfileWhileBlack(
+            profile)) {
+
+        restoreLedOutputAfterTopologyChange(
+            outputGuard);
+        Serial.println(
+            "LED PIXEL MASK reset could not apply default physical mapping.");
+        return false;
+    }
+
     const bool persisted =
         runtimeSettings.resetLedPixelMaskProfile();
 
     if (!persisted &&
         runtimeSettings.persistenceAvailable()) {
 
-        Serial.println(
-            "LED PIXEL MASK reset failed: persisted mask remains active.");
-        return false;
-    }
+        if (!activateLedPixelMaskProfileWhileBlack(
+                previous)) {
 
-    if (!renderer.setPixelMaskProfile(
-            runtimeSettings.ledPixelMaskProfile())) {
+            outputGuard.restoreBrightness = 0;
+            Serial.println(
+                "LED PIXEL MASK reset failed and live rollback failed; output remains black until reboot.");
+        }
 
+        restoreLedOutputAfterTopologyChange(
+            outputGuard);
         Serial.println(
-            "LED PIXEL MASK default profile is invalid.");
+            "LED PIXEL MASK reset failed: persisted mask remains authoritative.");
         return false;
     }
 
     ledPixelMaskDirty = true;
+    renderer.breakBlackFrameForensicsSequence();
+    restoreLedOutputAfterTopologyChange(
+        outputGuard);
 
     Serial.printf(
-        "LED PIXEL MASK reset; persisted=%s.\n",
+        "LED PIXEL MASK reset; lane_length=%u persisted=%s.\n",
+        static_cast<unsigned>(
+            ledEngine.physicalLaneLength()),
         persisted ? "yes" : "runtime-only");
 
     printLedPixelMaskProfile();
@@ -2175,7 +2358,9 @@ bool applyWledOutputCommand(
     }
 
     if (command.hasOn ||
-        command.hasBrightness) {
+        command.hasBrightness ||
+        command.hasSegmentOn ||
+        command.hasSegmentBrightness) {
 
         applyOutputBanks(
             resolved.enabled,
@@ -6282,17 +6467,22 @@ void setup() {
             ESP_ERR_NO_MEM);
     }
 
-    if (!renderer.setMappingProfile(
-            startupTopology)) {
+    const auto& startupMask =
+        runtimeSettings.ledPixelMaskProfile();
+
+    if (!renderer.setOutputProfile(
+            startupTopology,
+            startupMask)) {
 
         fatal(
-            "LED runtime topology profile is invalid",
+            "LED runtime topology/mask profile is invalid",
             ESP_ERR_INVALID_ARG);
     }
 
     const esp_err_t ledResult =
         ledEngine.begin(
-            startupTopology.maxSegmentLength());
+            startupMask.maxPhysicalLaneLength(
+                startupTopology));
 
     if (ledResult != ESP_OK) {
         fatal("LedEngine::begin failed", ledResult);
@@ -6328,14 +6518,6 @@ void setup() {
 
         Serial.println(
             "Startup warning: gain buffers unavailable; ToF correction is fail-open.");
-    }
-
-    if (!renderer.setPixelMaskProfile(
-            runtimeSettings.ledPixelMaskProfile())) {
-
-        fatal(
-            "LED runtime pixel-mask profile is invalid",
-            ESP_ERR_INVALID_ARG);
     }
 
     if (!tof.setSpatialProfile(

@@ -14,9 +14,13 @@ using ambilight::SegmentId;
 
 namespace {
 
+inline constexpr std::uint16_t kFixtureLaneLength =
+    static_cast<std::uint16_t>(
+        ambilight::config::kTestedPhysicalLaneLength + 1U);
+
 struct Fixture {
     std::array<
-        std::array<std::uint8_t, ambilight::config::kTestedPhysicalLaneLength * 3U>,
+        std::array<std::uint8_t, static_cast<std::size_t>(kFixtureLaneLength) * 3U>,
         ambilight::config::kParlioLaneCount>
         bytes{};
 
@@ -29,8 +33,7 @@ struct Fixture {
 
             frame.lane[lane] = {
                 bytes[lane].data(),
-                static_cast<std::uint16_t>(
-                    ambilight::config::kTestedPhysicalLaneLength)
+                kFixtureLaneLength
             };
         }
     }
@@ -325,6 +328,50 @@ void test_repeated_apply_keeps_disabled_pixel_black_after_raw_rewrite() {
         after.b);
 }
 
+
+void test_appended_service_led_is_black_in_extended_physical_lane() {
+    LedMappingProfile topology;
+    LedPixelMaskProfile profile;
+
+    profile.disabledOffset[
+        static_cast<std::size_t>(SegmentId::Top)] =
+        topology.segment[
+            static_cast<std::size_t>(SegmentId::Top)].logicalLength;
+
+    TEST_ASSERT_TRUE(profile.validFor(topology));
+    TEST_ASSERT_EQUAL_UINT16(
+        231,
+        profile.physicalLengthForSegment(
+            SegmentId::Top,
+            topology));
+
+    LedPhysicalPixelMask physical;
+    TEST_ASSERT_TRUE(
+        LedPhysicalPixelMask::project(
+            topology,
+            profile,
+            physical));
+
+    Fixture fixture;
+    fixture.fill(Rgb8{7, 8, 9});
+
+    TEST_ASSERT_TRUE(physical.apply(fixture.frame));
+
+    const std::uint8_t lane =
+        topology.segment[
+            static_cast<std::size_t>(SegmentId::Top)].lane;
+
+    const Rgb8 lastLogicalPhysical = fixture.pixel(lane, 229);
+    const Rgb8 service = fixture.pixel(lane, 230);
+
+    TEST_ASSERT_EQUAL_UINT8(7, lastLogicalPhysical.r);
+    TEST_ASSERT_EQUAL_UINT8(8, lastLogicalPhysical.g);
+    TEST_ASSERT_EQUAL_UINT8(9, lastLogicalPhysical.b);
+    TEST_ASSERT_EQUAL_UINT8(0, service.r);
+    TEST_ASSERT_EQUAL_UINT8(0, service.g);
+    TEST_ASSERT_EQUAL_UINT8(0, service.b);
+}
+
 int main(int, char**) {
     UNITY_BEGIN();
 
@@ -338,6 +385,7 @@ int main(int, char**) {
 
     RUN_TEST(
         test_repeated_apply_keeps_disabled_pixel_black_after_raw_rewrite);
+    RUN_TEST(test_appended_service_led_is_black_in_extended_physical_lane);
 
     return UNITY_END();
 }

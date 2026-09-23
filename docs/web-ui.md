@@ -284,47 +284,31 @@ The ToF view keeps spatial controls beside the live matrix. Rotation is shown as
 
 The gain editor accepts `distance_mm:percent` values. JavaScript validates 2..8 monotonic points and converts percentages to the unchanged Q12 runtime payload. Status rendering uses enough decimal precision that every Q12 value 0..4096 round-trips through the percentage editor without loss.
 
-## Disabled pixel mask
+## Service / disabled physical LED
 
-The LED commissioning section exposes one optional disabled **physical** LED
-for each strip/lane.
+The LED commissioning page configures at most one **physical wire-address hole** per side. This is intended for a sacrificial/service LED physically inserted in series, for example immediately next to the ESP32 as a signal conditioner.
 
 The Web UI is 1-based for humans:
 
-    1 = first physical LED from the controller / DATA input
-    N = last active physical LED on that strip
-    blank = no disabled pixel
+    1 = first physical LED from DATA
+    logicalLength + 1 = optional service LED after the last logical pixel
+    blank = no service LED
 
-REV/FWD does not change this number. Reversal maps logical perimeter positions
-onto the physical strip, while the mask is applied after that mapping.
+A configured hole consumes one physical WS2812 address but **does not consume a logical DDP/ToF pixel**. Therefore a side with `N` logical LEDs has `N+1` physical wire addresses when a hole is enabled. Logical pixels are remapped around the hole; the physical hole itself is forced black immediately before every PARLIO encode.
 
-The compact HTTP/serial payload remains zero-based:
-
-    TOP,RIGHT,BOTTOM,LEFT
-
-with `-` for none. For example:
+REV/FWD affects logical perimeter direction only. The stored hole offset is always counted from DATA and does not change when direction is reversed. The compact HTTP/serial payload remains zero-based `TOP,RIGHT,BOTTOM,LEFT`, with `-` for none. Example:
 
     -,12,-,0
 
-means no TOP mask, physical offset 12 on RIGHT, no BOTTOM mask, and physical
-offset 0 (the first LED on the wire) on LEFT.
+means no TOP hole, physical offset 12 on RIGHT, no BOTTOM hole, and the first physical LED on LEFT as the hole.
 
-Bounds follow the active runtime length of each side. If a topology change
-shortens a side below a stored physical offset, that mask entry is
-automatically cleared.
+Valid zero-based hole offsets are `0..logicalLength` inclusive. `logicalLength=65535` cannot have a hole because the resulting 65,536-address physical lane would exceed the uint16 driver representation.
 
-Stage 45.3 changes the persisted meaning from logical offset to physical strip
-offset and therefore bumps `LedPixelMaskProfile::kSchemaVersion` to 2.
-Schema-1 masks are invalidated on boot instead of being silently reinterpreted.
+`LedPixelMaskProfile` remains schema 2 because its persisted binary representation is unchanged. Existing schema-2 physical offsets are preserved and acquire the corrected hole semantics after upgrade. Schema-1 masks remain rejected as before.
 
-LedRenderer projects the segment mask onto the current physical lanes, and
-LedEngine enforces that physical mask immediately before every PARLIO encode.
-The selected LED therefore remains black in DISABLED, SHADOW and ACTIVE DDP
-renders, logical commissioning, raw-GPIO commissioning and HA manual effects.
+Changing a hole is a controlled blackout transaction: PARLIO lane capacity is resized if necessary, renderer mapping and the low-level physical safety mask are switched together, NVS is committed, and any failed durable update rolls back the previous live geometry.
 
-The mask does not remove a logical LED or change DDP/ToF indexing. Raw-GPIO
-commissioning still bypasses logical mapping, but it no longer bypasses the
-final disabled-pixel safety invariant.
+Raw-GPIO commissioning bypasses logical remapping but still passes through `LedEngine::show()`, so the configured service LED remains black even during raw physical tests.
 
 ## Calibration
 

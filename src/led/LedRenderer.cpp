@@ -5,33 +5,31 @@
 
 namespace ambilight {
 
-bool LedRenderer::setMappingProfile(
-    const LedMappingProfile& profile) {
+bool LedRenderer::setOutputProfile(
+    const LedMappingProfile& profile,
+    const LedPixelMaskProfile& mask) {
+
+    if (!profile.valid() ||
+        !mask.validFor(profile)) {
+
+        return false;
+    }
 
     LedRenderPlan candidatePlan;
 
     if (!LedRenderPlan::build(
             profile,
+            mask,
             candidatePlan)) {
 
         return false;
     }
 
-    LedPixelMaskProfile candidateMask =
-        pixelMaskProfile_;
-
-    if (!candidateMask.validFor(
-            profile)) {
-
-        candidateMask.sanitizeFor(
-            profile);
-    }
-
     LedPhysicalPixelMask physicalMask;
 
     if (!LedPhysicalPixelMask::project(
             profile,
-            candidateMask,
+            mask,
             physicalMask) ||
         !engine_.setPhysicalPixelMask(
             physicalMask)) {
@@ -39,49 +37,47 @@ bool LedRenderer::setMappingProfile(
         return false;
     }
 
-    if (mappingProfile_.segment !=
-        profile.segment) {
+    const bool mappingChanged =
+        mappingProfile_.segment !=
+            profile.segment ||
+        pixelMaskProfile_.disabledOffset !=
+            mask.disabledOffset;
 
+    if (mappingChanged) {
+        // A hole moves every logical pixel after it to a different physical
+        // address. Clear stale lane bytes before installing the new plan.
         engine_.clear();
     }
 
-    mappingProfile_ =
-        profile;
-
-    renderPlan_ =
-        candidatePlan;
-
-    pixelMaskProfile_ =
-        candidateMask;
-
+    mappingProfile_ = profile;
+    pixelMaskProfile_ = mask;
+    renderPlan_ = candidatePlan;
     return true;
+}
+
+bool LedRenderer::setMappingProfile(
+    const LedMappingProfile& profile) {
+
+    LedPixelMaskProfile candidateMask =
+        pixelMaskProfile_;
+
+    if (!candidateMask.validFor(profile)) {
+        candidateMask.sanitizeFor(profile);
+    }
+
+    return
+        setOutputProfile(
+            profile,
+            candidateMask);
 }
 
 bool LedRenderer::setPixelMaskProfile(
     const LedPixelMaskProfile& profile) {
 
-    if (!profile.validFor(
-            mappingProfile_)) {
-
-        return false;
-    }
-
-    LedPhysicalPixelMask physicalMask;
-
-    if (!LedPhysicalPixelMask::project(
+    return
+        setOutputProfile(
             mappingProfile_,
-            profile,
-            physicalMask) ||
-        !engine_.setPhysicalPixelMask(
-            physicalMask)) {
-
-        return false;
-    }
-
-    pixelMaskProfile_ =
-        profile;
-
-    return true;
+            profile);
 }
 
 bool LedRenderer::validateFrame(
@@ -282,7 +278,8 @@ esp_err_t LedRenderer::render(
                 segment.lane];
 
         if (!lane.valid() ||
-            segment.logicalLength >
+            segment.physicalLength == 0 ||
+            segment.physicalLength >
                 lane.pixelCount) {
 
             ++mappingErrors_;
@@ -375,7 +372,8 @@ esp_err_t LedRenderer::renderActive(
                 segment.lane];
 
         if (!lane.valid() ||
-            segment.logicalLength >
+            segment.physicalLength == 0 ||
+            segment.physicalLength >
                 lane.pixelCount) {
 
             ++mappingErrors_;

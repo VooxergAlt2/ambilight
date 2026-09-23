@@ -18,7 +18,6 @@ enum class BlackFrameReason : std::uint8_t {
     SourceBlack,
     ActiveGain,
     BrightnessZero,
-    PixelMask,
     Unknown
 };
 
@@ -32,8 +31,6 @@ inline const char* blackFrameReasonName(
         return "ACTIVE_GAIN";
     case BlackFrameReason::BrightnessZero:
         return "BRIGHTNESS_ZERO";
-    case BlackFrameReason::PixelMask:
-        return "PIXEL_MASK";
     case BlackFrameReason::Unknown:
         return "UNKNOWN";
     case BlackFrameReason::None:
@@ -75,7 +72,6 @@ struct BlackFrameForensicsStats {
     std::uint32_t sourceBlackFrames = 0;
     std::uint32_t activeGainBlackFrames = 0;
     std::uint32_t brightnessZeroFrames = 0;
-    std::uint32_t pixelMaskBlackFrames = 0;
     std::uint32_t unknownBlackFrames = 0;
 
     std::uint32_t consecutiveBlackFrames = 0;
@@ -219,13 +215,11 @@ public:
                         afterGainNonZeroPixels;
                 }
 
+                // A disabled physical LED is a hole in the wire address
+                // space. Every logical pixel is remapped around that hole, so
+                // masking never removes a logical pixel from the output model.
                 const Rgb8 output =
-                    pixelMask.disabledLogical(
-                        segmentId,
-                        offset,
-                        topology)
-                        ? Rgb8{}
-                        : afterGain;
+                    afterGain;
 
                 const std::uint8_t outputMax =
                     maxChannel(
@@ -321,14 +315,6 @@ private:
                     ActiveGain;
         }
 
-        if (sample.afterGainNonZeroPixels != 0 &&
-            sample.outputNonZeroPixels == 0) {
-
-            return
-                BlackFrameReason::
-                    PixelMask;
-        }
-
         return BlackFrameReason::Unknown;
     }
 
@@ -370,9 +356,6 @@ private:
             break;
         case BlackFrameReason::BrightnessZero:
             ++stats_.brightnessZeroFrames;
-            break;
-        case BlackFrameReason::PixelMask:
-            ++stats_.pixelMaskBlackFrames;
             break;
         case BlackFrameReason::Unknown:
             ++stats_.unknownBlackFrames;

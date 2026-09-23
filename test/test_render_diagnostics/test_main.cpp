@@ -151,7 +151,7 @@ void test_active_reports_gain_as_physical_change() {
         stats.lastPhysicalChangedPixels);
 }
 
-void test_shadow_mask_counts_only_masked_nonblack_pixel_as_physical_change() {
+void test_shadow_physical_hole_does_not_count_as_logical_pixel_change() {
     LedMappingProfile topology;
 
     LedRenderPlan plan;
@@ -180,7 +180,7 @@ void test_shadow_mask_counts_only_masked_nonblack_pixel_as_physical_change() {
             mask));
 
     TEST_ASSERT_EQUAL_UINT16(
-        1,
+        0,
         diagnostics.stats().
             lastPhysicalChangedPixels);
 }
@@ -198,7 +198,7 @@ int main(int, char**) {
         test_active_reports_gain_as_physical_change);
 
     RUN_TEST(
-        test_shadow_mask_counts_only_masked_nonblack_pixel_as_physical_change);
+        test_shadow_physical_hole_does_not_count_as_logical_pixel_change);
 
     return UNITY_END();
 }

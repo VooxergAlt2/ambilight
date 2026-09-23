@@ -335,34 +335,21 @@ Output power is global, but Stage 47 stores two independent LiteLED brightness b
 
 Each bank is `0..255`; default is `32`. Owner transitions atomically select the matching bank without changing the other value. The pre-Stage-47 single brightness is migrated into both banks so an upgrade is visually unchanged until the user edits them. ToF gain remains an independent per-pixel multiplier below source selection.
 
-## Disabled pixel mask
+## Physical service-LED hole
 
-LedPixelMaskProfile stores one optional **physical strip offset** for each TV
-side. The value is counted from that strip's DATA input and is independent of
-FWD/REV logical screen direction.
+`LedPixelMaskProfile` stores one optional physical DATA-side offset per TV side. In Stage 47.1 that value is treated as a **hole in the physical serial address space**, not as a logical pixel whose color is overwritten with black.
 
-LedRenderer projects those side values through the current LedMappingProfile
-into a LedPhysicalPixelMask keyed by PARLIO lane.
+For a logical segment of length `N` with a hole:
 
-Enforcement happens in LedEngine::show(), after any producer has written lane
-buffers but immediately before physical encoding. The masked address is
-therefore black for every output producer:
+    physicalLength = N + 1
+    wireOrdinal = reversed ? N - 1 - logicalOffset : logicalOffset
+    physicalIndex = wireOrdinal >= hole ? wireOrdinal + 1 : wireOrdinal
 
-- normal DDP rendering
-- ACTIVE ToF rendering
-- logical commissioning
-- raw physical/GPIO commissioning
-- Home Assistant manual colors/effects
+No logical pixel maps to the hole. `LedRenderPlan` owns this logical-to-physical projection, while `LedPhysicalPixelMask` is still enforced in `LedEngine::show()` immediately before PARLIO encoding as the last safety layer. This covers DDP, ACTIVE correction, local/HA effects, logical commissioning and raw GPIO commissioning.
 
-This also removes the mask branch from the per-pixel renderer hot loop.
+The hole changes physical geometry but does not change logical segment lengths, DDP payload size, logical LED indices, or ToF gain arrays. A side with 230 logical LEDs and one hole therefore transmits 231 physical LED addresses while remaining a 230-LED DDP segment.
 
-The mask does not alter:
-
-- logical segment lengths
-- DDP payload size
-- logical LED indices
-- ToF distance/gain arrays
-- physical indices of neighbouring LEDs
+Hole changes and topology changes share the controlled blackout transaction. PARLIO is sized from `LedPixelMaskProfile::maxPhysicalLaneLength(topology)`, so allocation/rollback covers the extra address as part of the same geometry commit. Existing schema-2 mask offsets are preserved because the stored shape did not change.
 
 ## ToF commissioning/debug
 

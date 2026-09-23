@@ -174,14 +174,14 @@ button{cursor:pointer}button.primary{background:var(--primary);color:#fff;border
 </div>
 <div id="testState" class="muted"></div>
 
-<h2 style="margin-top:16px">Отключённый пиксель</h2>
+<h2 style="margin-top:16px">Служебный / отключённый физический LED</h2>
 <div id="pixelMask"></div>
 <div class="row">
 <button class="primary" onclick="applyPixelMask()">Сохранить маску</button>
 <button onclick="resetPixelMask()">Очистить</button>
 <span id="maskSource" class="muted"></span>
 </div>
-<div class="muted">По одному пикселю на сторону. Укажите физический номер LED от входа DATA: 1 = первый LED на проводе. Пусто = не отключать. REV/FWD на это число не влияет.</div>
+<div class="muted">По одному служебному LED на сторону. Он занимает физический адрес на проводе, всегда остаётся чёрным и не входит в логическое количество DDP. Укажите номер от входа DATA: 1 = первый LED на проводе. Логические пиксели автоматически сдвигаются вокруг этого адреса. Пусто = без служебного LED. REV/FWD на физический номер не влияет.</div>
 </div>
 </details>
 </section>
@@ -359,17 +359,17 @@ const STATIC_EN={
 'Проверка логической стороны':'Logical side test',
 'Проверить диапазон':'Test range',
 'Вся сторона':'Whole side',
-'Проверяет применённую топологию, направление и маску отключённого пикселя.':'Tests the applied topology, direction and disabled-pixel mask.',
+'Проверяет применённую топологию, направление и маску отключённого пикселя.':'Tests the applied topology, direction and physical-hole mask.',
 'Определение физического GPIO':'Physical GPIO identification',
 'Зажечь GPIO':'Light GPIO',
 'Все стороны':'All sides',
 'Маркеры направления':'Direction markers',
 'Стоп':'Stop',
 'Этот тест обходит логическое сопоставление и нужен только для определения физически подключённой линии.':'This test bypasses logical mapping and is only for identifying the physically connected lane.',
-'Отключённый пиксель':'Disabled pixel',
+'Служебный / отключённый физический LED':'Service / disabled physical LED',
 'Сохранить маску':'Save mask',
 'Очистить':'Clear',
-'По одному пикселю на сторону. Укажите физический номер LED от входа DATA: 1 = первый LED на проводе. Пусто = не отключать. REV/FWD на это число не влияет.':'One pixel per side. Enter the physical LED number from the DATA input: 1 = first LED on the wire. Blank = none. REV/FWD does not affect this number.',
+'По одному служебному LED на сторону. Он занимает физический адрес на проводе, всегда остаётся чёрным и не входит в логическое количество DDP. Укажите номер от входа DATA: 1 = первый LED на проводе. Логические пиксели автоматически сдвигаются вокруг этого адреса. Пусто = без служебного LED. REV/FWD на физический номер не влияет.':'One service LED per side. It consumes a physical wire address, always stays black, and is not part of the logical DDP count. Enter its number from DATA: 1 = first LED on the wire. Logical pixels are shifted around this address automatically. Blank = no service LED. REV/FWD does not change the physical number.',
 'Настройка ToF':'ToF setup',
 'Матрица расстояний 8×8':'8×8 distance matrix',
 'Live-режим 60 с':'Live mode 60 s',
@@ -643,9 +643,10 @@ function applyPixelMask(){
   for(let i=0;i<ids.length;i++){
     const raw=$(ids[i]).value.trim();
     if(raw===''){p.push('-');continue}
-    const max=activeMap&&activeMap.segments?activeMap.segments[i][0]:Number($(ids[i]).max);
-    const value=Number(raw);
-    if(!Number.isInteger(value)||value<1||value>max)return actionError(mapNames[i]+tr(': физический номер LED должен быть 1..',': physical LED number must be 1..')+max+'.');
+    const logical=activeMap&&activeMap.segments?Number(activeMap.segments[i][0]):Math.max(0,Number($(ids[i]).max)-1);
+    if(logical>=ledLaneFormatMax)return actionError(mapNames[i]+tr(': служебный LED недоступен при логической длине 65535, так как физическая линия потребовала бы 65536 адресов.',': a service LED is unavailable at logical length 65535 because the physical lane would require 65536 addresses.'));
+    const max=logical+1,value=Number(raw);
+    if(!Number.isInteger(value)||value<1||value>max)return actionError(mapNames[i]+tr(': физический номер служебного LED должен быть 1..',': service LED physical number must be 1..')+max+'.');
     p.push(String(value-1));
   }
   post('/api/pixel-mask',p.join(','),ids)
@@ -811,7 +812,7 @@ function renderPixelMask(m,map){
     mapNames.forEach((n,i)=>{$('pixelMask').insertAdjacentHTML('beforeend',`<div class="seg"><b>${n}</b><input id="mask${i}" type="number" min="1" step="1" placeholder="нет"><span class="muted" id="maskLimit${i}"></span><span></span></div>`)});
     markDirty();
   }
-  m.offsets.forEach((v,i)=>{const max=map.segments[i][0];$('mask'+i).max=max;txt('maskLimit'+i,'1..'+max);setv('mask'+i,v<0?'':v+1)});
+  m.offsets.forEach((v,i)=>{const logical=Number(map.segments[i][0]),max=logical<ledLaneFormatMax?logical+1:0;$('mask'+i).max=max||1;$('mask'+i).disabled=logical>=ledLaneFormatMax;txt('maskLimit'+i,max?('1..'+max):tr('недоступно при 65535','unavailable at 65535'));setv('mask'+i,v<0?'':v+1)});
   txt('maskSource',sourceLabel(m.source));
 }
 function tofStatusText(s){

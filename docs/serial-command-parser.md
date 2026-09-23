@@ -83,7 +83,7 @@ These collect printable ASCII until CR or LF:
     f...  factory recovery
     j...  LED commissioning range
     l...  LED runtime topology
-    d...  disabled LED pixel mask
+    d...  service/disabled physical LED hole
     y...  ToF spatial profile
     q...  ToF gain curve
     w...  Wi-Fi

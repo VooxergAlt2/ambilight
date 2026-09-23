@@ -6,6 +6,7 @@
 
 #include "core/Geometry.h"
 #include "led/LedMappingProfile.h"
+#include "led/LedPixelMaskProfile.h"
 
 namespace ambilight {
 
@@ -15,16 +16,29 @@ struct LedRenderSegment {
     std::uint16_t logicalLength = 0;
     std::uint8_t lane = 0;
     bool reversed = false;
+    std::uint16_t disabledPhysicalOffset =
+        LedPixelMaskProfile::kNone;
+    std::uint16_t physicalLength = 0;
 
     constexpr std::uint16_t physicalIndex(
         std::uint16_t segmentOffset) const {
 
-        return reversed
-            ? static_cast<std::uint16_t>(
-                  logicalLength -
-                  1U -
-                  segmentOffset)
-            : segmentOffset;
+        const std::uint16_t wireOrdinal =
+            reversed
+                ? static_cast<std::uint16_t>(
+                      logicalLength -
+                      1U -
+                      segmentOffset)
+                : segmentOffset;
+
+        return
+            disabledPhysicalOffset !=
+                    LedPixelMaskProfile::kNone &&
+                wireOrdinal >=
+                    disabledPhysicalOffset
+                ? static_cast<std::uint16_t>(
+                      wireOrdinal + 1U)
+                : wireOrdinal;
     }
 };
 
@@ -44,11 +58,14 @@ struct LedRenderPlan {
 
     static bool build(
         const LedMappingProfile& profile,
+        const LedPixelMaskProfile& mask,
         LedRenderPlan& output) {
 
         output = {};
 
-        if (!profile.valid()) {
+        if (!profile.valid() ||
+            !mask.validFor(profile)) {
+
             return false;
         }
 
@@ -80,6 +97,14 @@ struct LedRenderPlan {
             destination.reversed =
                 source.reversed != 0;
 
+            destination.disabledPhysicalOffset =
+                mask.disabledOffset[index];
+
+            destination.physicalLength =
+                mask.physicalLengthForSegment(
+                    destination.id,
+                    profile);
+
             logicalStart +=
                 source.logicalLength;
         }
@@ -91,6 +116,17 @@ struct LedRenderPlan {
             logicalStart > 0;
 
         return output.valid;
+    }
+
+    static bool build(
+        const LedMappingProfile& profile,
+        LedRenderPlan& output) {
+
+        return
+            build(
+                profile,
+                LedPixelMaskProfile{},
+                output);
     }
 };
 

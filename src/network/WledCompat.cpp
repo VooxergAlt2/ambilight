@@ -641,7 +641,11 @@ WledStateParseResult parseSegmentObject(
 
     bool hasId = false;
     std::uint32_t id = 0;
-    bool on = false;
+
+    bool hasSegmentOn = false;
+    bool segmentOn = false;
+    bool hasSegmentBrightness = false;
+    std::uint8_t segmentBrightness = 0;
 
     WledStateCommand visual;
 
@@ -682,15 +686,14 @@ WledStateParseResult parseSegmentObject(
                 "on")) {
 
             if (!cursor.parseBool(
-                    on)) {
+                    segmentOn)) {
 
                 return
                     WledStateParseResult::
                         InvalidJson;
             }
 
-            // Segment on is python-wled preflight only. Master on remains the
-            // sole physical power authority.
+            hasSegmentOn = true;
         } else if (
             keyEquals(
                 key,
@@ -712,8 +715,10 @@ WledStateParseResult parseSegmentObject(
                         OutOfRange;
             }
 
-            // Segment brightness remains fixed at 255. Master bri owns global
-            // output brightness and is applied in a separate HA request.
+            hasSegmentBrightness = true;
+            segmentBrightness =
+                static_cast<std::uint8_t>(
+                    brightness);
         } else if (
             keyEquals(
                 key,
@@ -835,12 +840,21 @@ WledStateParseResult parseSegmentObject(
         }
     }
 
-    (void)on;
-
     // The facade owns exactly one segment. Parse other segment objects fully
     // so malformed WLED JSON is still rejected, but never let their visual
     // fields mutate segment 0.
     if (!hasId || id == 0U) {
+        if (hasSegmentOn) {
+            command.hasSegmentOn = true;
+            command.segmentOn = segmentOn;
+        }
+
+        if (hasSegmentBrightness) {
+            command.hasSegmentBrightness = true;
+            command.segmentBrightness =
+                segmentBrightness;
+        }
+
         if (visual.hasColor) {
             command.hasColor = true;
             command.color =
@@ -1228,7 +1242,7 @@ bool appendStateJson(
         "\"start\":0,"
         "\"stop\":%u,"
         "\"on\":%s,"
-        "\"bri\":255,"
+        "\"bri\":%u,"
         "\"col\":[[%u,%u,%u]],"
         "\"fx\":%u,"
         "\"sx\":%u,"
@@ -1253,6 +1267,8 @@ bool appendStateJson(
         static_cast<unsigned>(
             snapshot.ledCount),
         boolJson(on),
+        static_cast<unsigned>(
+            brightness),
         static_cast<unsigned>(
             manual.color.r),
         static_cast<unsigned>(
@@ -1573,6 +1589,38 @@ WledResolvedOutputState WledCompat::resolveOutputState(
     // bri=0 is explicitly dark even if a client also sends on=true.
     if (command.hasBrightness &&
         command.brightness == 0) {
+
+        resolved.enabled = false;
+    }
+
+    // Segment 0 is the Home Assistant light entity. Apply it after master
+    // values so the more-specific segment fields win when python-wled sends
+    // both scopes in one state mutation.
+    if (command.hasSegmentBrightness) {
+        if (command.segmentBrightness == 0) {
+            resolved.enabled = false;
+        } else {
+            resolved.brightness =
+                command.segmentBrightness;
+        }
+    }
+
+    if (command.hasSegmentOn) {
+        resolved.enabled =
+            command.segmentOn;
+
+        if (resolved.enabled &&
+            resolved.brightness == 0) {
+
+            resolved.brightness =
+                defaultBrightness != 0
+                    ? defaultBrightness
+                    : 1U;
+        }
+    }
+
+    if (command.hasSegmentBrightness &&
+        command.segmentBrightness == 0) {
 
         resolved.enabled = false;
     }

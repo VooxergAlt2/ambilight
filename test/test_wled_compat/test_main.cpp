@@ -97,7 +97,7 @@ void test_pywled_verbose_and_transition_fields_are_accepted() {
     TEST_ASSERT_TRUE(command.verbose);
 }
 
-void test_segment_fields_are_validated_without_claiming_master_state() {
+void test_segment_zero_power_and_brightness_are_exposed_separately_from_master() {
     WledStateCommand command;
 
     TEST_ASSERT_EQUAL_INT(
@@ -109,11 +109,12 @@ void test_segment_fields_are_validated_without_claiming_master_state() {
                 "{\"id\":0,\"on\":true,\"bri\":255}]}",
                 command)));
 
-    TEST_ASSERT_FALSE(
-        command.hasOn);
-
-    TEST_ASSERT_FALSE(
-        command.hasBrightness);
+    TEST_ASSERT_FALSE(command.hasOn);
+    TEST_ASSERT_FALSE(command.hasBrightness);
+    TEST_ASSERT_TRUE(command.hasSegmentOn);
+    TEST_ASSERT_TRUE(command.segmentOn);
+    TEST_ASSERT_TRUE(command.hasSegmentBrightness);
+    TEST_ASSERT_EQUAL_UINT8(255, command.segmentBrightness);
 }
 
 void test_segment_rgb_effect_speed_and_intensity_parse() {
@@ -377,15 +378,14 @@ void test_resolve_nonzero_brightness_updates_memory_and_explicit_on() {
         state.brightness);
 }
 
-void test_segment_preflight_does_not_change_master_output() {
+void test_segment_zero_power_and_brightness_control_single_output() {
     WledStateCommand command;
 
     TEST_ASSERT_EQUAL_INT(
-        static_cast<int>(
-            WledStateParseResult::Ok),
+        static_cast<int>(WledStateParseResult::Ok),
         static_cast<int>(
             parse(
-                "{\"seg\":[{\"id\":0,\"on\":true,\"bri\":255}],\"v\":true}",
+                "{\"seg\":[{\"id\":0,\"on\":true,\"bri\":73}],\"v\":true}",
                 command)));
 
     const WledResolvedOutputState state =
@@ -395,99 +395,107 @@ void test_segment_preflight_does_not_change_master_output() {
             32,
             command);
 
-    TEST_ASSERT_FALSE(
-        state.enabled);
-
-    TEST_ASSERT_EQUAL_UINT8(
-        80,
-        state.brightness);
+    TEST_ASSERT_TRUE(state.enabled);
+    TEST_ASSERT_EQUAL_UINT8(73, state.brightness);
 }
 
-void test_home_assistant_one_segment_sequence_has_no_preflight_flash() {
-    bool enabled = false;
-    std::uint8_t brightness = 80;
-
-    WledStateCommand segmentPreflight;
+void test_segment_zero_overrides_conflicting_master_power_and_brightness() {
+    WledStateCommand command;
 
     TEST_ASSERT_EQUAL_INT(
-        static_cast<int>(
-            WledStateParseResult::Ok),
+        static_cast<int>(WledStateParseResult::Ok),
         static_cast<int>(
             parse(
-                "{\"seg\":[{\"id\":0,\"on\":true,\"bri\":255}],\"v\":true}",
-                segmentPreflight)));
+                "{\"on\":false,\"bri\":20,\"seg\":[{\"id\":0,\"on\":true,\"bri\":140}],\"v\":true}",
+                command)));
 
-    auto state =
+    const auto state =
         WledCompat::resolveOutputState(
-            enabled,
-            brightness,
+            true,
+            80,
             32,
-            segmentPreflight);
+            command);
 
-    // HA sends this request first. It must not illuminate the strip at the
-    // remembered brightness while the authoritative master request is still
-    // in flight.
-    TEST_ASSERT_FALSE(
-        state.enabled);
+    TEST_ASSERT_TRUE(state.enabled);
+    TEST_ASSERT_EQUAL_UINT8(140, state.brightness);
+}
+
+void test_home_assistant_complete_segment_control_round_trip() {
+    WledStateCommand command;
+
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(WledStateParseResult::Ok),
+        static_cast<int>(
+            parse(
+                "{\"seg\":[{\"id\":0,\"on\":true,\"bri\":73,"
+                "\"col\":[[12,34,56]],\"fx\":8,\"sx\":201,\"ix\":77}],\"v\":true}",
+                command)));
+
+    TEST_ASSERT_TRUE(command.hasSegmentOn);
+    TEST_ASSERT_TRUE(command.segmentOn);
+    TEST_ASSERT_TRUE(command.hasSegmentBrightness);
+    TEST_ASSERT_EQUAL_UINT8(73, command.segmentBrightness);
+    TEST_ASSERT_TRUE(command.hasColor);
+    TEST_ASSERT_EQUAL_UINT8(12, command.color.r);
+    TEST_ASSERT_EQUAL_UINT8(34, command.color.g);
+    TEST_ASSERT_EQUAL_UINT8(56, command.color.b);
+    TEST_ASSERT_TRUE(command.hasEffect);
+    TEST_ASSERT_EQUAL_UINT8(8, static_cast<std::uint8_t>(command.effect));
+    TEST_ASSERT_TRUE(command.hasSpeed);
+    TEST_ASSERT_EQUAL_UINT8(201, command.speed);
+    TEST_ASSERT_TRUE(command.hasIntensity);
+    TEST_ASSERT_EQUAL_UINT8(77, command.intensity);
+
+    ambilight::ManualLightingState manual;
+    const auto resolvedManual =
+        WledCompat::resolveManualLighting(
+            manual,
+            command);
 
     TEST_ASSERT_EQUAL_UINT8(
-        80,
-        state.brightness);
+        static_cast<std::uint8_t>(ambilight::ManualLightingEffect::Aurora),
+        static_cast<std::uint8_t>(resolvedManual.effect));
+    TEST_ASSERT_EQUAL_UINT8(12, resolvedManual.color.r);
+    TEST_ASSERT_EQUAL_UINT8(34, resolvedManual.color.g);
+    TEST_ASSERT_EQUAL_UINT8(56, resolvedManual.color.b);
+    TEST_ASSERT_EQUAL_UINT8(201, resolvedManual.speed);
+    TEST_ASSERT_EQUAL_UINT8(77, resolvedManual.intensity);
 
-    enabled = state.enabled;
-    brightness = state.brightness;
-
-    WledStateCommand masterOn;
-
-    TEST_ASSERT_EQUAL_INT(
-        static_cast<int>(
-            WledStateParseResult::Ok),
-        static_cast<int>(
-            parse(
-                "{\"on\":true,\"bri\":120,\"v\":true}",
-                masterOn)));
-
-    state =
+    const auto resolvedOutput =
         WledCompat::resolveOutputState(
-            enabled,
-            brightness,
+            false,
+            42,
             32,
-            masterOn);
+            command);
 
+    TEST_ASSERT_TRUE(resolvedOutput.enabled);
+    TEST_ASSERT_EQUAL_UINT8(73, resolvedOutput.brightness);
+
+    ambilight::WledCompatSnapshot snapshot;
+    snapshot.outputEnabled = false;
+    snapshot.brightness = 42;
+    snapshot.ddpBrightness = 180;
+    snapshot.lightingBrightness = 42;
+    snapshot.defaultBrightness = 32;
+    snapshot.ledCount = 780;
+    snapshot.manualLighting = manual;
+
+    std::string json;
     TEST_ASSERT_TRUE(
-        state.enabled);
+        buildJson(
+            ambilight::WledJsonDocument::State,
+            snapshot,
+            json,
+            &command));
 
-    TEST_ASSERT_EQUAL_UINT8(
-        120,
-        state.brightness);
-
-    enabled = state.enabled;
-    brightness = state.brightness;
-
-    WledStateCommand masterOff;
-
-    TEST_ASSERT_EQUAL_INT(
-        static_cast<int>(
-            WledStateParseResult::Ok),
-        static_cast<int>(
-            parse(
-                "{\"on\":false,\"v\":true}",
-                masterOff)));
-
-    state =
-        WledCompat::resolveOutputState(
-            enabled,
-            brightness,
-            32,
-            masterOff);
-
-    TEST_ASSERT_FALSE(
-        state.enabled);
-
-    TEST_ASSERT_EQUAL_UINT8(
-        120,
-        state.brightness);
+    TEST_ASSERT_NOT_NULL(std::strstr(json.c_str(), "\"on\":true"));
+    TEST_ASSERT_NOT_NULL(std::strstr(json.c_str(), "\"bri\":73"));
+    TEST_ASSERT_NOT_NULL(std::strstr(json.c_str(), "\"col\":[[12,34,56]]"));
+    TEST_ASSERT_NOT_NULL(std::strstr(json.c_str(), "\"fx\":8"));
+    TEST_ASSERT_NOT_NULL(std::strstr(json.c_str(), "\"sx\":201"));
+    TEST_ASSERT_NOT_NULL(std::strstr(json.c_str(), "\"ix\":77"));
 }
+
 
 void test_home_assistant_rgb_then_master_sequence_keeps_manual_owner() {
     ambilight::ManualLightingState manual;
@@ -590,7 +598,7 @@ void test_reported_brightness_and_signal_are_wled_safe() {
             -50));
 }
 
-void test_wled_state_json_uses_master_brightness_and_fixed_segment_brightness() {
+void test_wled_state_json_reports_same_effective_brightness_at_master_and_segment() {
     ambilight::WledCompatSnapshot snapshot;
     snapshot.outputEnabled = true;
     snapshot.brightness = 91;
@@ -632,7 +640,7 @@ void test_wled_state_json_uses_master_brightness_and_fixed_segment_brightness() 
     TEST_ASSERT_NOT_NULL(
         std::strstr(
             json.c_str(),
-            "\"on\":true,\"bri\":255"));
+            "\"on\":true,\"bri\":91"));
 }
 
 void test_wled_state_json_reports_rgb_and_manual_effect() {
@@ -1039,7 +1047,7 @@ int main(int, char**) {
     RUN_TEST(
         test_pywled_verbose_and_transition_fields_are_accepted);
     RUN_TEST(
-        test_segment_fields_are_validated_without_claiming_master_state);
+        test_segment_zero_power_and_brightness_are_exposed_separately_from_master);
     RUN_TEST(
         test_segment_rgb_effect_speed_and_intensity_parse);
     RUN_TEST(
@@ -1061,9 +1069,10 @@ int main(int, char**) {
     RUN_TEST(
         test_resolve_nonzero_brightness_updates_memory_and_explicit_on);
     RUN_TEST(
-        test_segment_preflight_does_not_change_master_output);
+        test_segment_zero_power_and_brightness_control_single_output);
     RUN_TEST(
-        test_home_assistant_one_segment_sequence_has_no_preflight_flash);
+        test_segment_zero_overrides_conflicting_master_power_and_brightness);
+    RUN_TEST(test_home_assistant_complete_segment_control_round_trip);
     RUN_TEST(
         test_home_assistant_rgb_then_master_sequence_keeps_manual_owner);
     RUN_TEST(test_effect_only_overlay_projects_brightness_from_new_owner_bank);
@@ -1072,7 +1081,7 @@ int main(int, char**) {
         test_reported_brightness_and_signal_are_wled_safe);
 
     RUN_TEST(
-        test_wled_state_json_uses_master_brightness_and_fixed_segment_brightness);
+        test_wled_state_json_reports_same_effective_brightness_at_master_and_segment);
     RUN_TEST(
         test_wled_state_json_reports_rgb_and_manual_effect);
     RUN_TEST(

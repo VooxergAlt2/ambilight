@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Stage 46 exposes a deliberately small WLED-compatible control and discovery
+Stage 47.1 exposes a deliberately small WLED-compatible control and discovery
 surface for Home Assistant without replacing the Ambilight firmware with WLED.
 
 The architecture is:
@@ -79,7 +79,7 @@ The facade exposes exactly one full-length segment.
 
 Effects:
 
-    ["Ambilight", "Solid", "Rainbow", "Breathing"]
+    ["Ambilight", "Solid", "Rainbow", "Breathing", "Warm White", "Bias White", "Sunset", "Candle", "Aurora", "Twinkle"]
 
 Palettes:
 
@@ -115,34 +115,25 @@ Accepted top-level WLED state fields include:
 Unknown valid JSON values are ignored rather than interpreted as Ambilight
 configuration.
 
-PUT is deliberately unsupported. Stage 46 is a Home Assistant compatibility
+PUT is deliberately unsupported. Stage 47.1 is a Home Assistant compatibility
 surface, not a generic WLED/Hyperk emulation layer.
 
 ## One-segment output model
 
-The facade exposes one full-length RGB segment.
+The facade exposes one full-length RGB segment and one physical output state. WLED master fields and segment-0 fields are aliases of that same state because Home Assistant normally controls the segment light entity:
 
-Segment brightness remains fixed at 255. The real global dimmer is master
-state.bri:
+    master on / seg[0].on  -> global output power
+    master bri / seg[0].bri -> brightness bank selected by resolved effect
+    seg[0].col              -> RGB color
+    seg[0].fx               -> Ambilight / local effect
+    seg[0].sx               -> effect speed
+    seg[0].ix               -> effect intensity
 
-    segment bri 255 * master bri / 255
+If master and segment-0 power/brightness are present in one request, segment 0 is applied last as the more-specific value. State JSON reports the actual resolved brightness at both master and segment scope rather than advertising a synthetic fixed segment brightness.
 
-This avoids double scaling.
+Stage 47 keeps global power separate from two remembered brightness banks. After the request's effect is resolved, Ambilight targets DDP brightness and any local effect targets local-lighting brightness. `Ambilight` itself is AUTO ownership: fresh DDP is visible, stale DDP falls back after 1.5 s, and fresh DDP takes ownership back.
 
-The segment owns only manual visual controls:
-
-    col -> RGB color
-    fx  -> Ambilight / Solid / Rainbow / Breathing / Warm White / Bias White / Sunset / Candle / Aurora / Twinkle
-    sx  -> animation speed
-    ix  -> animation intensity
-
-Master `on` remains global power authority. Master `bri` updates the brightness bank of the mode selected by the same WLED command: Ambilight/DDP or local lighting.
-
-## Output semantics
-
-Stage 47 keeps global power separate from two remembered brightness banks. WLED master brightness addresses the bank belonging to the selected effect in that command: `Ambilight` updates DDP brightness, while a local effect updates local-lighting brightness. The native Web UI exposes both banks independently. Legacy `/api/brightness` intentionally writes both banks for backward compatibility.
-
-`Ambilight` is AUTO ownership. DDP is visible while a complete frame is fresh; after 1.5 s of DDP silence the saved fallback local effect becomes visible. Fresh DDP automatically takes ownership back. Explicit local effects keep local ownership while DDP ingest continues.
+Selecting RGB without an explicit effect enters `Solid`. Selecting a local `fx` also remembers that effect as the future AUTO fallback. Selecting `fx=0` returns to Ambilight/AUTO without discarding the remembered fallback.
 
 ## HTTP acknowledgement ordering
 
@@ -159,46 +150,30 @@ If the response cannot be delivered, the pending action is discarded.
 
 This keeps WLED writes aligned with the existing web-control transaction model.
 
-## Home Assistant option boundary
+## Home Assistant control surface
 
-The intended Home Assistant shape is the default one-segment WLED entity with
-"Keep master light" left disabled.
+The intended Home Assistant shape is the default one-segment WLED device. Stage 47.1 accepts the normal segment-scoped mutations used by the integration, so segment power and brightness are no longer preflight-only fields.
 
-In this mode Home Assistant exposes one light with:
+The single light can control:
 
     on/off
     brightness
     RGB color
-    effects
+    effect / mode
 
-HA still performs its normal two-request one-segment turn-on sequence. Segment
-on/bri are syntax-validated but ignored for physical power; the following
-master request is authoritative. Segment RGB/effect fields are applied
-immediately.
+The same WLED state surface also supports the standard segment `sx` and `ix` controls for effect speed and intensity. Home Assistant may expose those as auxiliary number entities depending on integration/version, but the controller-side contract is complete and persistent.
 
-After upgrading from the brightness-only Stage 46 facade, reload the WLED
-integration or restart Home Assistant. Supported color modes are initialized
-when the HA entity is created and are not rebuilt merely because lc/seglc
-changes on a later poll.
-
-Enabling Home Assistant's optional "Keep master light" exposes separate master
-and segment controls. That mode is not the intended UI for this facade.
-
-## Home Assistant entity shape
-
-The facade advertises one segment with:
+The facade advertises:
 
     info.leds.maxseg = 1
     info.leds.lc     = 1
     info.leds.seglc  = [1]
     info.fxcount     = 10
     info.palcount    = 1
-    segment bri      = 255
 
-Capability 1 is WLED RGB. Home Assistant therefore exposes the RGB color
-picker. The effect list maps directly to stable IDs:
+Effect IDs remain stable:
 
-    0 Ambilight
+    0 Ambilight (AUTO)
     1 Solid
     2 Rainbow
     3 Breathing
@@ -209,8 +184,9 @@ picker. The effect list maps directly to stable IDs:
     8 Aurora
     9 Twinkle
 
-Selecting an RGB color without an explicit effect enters Solid automatically.
-Selecting Ambilight enters AUTO ownership: fresh DDP is displayed, stale DDP falls back locally after 1.5 s, and fresh DDP takes ownership back automatically.
+A complete segment mutation may set `on`, `bri`, `col`, `fx`, `sx` and `ix` in one request. The predicted HTTP acknowledgement is built from that same resolved state before the queued mutation is committed, preserving the existing response-before-mutation safety model.
+
+Enabling Home Assistant's optional "Keep master light" may expose an additional master control, but master and segment 0 deliberately converge on the same physical power state rather than creating two independent owners.
 
 ## Diagnostics ownership
 
@@ -239,7 +215,7 @@ HyperHDR remains on:
 
     DDP UDP/4048
 
-Stage 46 does not advertise _hyperk._tcp and does not implement the HyperHDR
+Stage 47.1 does not advertise _hyperk._tcp and does not implement the HyperHDR
 Hyperk PUT control path.
 
 This is deliberate. Current HyperHDR Hyperk configuration defaults include:
@@ -247,7 +223,7 @@ This is deliberate. Current HyperHDR Hyperk configuration defaults include:
     brightnessMax      true
     brightnessMaxLevel 255
 
-Its power-on request can therefore include bri=255. Stage 46 treats WLED bri
+Its power-on request can therefore include bri=255. Stage 47.1 treats WLED bri
 as the real global Ambilight brightness, so advertising Hyperk compatibility
 could unexpectedly raise a controller configured at the conservative 32/255
 level to full brightness.
@@ -264,14 +240,14 @@ use the existing DDP device path on UDP/4048.
 ## Home Assistant auxiliary entities
 
 The official Home Assistant WLED integration always forwards several WLED
-platforms in addition to the light entity. Stage 46 cannot suppress those
+platforms in addition to the light entity. Stage 47.1 cannot suppress those
 platforms through device metadata.
 
 Expected extra entities include diagnostics/config controls such as LED count,
 IP address, restart, nightlight/sync, segment speed/intensity, reverse/freeze,
 live override and firmware update.
 
-They are outside the Stage 46 control contract. Unsupported state fields are
+They are outside the Stage 47.1 control contract. Unsupported state fields are
 accepted as valid JSON but do not mutate Ambilight output. The restart endpoint
 is not exposed.
 
@@ -326,7 +302,7 @@ Native contracts cover:
 - WLED JSON state parsing
 - nested/unknown JSON skipping
 - brightness and on/off resolution
-- segment preflight validation without power mutation
+- segment-0 power/brightness parsing, precedence and output mutation
 - RGB/effect/speed/intensity parsing
 - current HA RGB capability shape
 - manual visual state projection
